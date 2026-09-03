@@ -4,12 +4,12 @@ export const metadata = {
   title: 'MZDATA',
   description: 'Fast, reliable VTU payments for data, airtime, wallet funding, and everyday utility services.',
   alternates: {
-    canonical: 'https://mzdata.com',
+    canonical: 'https://mzdata.org',
   },
   openGraph: {
     title: 'MZDATA',
     description: 'MZDATA helps users buy data, buy airtime, fund wallets, and track transactions from one secure workspace.',
-    url: 'https://mzdata.com',
+    url: 'https://mzdata.org',
     siteName: 'MZDATA',
     type: 'website',
   },

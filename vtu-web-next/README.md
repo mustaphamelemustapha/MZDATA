@@ -41,7 +41,7 @@ NEXT_PUBLIC_API_BASE=
 
 ## Domain deployment
 
-For the production web app on `mzdata.com`, deploy this workspace to Vercel and set:
+For the production web app on `mzdata.org`, deploy this workspace to Vercel and set:
 
 ```bash
 NEXT_PUBLIC_API_BASE=/api/v1

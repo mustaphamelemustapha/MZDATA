@@ -8,7 +8,7 @@ export const metadata = {
   },
   description: 'Premium fintech dashboard for MZDATA',
   applicationName: 'MZDATA',
-  metadataBase: new URL('https://mzdata.com'),
+  metadataBase: new URL('https://mzdata.org'),
   icons: {
     icon: '/brand/mzdata-icon.png',
     shortcut: '/brand/mzdata-icon.png',
