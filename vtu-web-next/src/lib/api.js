@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = 'https://vtu-backend-8gsi.onrender.com/api/v1';
+const DEFAULT_API_BASE = 'https://mzdata-1.onrender.com/api/v1';
 const TOKEN_KEY = 'mzdata_access_token';
 const REFRESH_KEY = 'mzdata_refresh_token';
 const PROFILE_KEY = 'mzdata_profile';
