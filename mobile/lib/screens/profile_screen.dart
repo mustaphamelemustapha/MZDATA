@@ -721,7 +721,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Write a short summary and we will route it to the mmtechglobe support team.',
+                  'Write a short summary and we will route it to the mzdata support team.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(
                       context,
@@ -756,7 +756,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ? 'MZDATA issue report'
                         : subjectCtrl.text.trim();
                     final body = detailsCtrl.text.trim().isEmpty
-                        ? 'Hello mmtechglobe team,\n\nI need help with an issue in the app.'
+                        ? 'Hello mzdata team,\n\nI need help with an issue in the app.'
                         : detailsCtrl.text.trim();
                     Navigator.pop(context);
                     await _launchSupportEmail(subject: subject, body: body);
@@ -773,7 +773,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _contactSupport() async {
     await _launchSupportEmail(
       subject: 'MZDATA support request',
-      body: 'Hello mmtechglobe team,\n\nI need help with my MZDATA account.',
+      body: 'Hello mzdata team,\n\nI need help with my MZDATA account.',
     );
   }
 
@@ -785,19 +785,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final messenger = ScaffoldMessenger.of(sheetContext);
     final uri = Uri(
       scheme: 'mailto',
-      path: 'mmtechglobe@gmail.com',
+      path: 'mzdata@gmail.com',
       queryParameters: {'subject': subject, 'body': body},
     );
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
         await Clipboard.setData(
-          const ClipboardData(text: 'mmtechglobe@gmail.com'),
+          const ClipboardData(text: 'mzdata@gmail.com'),
         );
         messenger.showSnackBar(
           const SnackBar(
             content: Text(
-              'Support email copied. Send your issue to mmtechglobe@gmail.com.',
+              'Support email copied. Send your issue to mzdata@gmail.com.',
             ),
           ),
         );
@@ -805,12 +805,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (_) {
       if (!mounted) return;
       await Clipboard.setData(
-        const ClipboardData(text: 'mmtechglobe@gmail.com'),
+        const ClipboardData(text: 'mzdata@gmail.com'),
       );
       messenger.showSnackBar(
         const SnackBar(
           content: Text(
-            'Support email copied. Send your issue to mmtechglobe@gmail.com.',
+            'Support email copied. Send your issue to mzdata@gmail.com.',
           ),
         ),
       );

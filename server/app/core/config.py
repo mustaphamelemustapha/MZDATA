@@ -147,12 +147,12 @@ class Settings(BaseSettings):
     # App Update Config
     min_app_version: str = "1.0.0"
     latest_app_version: str = "1.0.0"
-    play_store_url: str = "https://play.google.com/store/apps/details?id=com.mmtech.axisvtu"
+    play_store_url: str = "https://play.google.com/store/apps/details?id=com.mmtech.mzdata"
     app_store_url: str = "https://apps.apple.com/ng/app/mele-data/id6779367547"
 
     # Email (password reset)
     email_provider: str = "console"  # console|resend|smtp|brevo
-    email_from: str = "MZDATA <no-reply@axisvtu.local>"
+    email_from: str = "MZDATA <no-reply@mzdata.local>"
 
     # Resend
     resend_api_key: Optional[str] = None

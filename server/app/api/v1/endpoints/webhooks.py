@@ -277,11 +277,11 @@ def monnify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
                     sender_name = None
                 user = None
                 
-                # 1. Resolve user by accountReference pattern ("AXISVTU_{user_id}")
+                # 1. Resolve user by accountReference pattern ("MZDATA_{user_id}")
                 account_ref = data.get("accountReference") or (data.get("product") or {}).get("reference")
                 if account_ref:
                     account_ref_str = str(account_ref).strip()
-                    if account_ref_str.startswith("AXISVTU_"):
+                    if account_ref_str.startswith("MZDATA_"):
                         try:
                             user_id_str = account_ref_str.split("_")[1]
                             user_id = int(user_id_str)
@@ -460,11 +460,11 @@ def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body),
         sender_name = None
 
     # Resolve User:
-    # 1. Parse user_id from merchant_reference (which would be of format "AXISVTU_{user_id}_billstack_...")
+    # 1. Parse user_id from merchant_reference (which would be of format "MZDATA_{user_id}_billstack_...")
     user = None
     if merchant_reference:
         ref_str = str(merchant_reference).strip()
-        if ref_str.startswith("AXISVTU_"):
+        if ref_str.startswith("MZDATA_"):
             try:
                 user_id = int(ref_str.split("_")[1])
                 user = db.query(User).filter(User.id == user_id).first()

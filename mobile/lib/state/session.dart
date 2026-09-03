@@ -15,13 +15,13 @@ import 'package:package_info_plus/package_info_plus.dart';
 class SessionController extends ChangeNotifier {
   SessionController();
 
-  static const String lastIdentifierKey = 'axisvtu_last_identifier';
-  static const String _tokenKey = 'axisvtu_secure_token_v1';
-  static const String _biometricTokenKey = 'axisvtu_biometric_token_v1';
-  static const String _biometricUserKey = 'axisvtu_biometric_user';
-  static const String _biometricPasswordKey = 'axisvtu_biometric_password';
-  static const String _securityPrefKey = 'axisvtu_security_preference_v1';
-  static const String _lastUserJsonKey = 'axisvtu_last_user_v1';
+  static const String lastIdentifierKey = 'mzdata_last_identifier';
+  static const String _tokenKey = 'mzdata_secure_token_v1';
+  static const String _biometricTokenKey = 'mzdata_biometric_token_v1';
+  static const String _biometricUserKey = 'mzdata_biometric_user';
+  static const String _biometricPasswordKey = 'mzdata_biometric_password';
+  static const String _securityPrefKey = 'mzdata_security_preference_v1';
+  static const String _lastUserJsonKey = 'mzdata_last_user_v1';
   
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -76,7 +76,7 @@ class SessionController extends ChangeNotifier {
       return _securityPrefKey;
     }
     final sanitized = identifier.trim().toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
-    return 'axisvtu_security_preference_v1_$sanitized';
+    return 'mzdata_security_preference_v1_$sanitized';
   }
 
   bool _isLocked = false;
@@ -168,9 +168,9 @@ class SessionController extends ChangeNotifier {
         try {
           _lastUser = jsonDecode(lastUserJson) as Map<String, dynamic>;
           
-          // Invalidate legacy cached profiles that contain "AxisVTU" or "Axis" in the name
+          // Invalidate legacy cached profiles that contain "MzData" or "Axis" in the name
           final nameStr = (_lastUser?['full_name'] ?? _lastUser?['name'] ?? '').toString().toLowerCase();
-          if (nameStr.contains('axisvtu') || nameStr.contains('axis vtu') || nameStr.trim() == 'axis') {
+          if (nameStr.contains('mzdata') || nameStr.contains('axis vtu') || nameStr.trim() == 'axis') {
             _lastUser = null;
             await prefs.remove(_lastUserJsonKey);
           }

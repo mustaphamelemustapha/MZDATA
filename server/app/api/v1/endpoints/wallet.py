@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 def _transfer_account_reference(user: User) -> str:
     # Stable per-user reference so we can fetch accounts later without DB storage.
-    return f"AXISVTU_{user.id}"
+    return f"MZDATA_{user.id}"
 
 
 def _parse_reserved_accounts(payload: dict) -> list[dict]:

@@ -62,9 +62,9 @@ allow_origins = list(
         + [
             "https://vtu-frontend-beta.vercel.app",
             "https://vtu-frontend-git-main-mmt-ech-globe.vercel.app",
-            "https://axisvtu.vercel.app",
-            "https://axisvtu.com",
-            "https://www.axisvtu.com",
+            "https://mzdata.vercel.app",
+            "https://mzdata.com",
+            "https://www.mzdata.com",
             "https://mzdata.ng",
             "https://www.mzdata.ng",
             "https://mzdata.vercel.app",
@@ -73,7 +73,7 @@ allow_origins = list(
     )
 )
 allow_origin_regex = (
-    r"^https:\/\/(?:vtu-frontend|axisvtu|mzdata)(?:-[A-Za-z0-9-]+)?\.vercel\.app$"
+    r"^https:\/\/(?:vtu-frontend|mzdata|mzdata)(?:-[A-Za-z0-9-]+)?\.vercel\.app$"
     r"|^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$"
 )
 

@@ -1,4 +1,4 @@
-# axisvtu_flutter
+# mzdata_flutter
 
 A new Flutter project.
 

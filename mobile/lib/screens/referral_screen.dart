@@ -107,11 +107,11 @@ class _ReferralScreenState extends State<ReferralScreen> {
     String link = (data['referral_link'] ?? '').toString().trim();
     
     // Fix the "double mzdata" bug: mzdata.vercel.app -> mzdata.ng
-    if (link.contains('mzdata.vercel.app') || link.contains('axisvtu.vercel.app')) {
+    if (link.contains('mzdata.vercel.app') || link.contains('mzdata.vercel.app')) {
       link = link.replaceFirst('https://mzdata.vercel.app', 'https://mzdata.ng');
       link = link.replaceFirst('mzdata.vercel.app', 'mzdata.ng');
-      link = link.replaceFirst('https://axisvtu.vercel.app', 'https://mzdata.ng');
-      link = link.replaceFirst('axisvtu.vercel.app', 'mzdata.ng');
+      link = link.replaceFirst('https://mzdata.vercel.app', 'https://mzdata.ng');
+      link = link.replaceFirst('mzdata.vercel.app', 'mzdata.ng');
     } else if (link.contains('.vercel.app')) {
       link = link.replaceAll('.vercel.app', 'mzdata.ng');
     }
@@ -131,8 +131,8 @@ class _ReferralScreenState extends State<ReferralScreen> {
     if (link.contains('mzdata.ng/mzdata')) {
       link = link.replaceFirst('mzdata.ng/mzdata', 'mzdata.ng');
     }
-    if (link.contains('mzdata.ng/axisvtu')) {
-      link = link.replaceFirst('mzdata.ng/axisvtu', 'mzdata.ng');
+    if (link.contains('mzdata.ng/mzdata')) {
+      link = link.replaceFirst('mzdata.ng/mzdata', 'mzdata.ng');
     }
     
     return link;

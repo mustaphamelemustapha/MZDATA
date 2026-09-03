@@ -22,5 +22,5 @@ void main() async {
       debugPrint("Failed to initialize Firebase: $e");
     }
   }
-  runApp(const AxisVTUApp());
+  runApp(const MzDataApp());
 }

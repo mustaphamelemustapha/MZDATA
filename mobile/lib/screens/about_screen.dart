@@ -137,7 +137,7 @@ class _AboutScreenState extends State<AboutScreen> {
                   ),
                 ),
                 Text(
-                  'Founder MMTechGlobe',
+                  'Founder MzData',
                   style: TextStyle(
                     color: textDim,
                     fontSize: 13,

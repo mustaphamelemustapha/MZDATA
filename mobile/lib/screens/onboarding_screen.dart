@@ -9,7 +9,7 @@ import 'welcome_screen.dart';
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
   static const String route = '/onboarding';
-  static const String seenKey = 'axisvtu_onboarding_seen_v1';
+  static const String seenKey = 'mzdata_onboarding_seen_v1';
 
   static Future<bool> hasSeen() async {
     final prefs = await SharedPreferences.getInstance();

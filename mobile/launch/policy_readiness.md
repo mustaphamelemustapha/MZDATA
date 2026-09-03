@@ -21,7 +21,7 @@
 - Limitation of liability
 
 ## Support contact
-- Email: mmtechglobe@gmail.com
+- Email: mzdata@gmail.com
 
 ## Account deletion expectations
 - User can request deletion from the app

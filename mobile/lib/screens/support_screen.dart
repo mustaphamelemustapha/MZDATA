@@ -20,7 +20,7 @@ class SupportScreen extends StatelessWidget {
   }
 
   Future<void> _launchEmail(BuildContext context) async {
-    final Uri url = Uri.parse("mailto:mmtechglobe@gmail.com?subject=MZDATA%20Support%20Request");
+    final Uri url = Uri.parse("mailto:mzdata@gmail.com?subject=MZDATA%20Support%20Request");
     if (!await launchUrl(url)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

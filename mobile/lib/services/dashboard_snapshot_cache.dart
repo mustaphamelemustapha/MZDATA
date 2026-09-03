@@ -96,6 +96,6 @@ class DashboardSnapshotCache {
         .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
         .replaceAll(RegExp(r'_+'), '_')
         .replaceAll(RegExp(r'^_|_$'), '');
-    return 'axisvtu_dashboard_snapshot_$sanitized';
+    return 'mzdata_dashboard_snapshot_$sanitized';
   }
 }

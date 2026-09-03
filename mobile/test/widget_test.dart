@@ -13,7 +13,7 @@ import 'package:client_vtu_app/app.dart';
 void main() {
   testWidgets('MZDATA boots to login', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const AxisVTUApp());
+    await tester.pumpWidget(const MzDataApp());
     await tester.pumpAndSettle();
     expect(find.text('Welcome back'), findsOneWidget);
   });

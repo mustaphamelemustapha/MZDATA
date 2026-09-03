@@ -1,0 +1,30 @@
+<svg width="520" height="220" viewBox="0 0 520 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="520" height="220" rx="14" fill="#D7DBD3"/>
+
+  <g transform="translate(30 32)">
+    <circle cx="78" cy="78" r="76" fill="#0C5F25"/>
+    <circle cx="78" cy="78" r="66" fill="#167A33"/>
+    <circle cx="78" cy="78" r="52" fill="#0F6D2B"/>
+    <circle cx="78" cy="78" r="36" fill="#0A4E1D"/>
+    <circle cx="78" cy="78" r="30" fill="#11632A"/>
+
+    <path d="M78 56L94 64V83C94 95 87 106 78 112C69 106 62 95 62 83V64L78 56Z" fill="#DDEFCF"/>
+    <text x="78" y="84" text-anchor="middle" fill="#0C5F25" font-size="22" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="700">CAC</text>
+
+    <defs>
+      <path id="topArc" d="M20,78 A58,58 0 0,1 136,78" />
+      <path id="bottomArc" d="M136,78 A58,58 0 0,1 20,78" />
+    </defs>
+    <text fill="#FFFFFF" font-size="11" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="700" letter-spacing="0.8">
+      <textPath href="#topArc" startOffset="50%" text-anchor="middle">CORPORATE AFFAIRS COMMISSION</textPath>
+    </text>
+    <text fill="#CDE8BA" font-size="10" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="700" letter-spacing="1">
+      <textPath href="#bottomArc" startOffset="50%" text-anchor="middle">FEDERAL REPUBLIC OF NIGERIA</textPath>
+    </text>
+  </g>
+
+  <g transform="translate(198 66)">
+    <text x="0" y="34" fill="#2A4B4A" font-size="30" font-family="Inter, system-ui, -apple-system, sans-serif" letter-spacing="1.5">CORPORATE AFFAIRS</text>
+    <text x="0" y="78" fill="#2A4B4A" font-size="34" font-family="Inter, system-ui, -apple-system, sans-serif" letter-spacing="9">COMMISSION</text>
+  </g>
+</svg>

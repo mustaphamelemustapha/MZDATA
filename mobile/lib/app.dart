@@ -20,8 +20,8 @@ import 'screens/app_lock_screen.dart';
 import 'screens/quick_auth_screen.dart';
 import 'services/push_notification_service.dart';
 
-class AxisVTUApp extends StatelessWidget {
-  const AxisVTUApp({super.key});
+class MzDataApp extends StatelessWidget {
+  const MzDataApp({super.key});
 
   @override
   Widget build(BuildContext context) {
