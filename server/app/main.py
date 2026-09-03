@@ -65,8 +65,8 @@ allow_origins = list(
             "https://mzdata.vercel.app",
             "https://mzdata.org",
             "https://www.mzdata.org",
-            "https://mzdata.ng",
-            "https://www.mzdata.ng",
+            "https://mzdata.org",
+            "https://www.mzdata.org",
             "https://mzdata.vercel.app",
             *([frontend_origin] if frontend_origin else []),
         ]

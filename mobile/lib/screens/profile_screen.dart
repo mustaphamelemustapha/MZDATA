@@ -1025,7 +1025,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               _buildFormGroup(context, [
                 _ProfileTile(label: 'WhatsApp Channel', icon: Icons.chat_bubble_outline_rounded, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse('https://whatsapp.com/channel/0029VbCanujEawdvqLAYu83T'))),
-                _ProfileTile(label: 'Instagram', icon: Icons.camera_alt_outlined, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse('https://www.instagram.com/mzdata.ng?igsh=enNtb255MXpuemJ3&utm_source=qr'))),
+                _ProfileTile(label: 'Instagram', icon: Icons.camera_alt_outlined, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse('https://www.instagram.com/mzdata.org?igsh=enNtb255MXpuemJ3&utm_source=qr'))),
                 _ProfileTile(label: 'TikTok', icon: Icons.video_library_outlined, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse('https://www.tiktok.com/@mzdata_ng'))),
               ]),
               const SizedBox(height: 40),

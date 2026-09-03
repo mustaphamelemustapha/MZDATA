@@ -3,6 +3,8 @@ import os
 directory = '/Users/mustaphamelemustapha/Code/client_vtu_app_standalone'
 replacements = {
     'mzdata.org': 'mzdata.org',
+    'MZDATA.ORG': 'MZDATA.ORG',
+    'mzdata.org': 'mzdata.org',
     'MZDATA.ORG': 'MZDATA.ORG'
 }
 

@@ -13,7 +13,7 @@ def test_developer_workflow(db: Session = next(get_db())):
     client = TestClient(app)
 
     # 1. Create a test user
-    email = "dev_workflow_test@mzdata.ng"
+    email = "dev_workflow_test@mzdata.org"
     # Clean up existing test user
     db.query(User).filter(User.email == email).delete()
     db.commit()

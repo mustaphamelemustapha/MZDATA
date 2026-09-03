@@ -381,7 +381,7 @@ class DetailedReceiptImage extends StatelessWidget {
               const Divider(height: 1),
               const SizedBox(height: 24),
               const Text(
-                'mzdata.ng',
+                'mzdata.org',
                 style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.w500),
               ),
             ],

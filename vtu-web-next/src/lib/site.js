@@ -10,7 +10,7 @@ export function getSiteOrigin() {
   const env = normalizeBase(process.env.NEXT_PUBLIC_SITE_URL);
   if (env) return env;
 
-  return 'https://mzdata.ng';
+  return 'https://mzdata.org';
 }
 
 export function buildReferralUrl(code) {

@@ -688,7 +688,7 @@ class ClubKonnectBillsProvider:
             return callback
         base = str(settings.frontend_base_url or "").strip().rstrip("/")
         if not base:
-            return "https://mzdata.ng/app/transactions"
+            return "https://mzdata.org/app/transactions"
         return f"{base}/app/transactions"
 
     @staticmethod

@@ -20,7 +20,7 @@ def run_verification():
     db = SessionLocal()
     try:
         # 1. Create a test Reseller agent
-        test_email = "reseller_verify@mzdata.ng"
+        test_email = "reseller_verify@mzdata.org"
         agent = db.query(User).filter(User.email == test_email).first()
         if not agent:
             agent = User(

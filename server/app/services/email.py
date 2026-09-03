@@ -80,7 +80,7 @@ def _get_base_email_template(title: str, preheader: str, content: str, action_ur
           </div>
           <div class="footer">
             <p style="margin: 0 0 8px 0;">© 2026 MZDATA. All rights reserved.</p>
-            <p style="margin: 0;">Need help? <a href="mailto:support@mzdata.ng" style="color: #0f766e; text-decoration: none;">Contact Support</a></p>
+            <p style="margin: 0;">Need help? <a href="mailto:support@mzdata.org" style="color: #0f766e; text-decoration: none;">Contact Support</a></p>
           </div>
         </div>
       </div>
@@ -115,14 +115,14 @@ def _resolve_frontend_base_url() -> str:
     settings = get_settings()
     raw = (settings.frontend_base_url or "").strip().rstrip("/")
     if not raw:
-        return "https://mzdata.ng"
+        return "https://mzdata.org"
 
     # Accept both full URLs and bare hosts from env/config.
     candidate = raw if raw.startswith(("http://", "https://")) else f"https://{raw}"
     host = urlparse(candidate).netloc.lower()
     raw_lower = raw.lower()
     if "vercel.app" in host or "vercel.app" in raw_lower:
-        return "https://mzdata.ng"
+        return "https://mzdata.org"
     return candidate.rstrip("/")
 
 

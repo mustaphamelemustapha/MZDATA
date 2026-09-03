@@ -63,7 +63,7 @@ const SideLink = ({ href, children, isNew }) => (
 export default function DevDocs() {
   const [codeLang, setCodeLang] = useState('curl');
 
-  const BASE_URL = 'https://mzdata.ng/api/v1/developer';
+  const BASE_URL = 'https://mzdata.org/api/v1/developer';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-500 selection:text-white font-sans">

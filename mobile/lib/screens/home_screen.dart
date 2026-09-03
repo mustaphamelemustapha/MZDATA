@@ -2081,7 +2081,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               const SizedBox(height: 2),
                               SelectableText(
-                                'https://mzdata.ng/register?ref=$referralCode',
+                                'https://mzdata.org/register?ref=$referralCode',
                                 maxLines: 1,
                                 style: TextStyle(
                                   fontSize: 13,
@@ -2095,7 +2095,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(width: 8),
                         InkWell(
                           onTap: () async {
-                            await Clipboard.setData(ClipboardData(text: 'https://mzdata.ng/register?ref=$referralCode'));
+                            await Clipboard.setData(ClipboardData(text: 'https://mzdata.org/register?ref=$referralCode'));
                             if (!mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -3923,7 +3923,7 @@ class _TopUpSheetState extends State<_TopUpSheet> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Need help? Contact support at mzdata.ng',
+            'Need help? Contact support at mzdata.org',
             style: TextStyle(fontSize: 11, color: muted),
           ),
         ],
