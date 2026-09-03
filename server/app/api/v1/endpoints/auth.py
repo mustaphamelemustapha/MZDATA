@@ -1,0 +1,375 @@
+from datetime import datetime, timedelta, timezone
+import logging
+import secrets
+from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File, BackgroundTasks
+import shutil
+import os
+import uuid
+import cloudinary
+import cloudinary.uploader
+from sqlalchemy import and_
+from sqlalchemy.orm import Session
+from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
+from app.core.config import get_settings
+from app.core.database import get_db
+from app.middlewares.rate_limit import limiter
+from app.models import User, UserRole
+from app.schemas.auth import RegisterRequest, LoginRequest, TokenPair, RefreshRequest, Message, ForgotPasswordRequest, ForgotPasswordResponse, ResetPasswordRequest, ChangePasswordRequest, UpdateMeRequest, EmailVerification, LookupRequest, FCMTokenRequest
+from app.schemas.user import UserOut
+from app.dependencies import get_current_user
+from app.services.wallet import get_or_create_wallet
+from app.services.email import send_password_reset_email, send_transaction_pin_reset_email, send_welcome_email
+from app.services.referrals import ensure_user_referral_code, attach_signup_referral
+
+settings = get_settings()
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(value: datetime) -> datetime:
+    # DB might return aware (preferred) or naive timestamps depending on driver/config.
+    # Treat naive timestamps as UTC to avoid 500s in comparisons.
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _mask_email(value: str) -> str:
+    try:
+        local, domain = value.split("@", 1)
+    except ValueError:
+        return "***"
+    if not local:
+        return f"***@{domain}"
+    return f"{local[:2]}***@{domain}"
+
+
+def _normalize_phone(value: str | None) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return None
+    return digits
+
+
+@router.post("/register", response_model=UserOut)
+@limiter.limit("10/minute")
+def register(request: Request, payload: RegisterRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == payload.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    normalized_phone = _normalize_phone(payload.phone_number)
+    if normalized_phone:
+        phone_owner = db.query(User).filter(User.phone_number == normalized_phone).first()
+        if phone_owner:
+            raise HTTPException(status_code=400, detail="Phone number already registered")
+
+    user = User(
+        email=payload.email,
+        full_name=payload.full_name,
+        hashed_password=hash_password(payload.password),
+        role=UserRole.CUSTOMER,
+        is_verified=False,
+        phone_number=normalized_phone,
+    )
+    user.verification_token = secrets.token_urlsafe(32)
+    user.verification_token_expires_at = _utcnow() + timedelta(days=2)
+
+    db.add(user)
+    ensure_user_referral_code(db, user)
+    db.flush()
+    attach_signup_referral(db, new_user=user, referral_code=payload.referral_code)
+    db.commit()
+    db.refresh(user)
+
+    get_or_create_wallet(db, user.id)
+    background_tasks.add_task(send_welcome_email, user.email, payload.password, user.full_name)
+    return user
+
+
+@router.post("/login", response_model=TokenPair)
+@limiter.limit("10/minute")
+def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
+    identifier = (payload.email or "").strip()
+    user = None
+    if "@" in identifier:
+        user = db.query(User).filter(User.email == identifier).first()
+    else:
+        phone = _normalize_phone(identifier)
+        if phone:
+            user = db.query(User).filter(User.phone_number == phone).first()
+    if not user or not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User is inactive")
+
+    return TokenPair(
+        access_token=create_access_token(str(user.id), user.role.value),
+        refresh_token=create_refresh_token(str(user.id), user.role.value),
+    )
+
+
+@router.post("/lookup")
+@limiter.limit("20/minute")
+def lookup_user(request: Request, payload: LookupRequest, db: Session = Depends(get_db)):
+    identifier = (payload.identifier or "").strip()
+    user = None
+    if "@" in identifier:
+        user = db.query(User).filter(User.email == identifier).first()
+    else:
+        phone = _normalize_phone(identifier)
+        if phone:
+            user = db.query(User).filter(User.phone_number == phone).first()
+    if not user:
+        return {"exists": False}
+    return {"exists": True, "full_name": user.full_name, "email": user.email, "phone_number": user.phone_number}
+
+
+@router.post("/refresh", response_model=TokenPair)
+@limiter.limit("30/minute")
+def refresh(request: Request, payload: RefreshRequest, db: Session = Depends(get_db)):
+    try:
+        decoded = decode_token(payload.refresh_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if decoded.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    try:
+        user_id = int(decoded.get("sub"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+
+    return TokenPair(
+        access_token=create_access_token(str(user.id), user.role.value),
+        refresh_token=create_refresh_token(str(user.id), user.role.value),
+    )
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+@limiter.limit("5/minute")
+def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    reset_token = None
+    if user:
+        reset_token = secrets.token_urlsafe(32)
+        user.reset_token = reset_token
+        user.reset_token_expires_at = _utcnow() + timedelta(hours=2)
+        db.commit()
+        # Send email only when the user exists. Response stays generic either way.
+        try:
+            send_password_reset_email(user.email, reset_token)
+        except Exception as exc:
+            # Avoid leaking provider failures in the API response; log for ops/debugging.
+            logger.warning(
+                "Password reset email send failed to=%s provider=%s error=%s",
+                _mask_email(user.email),
+                settings.email_provider,
+                exc,
+            )
+
+    # Avoid user enumeration: always return the same message.
+    message = "If the email exists, a reset token has been generated"
+    env = (settings.environment or "").lower()
+    if env and env != "production" and reset_token:
+        return ForgotPasswordResponse(message=message, reset_token=reset_token)
+    return ForgotPasswordResponse(message=message)
+
+
+@router.post("/reset-password", response_model=Message)
+@limiter.limit("10/minute")
+def reset_password(request: Request, payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.reset_token == payload.token).first()
+    if not user or not user.reset_token_expires_at:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    if _as_utc(user.reset_token_expires_at) < _utcnow():
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+    user.hashed_password = hash_password(payload.new_password)
+    user.reset_token = None
+    user.reset_token_expires_at = None
+    db.commit()
+
+    return Message(message="Password reset successful")
+
+
+@router.post("/verify-email", response_model=Message)
+@limiter.limit("10/minute")
+def verify_email(request: Request, payload: EmailVerification, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.verification_token == payload.token).first()
+    if not user or not user.verification_token_expires_at:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    if _as_utc(user.verification_token_expires_at) < _utcnow():
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+    user.is_verified = True
+    user.verification_token = None
+    user.verification_token_expires_at = None
+    db.commit()
+
+    return Message(message="Email verified successfully")
+
+
+@router.get("/me", response_model=UserOut)
+def me(user: User = Depends(get_current_user)):
+    return user
+
+
+@router.patch("/me", response_model=UserOut)
+def update_me(payload: UpdateMeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if payload.full_name is None and payload.phone_number is None:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    if payload.full_name is not None:
+        full_name = (payload.full_name or "").strip()
+        if len(full_name) < 2:
+            raise HTTPException(status_code=400, detail="Full name is too short")
+        if len(full_name) > 255:
+            raise HTTPException(status_code=400, detail="Full name is too long")
+        user.full_name = full_name
+
+    if payload.phone_number is not None:
+        raw_phone = (payload.phone_number or "").strip()
+        if not raw_phone:
+            user.phone_number = None
+        else:
+            phone = _normalize_phone(raw_phone)
+            if not phone or len(phone) < 7:
+                raise HTTPException(status_code=400, detail="Phone number is too short")
+            existing = (
+                db.query(User)
+                .filter(and_(User.phone_number == phone, User.id != user.id))
+                .first()
+            )
+            if existing:
+                raise HTTPException(status_code=400, detail="Phone number already registered")
+            user.phone_number = phone
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.post("/change-password", response_model=Message)
+@limiter.limit("5/minute")
+def change_password(
+    request: Request,
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    user.hashed_password = hash_password(payload.new_password)
+    # Invalidate any outstanding reset tokens.
+    user.reset_token = None
+    user.reset_token_expires_at = None
+    db.commit()
+    return Message(message="Password updated successfully")
+
+
+@router.delete("/delete-me", response_model=Message)
+@limiter.limit("2/hour")
+def delete_me(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # Suffix email and phone to allow the user to register again with same credentials
+    suffix = f"_deleted_{int(datetime.now(timezone.utc).timestamp())}"
+    
+    if user.email:
+        user.email = f"{user.email}{suffix}"
+    if user.phone_number:
+        user.phone_number = f"{user.phone_number}{suffix}"
+        
+    user.is_active = False
+    user.reset_token = None
+    user.reset_token_expires_at = None
+    user.verification_token = None
+    user.verification_token_expires_at = None
+    db.commit()
+    return Message(message="Account deleted successfully")
+
+
+@router.get("/app-config")
+def app_config():
+    return {
+        "min_app_version": settings.min_app_version,
+        "latest_app_version": settings.latest_app_version,
+        "play_store_url": settings.play_store_url,
+        "app_store_url": settings.app_store_url,
+    }
+
+
+@router.post("/fcm-token", response_model=Message)
+@limiter.limit("5/minute")
+def register_fcm_token(request: Request, payload: FCMTokenRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    current_user.fcm_token = payload.fcm_token
+    db.commit()
+    return Message(message="FCM token registered")
+
+
+@router.post("/profile/image", response_model=UserOut)
+@limiter.limit("5/minute")
+def upload_profile_image(
+    request: Request,
+    image: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File provided is not an image.")
+
+    extension = image.filename.split(".")[-1] if "." in image.filename else "jpg"
+    
+    if settings.cloudinary_url:
+        # Upload to Cloudinary
+        try:
+            result = cloudinary.uploader.upload(
+                image.file,
+                folder="vtu_profiles",
+                public_id=f"{current_user.id}_{uuid.uuid4().hex[:8]}",
+                overwrite=True,
+                resource_type="image"
+            )
+            image_url = result.get("secure_url")
+        except Exception as e:
+            logger.error(f"Cloudinary upload failed: {e}")
+            raise HTTPException(status_code=500, detail="Failed to upload image to cloud storage.")
+    else:
+        # Fallback to local storage
+        filename = f"{uuid.uuid4().hex}.{extension}"
+        file_path = os.path.join("uploads", "profile_images", filename)
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+
+        host_url = str(request.base_url).rstrip("/")
+        image_url = f"{host_url}/static/profile_images/{filename}"
+
+    current_user.profile_image_url = image_url
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
+
+
+@router.post("/me/acknowledge-agent-upgrade", response_model=Message)
+def acknowledge_agent_upgrade(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    user.agent_upgrade_seen = True
+    db.commit()
+    return Message(message="Agent upgrade notification marked as seen.")

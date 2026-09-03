@@ -1,0 +1,390 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from decimal import Decimal
+import secrets
+
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.models import Referral, ReferralStatus, Transaction, TransactionStatus, TransactionType, User, UserRole
+from app.services.wallet import credit_wallet, get_or_create_wallet
+
+settings = get_settings()
+
+DEFAULT_REWARD_AMOUNT = Decimal("0.00")
+REFERRAL_REWARD_RATE = Decimal("0.02")
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _base36(value: int) -> str:
+    digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if value <= 0:
+        return "0"
+    result = []
+    number = int(value)
+    while number:
+        number, rem = divmod(number, 36)
+        result.append(digits[rem])
+    return "".join(reversed(result))
+
+
+def normalize_referral_code(value: str | None) -> str:
+    return str(value or "").strip().upper().replace(" ", "")
+
+
+_REFERRAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+
+def _random_suffix(length: int = 7) -> str:
+    return "".join(secrets.choice(_REFERRAL_ALPHABET) for _ in range(length))
+
+
+def generate_referral_code(user_name: str | None = None) -> str:
+    prefix = "MELE"
+    if user_name:
+        import re
+        first_word = user_name.split()[0] if user_name.split() else ""
+        alpha_prefix = re.sub(r'[^A-Z]', '', first_word.upper())
+        if len(alpha_prefix) >= 2:
+            prefix = alpha_prefix[:6]
+    
+    # 3 or 4 random digits
+    suffix = "".join(secrets.choice("0123456789") for _ in range(4))
+    return f"{prefix}{suffix}"
+
+
+def ensure_user_referral_code(db: Session, user: User) -> str:
+    code = normalize_referral_code(getattr(user, "referral_code", None))
+    if code:
+        return code
+    
+    user_name = getattr(user, "full_name", None)
+    code = generate_referral_code(user_name)
+
+    while db.query(User).filter(User.referral_code == code).first():
+        code = generate_referral_code(user_name)
+    user.referral_code = code
+    if getattr(user, "id", None):
+        db.flush()
+    return code
+
+
+def _safe_reward_amount(value) -> Decimal:
+    try:
+        return Decimal(str(value or Decimal("0.00")))
+    except Exception:
+        return Decimal("0.00")
+
+
+def _safe_decimal_amount(value) -> Decimal:
+    try:
+        amount = Decimal(str(value))
+    except Exception:
+        amount = Decimal("0")
+    return amount if amount > 0 else Decimal("0")
+
+
+def attach_signup_referral(db: Session, *, new_user: User, referral_code: str | None) -> Referral | None:
+    code = normalize_referral_code(referral_code)
+    if not code:
+        return None
+
+    referrer = db.query(User).filter(User.referral_code == code).first()
+    if not referrer:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Invalid referral code")
+    if referrer.id == new_user.id:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Self-referral is not allowed")
+    if getattr(new_user, "referred_by_id", None) and int(new_user.referred_by_id) != referrer.id:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Referral code already attached")
+
+    existing = db.query(Referral).filter(Referral.referred_user_id == new_user.id).first()
+    if existing:
+        return existing
+
+    new_user.referred_by_id = referrer.id
+    referral = Referral(
+        referrer_id=referrer.id,
+        referred_user_id=new_user.id,
+        referral_code_used=code,
+        reward_amount=DEFAULT_REWARD_AMOUNT,
+        status=ReferralStatus.PENDING,
+    )
+    db.add(referral)
+    db.flush()
+    return referral
+
+
+def _get_or_create_referral_row(db: Session, *, referred_user: User) -> Referral | None:
+    if not getattr(referred_user, "referred_by_id", None):
+        return None
+    referral = db.query(Referral).filter(Referral.referred_user_id == referred_user.id).first()
+    if referral:
+        return referral
+    referrer = db.query(User).filter(User.id == referred_user.referred_by_id).first()
+    if not referrer:
+        return None
+    referral = Referral(
+        referrer_id=referrer.id,
+        referred_user_id=referred_user.id,
+        referral_code_used=normalize_referral_code(referrer.referral_code),
+        reward_amount=DEFAULT_REWARD_AMOUNT,
+        status=ReferralStatus.PENDING,
+    )
+    db.add(referral)
+    db.flush()
+    return referral
+
+
+def _grant_reward(
+    db: Session,
+    *,
+    referral: Referral,
+    referrer: User,
+    first_deposit_amount: Decimal,
+    reward_amount: Decimal,
+    source_reference: str,
+) -> str:
+    reward_reference = referral.reward_transaction_reference or f"REFERRAL_DEPOSIT_REWARD_{referral.id}"
+    wallet = get_or_create_wallet(db, referrer.id, commit=False)
+    description = f"Referral reward from first deposit of ₦{first_deposit_amount:.2f}"
+
+    existing_tx = db.query(Transaction).filter(Transaction.reference == reward_reference).first()
+    if existing_tx:
+        referral.reward_transaction_reference = reward_reference
+        referral.rewarded_at = referral.rewarded_at or _utcnow()
+        referral.status = ReferralStatus.REWARDED
+        referral.first_deposit_amount = first_deposit_amount
+        referral.reward_amount = reward_amount
+        if not referral.qualifying_transaction_reference:
+            referral.qualifying_transaction_reference = source_reference
+        db.flush()
+        return reward_reference
+
+    # Reuse the wallet helper but keep the outer transaction in control.
+    credit_wallet(db, wallet, reward_amount, reward_reference, description, commit=False)
+    tx = Transaction(
+        user_id=referrer.id,
+        reference=reward_reference,
+        amount=reward_amount,
+        status=TransactionStatus.SUCCESS,
+        tx_type=TransactionType.WALLET_FUND,
+        external_reference=source_reference,
+    )
+    db.add(tx)
+    referral.reward_transaction_reference = reward_reference
+    referral.rewarded_at = _utcnow()
+    referral.status = ReferralStatus.REWARDED
+    referral.first_deposit_amount = first_deposit_amount
+    referral.reward_amount = reward_amount
+    if not referral.qualifying_transaction_reference:
+        referral.qualifying_transaction_reference = source_reference
+    db.flush()
+    return reward_reference
+
+
+def record_referral_first_deposit_reward(
+    db: Session,
+    *,
+    user: User,
+    transaction_reference: str,
+    deposit_amount: Decimal | int | float | str,
+    transaction_status: str,
+) -> Referral | None:
+    referral = _get_or_create_referral_row(db, referred_user=user)
+    if not referral:
+        return None
+
+    reference = str(transaction_reference or "").strip()
+    if not reference:
+        return referral
+
+    status = str(transaction_status or "").strip().lower()
+    if status != TransactionStatus.SUCCESS.value:
+        return referral
+
+    referral = (
+        db.query(Referral)
+        .filter(Referral.id == referral.id)
+        .with_for_update()
+        .populate_existing()
+        .first()
+        or referral
+    )
+
+    if referral.reward_transaction_reference or referral.rewarded_at:
+        return referral
+
+    first_success = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == user.id,
+            Transaction.tx_type == TransactionType.WALLET_FUND,
+            Transaction.status == TransactionStatus.SUCCESS,
+        )
+        .order_by(Transaction.created_at.asc(), Transaction.id.asc())
+        .first()
+    )
+    if not first_success or first_success.reference != reference:
+        return referral
+
+    amount = _safe_decimal_amount(deposit_amount)
+    if amount <= 0:
+        return referral
+
+    reward_amount = (amount * REFERRAL_REWARD_RATE).quantize(Decimal("0.01"))
+    if reward_amount <= 0:
+        return referral
+
+    referral.first_deposit_amount = amount
+    referral.reward_amount = reward_amount
+    referral.qualifying_transaction_reference = reference
+    referral.qualified_at = referral.qualified_at or _utcnow()
+    referral.status = ReferralStatus.QUALIFIED
+    referrer = db.query(User).filter(User.id == referral.referrer_id).first()
+    if referrer and referrer.role != UserRole.AMBASSADOR:
+        _grant_reward(
+            db,
+            referral=referral,
+            referrer=referrer,
+            first_deposit_amount=amount,
+            reward_amount=reward_amount,
+            source_reference=reference,
+        )
+    db.commit()
+    return referral
+
+
+def record_referral_data_activity(db: Session, *, user: User, tx_type: str, amount: Decimal, data_mb: float = 0.0) -> Referral | None:
+    from app.models.agent import AgentStat
+    from sqlalchemy.orm.attributes import flag_modified
+    
+    # 1. Update Agent Stats with lock to prevent race conditions
+    stat = db.query(AgentStat).filter(AgentStat.agent_id == user.id).with_for_update().first()
+    if not stat:
+        stat = AgentStat(agent_id=user.id)
+        db.add(stat)
+        db.flush()
+        # Lock the newly created stat
+        stat = db.query(AgentStat).filter(AgentStat.agent_id == user.id).with_for_update().first()
+        
+    # Refresh the user object to ensure we have the latest role (in case a concurrent request just upgraded them)
+    db.refresh(user)
+        
+    if tx_type == TransactionType.DATA or tx_type == "data":
+        # Approximate MB if not provided
+        mb = data_mb if data_mb > 0 else (float(amount) / 250.0 * 1024.0)
+        stat.total_data_mb = int((stat.total_data_mb or 0) + mb)
+    elif tx_type == TransactionType.AIRTIME or tx_type == "airtime":
+        stat.total_airtime_amount = Decimal(str(float(stat.total_airtime_amount or 0.0) + float(amount)))
+        
+    stat.total_transactions = (stat.total_transactions or 0) + 1
+    db.flush()
+
+    # Check qualification criteria: e.g. sold 50GB (51200 MB)
+    target_mb = 51200.0
+    referral = _get_or_create_referral_row(db, referred_user=user)
+    
+    if tx_type == TransactionType.DATA or tx_type == "data":
+        if referral:
+            mb = data_mb if data_mb > 0 else (float(amount) / 250.0 * 1024.0)
+            referral.accumulated_mb = int((referral.accumulated_mb or 0) + mb)
+            if float(referral.accumulated_mb) >= target_mb:
+                referral.is_50gb_milestone_reached = True
+            db.add(referral)
+
+    if float(stat.total_data_mb) >= target_mb and user.role == UserRole.CUSTOMER:
+        # Upgrade user to Agent (RESELLER) role
+        user.role = UserRole.AGENT
+        user.agent_upgrade_seen = False
+
+        # Note: The automatic ₦2000 reward for the user has been removed. 
+        # Users now claim their reward manually via the Agent Campaign system.
+
+        db.flush()
+
+        
+    return referral
+
+
+def get_referral_dashboard(db: Session, *, user: User) -> dict:
+    code = normalize_referral_code(user.referral_code)
+    if not code and getattr(user, "id", None):
+        code = ensure_user_referral_code(db, user)
+    referrals = (
+        db.query(Referral)
+        .filter(Referral.referrer_id == user.id)
+        .order_by(Referral.created_at.desc(), Referral.id.desc())
+        .all()
+    )
+    rewarded = [item for item in referrals if item.status == ReferralStatus.REWARDED]
+    total_earned = sum((Decimal(str(item.reward_amount or 0)) for item in rewarded), Decimal("0"))
+    # Reward is dynamic (2% of each referred user's first successful deposit),
+    # so there is no fixed "reward per referral" amount to expose globally.
+    reward_amount = Decimal("0.00")
+    referral_link = None
+    if settings.frontend_base_url:
+        base = str(settings.frontend_base_url).rstrip("/")
+        referral_link = f"{base}/register?ref={code}" if code else None
+
+    items = []
+    for item in referrals:
+        referred_user = item.referred_user
+        referred_user_name = (
+            referred_user.full_name
+            if referred_user and getattr(referred_user, "full_name", None)
+            else (referred_user.email if referred_user and getattr(referred_user, "email", None) else "")
+        )
+        items.append(
+            {
+                "id": item.id,
+                "referred_user_name": referred_user_name,
+                "referral_code_used": item.referral_code_used,
+                "status": item.status.value if hasattr(item.status, "value") else str(item.status),
+                "first_deposit_amount": Decimal(str(item.first_deposit_amount or 0)),
+                "reward_amount": Decimal(str(item.reward_amount or Decimal("0.00"))),
+                "qualified_at": item.qualified_at,
+                "rewarded_at": item.rewarded_at,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+            }
+        )
+
+    return {
+        "referral_code": code,
+        "referral_link": referral_link,
+        "total_referrals": len(referrals),
+        "rewarded_referrals": len(rewarded),
+        "total_earned": total_earned,
+        "reward_amount": reward_amount,
+        "referrals": items,
+    }
+
+
+def trigger_referral_data_activity(db: Session, transaction: Transaction) -> None:
+    if transaction.tx_type != TransactionType.DATA:
+        return
+    try:
+        from app.models.data_plan import DataPlan
+        plan = db.query(DataPlan).filter(DataPlan.plan_code == transaction.data_plan_code).first()
+        if plan:
+            from app.api.v1.endpoints.data import _parse_size_gb
+            mb_size = _parse_size_gb(plan.data_size) * 1024.0
+        else:
+            mb_size = float(transaction.amount) / 250.0 * 1024.0
+
+        user = transaction.user
+        if not user:
+            user = db.query(User).filter(User.id == transaction.user_id).first()
+        if user:
+            record_referral_data_activity(db, user=user, tx_type="data", amount=transaction.amount, data_mb=mb_size)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).error("Failed to trigger referral data activity: %s", exc)

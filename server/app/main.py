@@ -1,0 +1,637 @@
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy import text, inspect
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
+from app.api.v1.routes import router as api_router
+from app.core.config import get_settings, parse_cors_origins
+import logging
+import time
+from urllib.parse import urlparse
+from app.core.database import Base, engine, SessionLocal
+from app.core.logging import configure_logging
+from app.middlewares.rate_limit import limiter
+from app.models import User, UserRole
+from app.services.pending_reconcile import (
+    start_pending_reconcile_worker,
+    stop_pending_reconcile_worker,
+)
+import os
+from fastapi.staticfiles import StaticFiles
+
+settings = get_settings()
+
+configure_logging()
+
+os.makedirs("uploads/profile_images", exist_ok=True)
+
+app = FastAPI(title=settings.app_name)
+app.mount("/static", StaticFiles(directory="uploads"), name="static")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+_started_at = time.time()
+
+
+@app.exception_handler(SQLAlchemyTimeoutError)
+async def sqlalchemy_timeout_handler(request, exc):
+    logging.getLogger(__name__).warning("Database pool timeout on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Service is busy. Please retry in a moment."},
+    )
+
+configured_origins = parse_cors_origins(settings.cors_origins or "")
+def _origin_from_url(raw: str) -> str | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    parsed = urlparse(text)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return None
+
+
+frontend_origin = _origin_from_url(settings.frontend_base_url)
+allow_origins = list(
+    dict.fromkeys(
+        configured_origins
+        + [
+            "https://vtu-frontend-beta.vercel.app",
+            "https://vtu-frontend-git-main-mmt-ech-globe.vercel.app",
+            "https://axisvtu.vercel.app",
+            "https://axisvtu.com",
+            "https://www.axisvtu.com",
+            "https://mzdata.ng",
+            "https://www.mzdata.ng",
+            "https://mzdata.vercel.app",
+            *([frontend_origin] if frontend_origin else []),
+        ]
+    )
+)
+allow_origin_regex = (
+    r"^https:\/\/(?:vtu-frontend|axisvtu|mzdata)(?:-[A-Za-z0-9-]+)?\.vercel\.app$"
+    r"|^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$"
+)
+
+logging.getLogger(__name__).info(
+    "CORS allow_origins=%s allow_origin_regex=%s",
+    allow_origins,
+    allow_origin_regex,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allow_origins,
+    allow_origin_regex=allow_origin_regex,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+
+def _bootstrap_admins() -> None:
+    raw = (settings.bootstrap_admin_emails or "").strip()
+    if not raw:
+        return
+
+    emails = [item.strip().lower() for item in raw.split(",") if item.strip()]
+    if not emails:
+        return
+
+    logger = logging.getLogger(__name__)
+    db = SessionLocal()
+    try:
+        updated = 0
+        missing: list[str] = []
+        for email in emails:
+            user = db.query(User).filter(User.email == email).first()
+            if not user:
+                missing.append(email)
+                continue
+            if user.role != UserRole.ADMIN:
+                user.role = UserRole.ADMIN
+                updated += 1
+        if updated:
+            db.commit()
+        if updated:
+            logger.info("Bootstrapped admin role for %s user(s).", updated)
+        if missing:
+            logger.warning("BOOTSTRAP_ADMIN_EMAILS users not found: %s", ", ".join(missing))
+    except Exception as exc:
+        logger.warning("Admin bootstrap failed: %s", exc)
+    finally:
+        db.close()
+
+
+@app.on_event("startup")
+def ensure_tables():
+    # Pending reconcile must run in both production (auto_create_tables=False)
+    # and local bootstrap mode.
+    start_pending_reconcile_worker()
+    if not settings.auto_create_tables:
+        _bootstrap_admins()
+        _ensure_user_phone_column()
+        _ensure_user_security_pin_columns()
+        _ensure_transaction_recipient_column()
+        _ensure_data_plan_provider_columns()
+        _ensure_data_plan_promo_columns()
+        _ensure_data_plan_fallback_columns()
+        _ensure_data_plan_data_type_column()
+        _ensure_data_plan_text_lengths()
+        _ensure_transaction_provider_columns()
+        _ensure_campaign_activated_at_column()
+        _ensure_campaign_is_agent_only_column()
+        _ensure_user_agent_upgrade_seen_column()
+        _ensure_user_kyc_hash_columns()
+        _ensure_broadcast_announcement_button_columns()
+        _ensure_user_developer_columns()
+        _ensure_user_webhook_columns()
+        _ensure_user_profile_image_url_column()
+        return
+
+    # Optional local fallback for fresh environments.
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "DB unavailable on startup, skipping table creation: %s",
+            exc,
+        )
+    _bootstrap_admins()
+    _ensure_user_phone_column()
+    _ensure_user_security_pin_columns()
+    _ensure_transaction_recipient_column()
+    _ensure_data_plan_provider_columns()
+    _ensure_data_plan_promo_columns()
+    _ensure_data_plan_fallback_columns()
+    _ensure_data_plan_data_type_column()
+    _ensure_data_plan_text_lengths()
+    _ensure_transaction_provider_columns()
+    _ensure_campaign_is_agent_only_column()
+    _ensure_user_kyc_hash_columns()
+    _ensure_broadcast_announcement_button_columns()
+    _ensure_user_developer_columns()
+    _ensure_user_webhook_columns()
+    _ensure_user_profile_image_url_column()
+    _ensure_referral_ambassador_columns()
+
+
+@app.on_event("shutdown")
+def shutdown_workers():
+    stop_pending_reconcile_worker()
+
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
+
+def _ensure_user_phone_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "phone_number" in cols:
+            return
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN phone_number VARCHAR(32)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_phone_number ON users (phone_number)"))
+        logging.getLogger(__name__).info("Added users.phone_number column for phone login.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure phone_number column: %s", exc)
+
+
+def _ensure_user_security_pin_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        dialect_name = getattr(engine.dialect, "name", "")
+        ts_type = "TIMESTAMP WITH TIME ZONE" if dialect_name == "postgresql" else "DATETIME"
+        statements: list[str] = []
+        if "pin_hash" not in cols:
+            statements.append("ALTER TABLE users ADD COLUMN pin_hash VARCHAR(255)")
+        if "pin_set_at" not in cols:
+            statements.append(f"ALTER TABLE users ADD COLUMN pin_set_at {ts_type}")
+        if "pin_failed_attempts" not in cols:
+            statements.append("ALTER TABLE users ADD COLUMN pin_failed_attempts INTEGER NOT NULL DEFAULT 0")
+        if "pin_locked_until" not in cols:
+            statements.append(f"ALTER TABLE users ADD COLUMN pin_locked_until {ts_type}")
+        if "pin_reset_token_hash" not in cols:
+            statements.append("ALTER TABLE users ADD COLUMN pin_reset_token_hash VARCHAR(255)")
+        if "pin_reset_token_expires_at" not in cols:
+            statements.append(f"ALTER TABLE users ADD COLUMN pin_reset_token_expires_at {ts_type}")
+
+        if not statements:
+            return
+
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_users_pin_reset_token_hash ON users (pin_reset_token_hash)")
+            )
+        logging.getLogger(__name__).info("Added users transaction PIN columns for backend security.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure transaction pin columns: %s", exc)
+
+
+def _ensure_transaction_recipient_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("transactions"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("transactions")}
+        if "recipient_phone" in cols:
+            return
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN recipient_phone VARCHAR(32)"))
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_transactions_recipient_phone ON transactions (recipient_phone)")
+            )
+        logging.getLogger(__name__).info("Added transactions.recipient_phone for safer reconciliation.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure recipient_phone column: %s", exc)
+    finally:
+        SessionLocal().close()
+
+
+def _ensure_data_plan_provider_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("data_plans"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("data_plans")}
+        statements: list[str] = []
+        if "provider" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN provider VARCHAR(64)")
+        if "provider_plan_id" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN provider_plan_id VARCHAR(64)")
+
+        if not statements:
+            return
+
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+            if "provider" not in cols:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_plans_provider ON data_plans (provider)"))
+            if "provider_plan_id" not in cols:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_plans_provider_plan_id ON data_plans (provider_plan_id)"))
+        logging.getLogger(__name__).info("Added data_plans provider columns.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure data_plans provider columns: %s", exc)
+
+
+def _ensure_data_plan_promo_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("data_plans"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("data_plans")}
+        statements: list[str] = []
+        dialect_name = getattr(engine.dialect, "name", "")
+        
+        bool_default_false = "0" if dialect_name == "sqlite" else "false"
+        
+        if "promo_active" not in cols:
+            statements.append(f"ALTER TABLE data_plans ADD COLUMN promo_active BOOLEAN NOT NULL DEFAULT {bool_default_false}")
+        if "promo_old_price" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN promo_old_price NUMERIC(12, 2)")
+        if "promo_label" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN promo_label VARCHAR(255)")
+        if "cashback_amount" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN cashback_amount NUMERIC(12, 2)")
+        if "cashback_label" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN cashback_label VARCHAR(255)")
+
+        if not statements:
+            return
+
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+            if "promo_active" not in cols:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_plans_promo_active ON data_plans (promo_active)"))
+        logging.getLogger(__name__).info("Added data_plans promo and cashback columns.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure data_plans promo columns: %s", exc)
+
+def _ensure_data_plan_fallback_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("data_plans"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("data_plans")}
+        statements: list[str] = []
+        
+        if "fallback_provider" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN fallback_provider VARCHAR(64)")
+        if "fallback_provider_plan_id" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN fallback_provider_plan_id VARCHAR(64)")
+
+        if not statements:
+            return
+
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+            if "fallback_provider" not in cols:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_plans_fallback_provider ON data_plans (fallback_provider)"))
+            if "fallback_provider_plan_id" not in cols:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_plans_fallback_provider_plan_id ON data_plans (fallback_provider_plan_id)"))
+        logging.getLogger(__name__).info("Added data_plans fallback_provider columns.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure data_plans fallback columns: %s", exc)
+
+
+def _ensure_data_plan_data_type_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("data_plans"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("data_plans")}
+        statements: list[str] = []
+        
+        if "data_type" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN data_type VARCHAR(64)")
+
+        if not statements:
+            return
+
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+            if "data_type" not in cols:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_plans_data_type ON data_plans (data_type)"))
+        logging.getLogger(__name__).info("Added data_plans data_type column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure data_plans data_type column: %s", exc)
+
+
+def _ensure_data_plan_text_lengths() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("data_plans"):
+            return
+        cols = {c["name"]: c for c in inspector.get_columns("data_plans")}
+        statements: list[str] = []
+        dialect_name = getattr(engine.dialect, "name", "")
+
+        def _varchar_len(col_name: str) -> int | None:
+            col = cols.get(col_name)
+            if not col:
+                return None
+            col_type = col.get("type")
+            length = getattr(col_type, "length", None)
+            if isinstance(length, int):
+                return length
+            return None
+
+        plan_name_len = _varchar_len("plan_name")
+        data_size_len = _varchar_len("data_size")
+        validity_len = _varchar_len("validity")
+
+        if dialect_name == "postgresql":
+            if plan_name_len is not None and plan_name_len < 255:
+                statements.append("ALTER TABLE data_plans ALTER COLUMN plan_name TYPE VARCHAR(255)")
+            if data_size_len is not None and data_size_len < 255:
+                statements.append("ALTER TABLE data_plans ALTER COLUMN data_size TYPE VARCHAR(255)")
+            if validity_len is not None and validity_len < 64:
+                statements.append("ALTER TABLE data_plans ALTER COLUMN validity TYPE VARCHAR(64)")
+        elif dialect_name == "sqlite":
+            # SQLite does not enforce VARCHAR length; nothing required.
+            statements = []
+
+        if not statements:
+            return
+
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+        logging.getLogger(__name__).info("Expanded data_plans text columns for long provider plan labels.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure data_plans text lengths: %s", exc)
+
+
+def _ensure_transaction_provider_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("transactions"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("transactions")}
+        statements: list[str] = []
+        if "provider" not in cols:
+            statements.append("ALTER TABLE transactions ADD COLUMN provider VARCHAR(64)")
+        if "provider_plan_id" not in cols:
+            statements.append("ALTER TABLE transactions ADD COLUMN provider_plan_id VARCHAR(64)")
+
+        if not statements:
+            return
+
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+            if "provider" not in cols:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_transactions_provider ON transactions (provider)"))
+            if "provider_plan_id" not in cols:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_transactions_provider_plan_id ON transactions (provider_plan_id)"))
+        logging.getLogger(__name__).info("Added transactions provider columns.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure transactions provider columns: %s", exc)
+
+
+def _ensure_campaign_activated_at_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("reward_campaigns"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("reward_campaigns")}
+        if "activated_at" in cols:
+            return
+        dialect_name = getattr(engine.dialect, "name", "")
+        ts_type = "TIMESTAMP WITH TIME ZONE" if dialect_name == "postgresql" else "DATETIME"
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE reward_campaigns ADD COLUMN activated_at {ts_type}"))
+        logging.getLogger(__name__).info("Added reward_campaigns.activated_at column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure reward_campaigns.activated_at column: %s", exc)
+
+
+def _ensure_campaign_is_agent_only_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("reward_campaigns"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("reward_campaigns")}
+        if "is_agent_only" in cols:
+            return
+        dialect_name = getattr(engine.dialect, "name", "")
+        bool_default_true = "1" if dialect_name == "sqlite" else "true"
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE reward_campaigns ADD COLUMN is_agent_only BOOLEAN NOT NULL DEFAULT {bool_default_true}"))
+        logging.getLogger(__name__).info("Added reward_campaigns.is_agent_only column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure reward_campaigns.is_agent_only column: %s", exc)
+
+
+def _ensure_user_agent_upgrade_seen_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "agent_upgrade_seen" in cols:
+            return
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN agent_upgrade_seen BOOLEAN NOT NULL DEFAULT FALSE"))
+        logging.getLogger(__name__).info("Added users.agent_upgrade_seen column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure agent_upgrade_seen column: %s", exc)
+
+
+def _ensure_user_kyc_hash_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        with engine.begin() as conn:
+            if "bvn_hash" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN bvn_hash VARCHAR(64) NULL"))
+                conn.execute(text("CREATE UNIQUE INDEX ix_users_bvn_hash ON users (bvn_hash)"))
+                logging.getLogger(__name__).info("Added users.bvn_hash column and index.")
+            if "nin_hash" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN nin_hash VARCHAR(64) NULL"))
+                conn.execute(text("CREATE UNIQUE INDEX ix_users_nin_hash ON users (nin_hash)"))
+                logging.getLogger(__name__).info("Added users.nin_hash column and index.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure users.bvn_hash/nin_hash columns: %s", exc)
+
+
+def _ensure_broadcast_announcement_button_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("broadcast_announcements"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("broadcast_announcements")}
+        with engine.begin() as conn:
+            if "button_label" not in cols:
+                conn.execute(text("ALTER TABLE broadcast_announcements ADD COLUMN button_label VARCHAR(50) NULL"))
+                logging.getLogger(__name__).info("Added broadcast_announcements.button_label column.")
+            if "button_link" not in cols:
+                conn.execute(text("ALTER TABLE broadcast_announcements ADD COLUMN button_link VARCHAR(255) NULL"))
+                logging.getLogger(__name__).info("Added broadcast_announcements.button_link column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure broadcast_announcements button columns: %s", exc)
+
+
+def _ensure_user_developer_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        with engine.begin() as conn:
+            if "is_developer" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN is_developer BOOLEAN DEFAULT FALSE NOT NULL"))
+                logging.getLogger(__name__).info("Added users.is_developer column.")
+            if "developer_status" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN developer_status VARCHAR(32) DEFAULT 'none' NOT NULL"))
+                logging.getLogger(__name__).info("Added users.developer_status column.")
+            if "api_public_key" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN api_public_key VARCHAR(64) NULL"))
+                conn.execute(text("CREATE UNIQUE INDEX ix_users_api_public_key ON users (api_public_key)"))
+                logging.getLogger(__name__).info("Added users.api_public_key column and index.")
+            if "api_secret_key_hash" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN api_secret_key_hash VARCHAR(128) NULL"))
+                logging.getLogger(__name__).info("Added users.api_secret_key_hash column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure users developer columns: %s", exc)
+
+
+def _ensure_user_webhook_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        with engine.begin() as conn:
+            if "webhook_url" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN webhook_url VARCHAR(255) NULL"))
+                logging.getLogger(__name__).info("Added users.webhook_url column.")
+            if "webhook_secret" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN webhook_secret VARCHAR(128) NULL"))
+                logging.getLogger(__name__).info("Added users.webhook_secret column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure users webhook columns: %s", exc)
+
+
+def _ensure_user_profile_image_url_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "profile_image_url" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN profile_image_url VARCHAR(512) NULL"))
+            logging.getLogger(__name__).info("Added users.profile_image_url column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure users profile_image_url column: %s", exc)
+
+
+def _ensure_referral_ambassador_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("referrals"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("referrals")}
+        with engine.begin() as conn:
+            if "is_ten_percent_paid" not in cols:
+                conn.execute(text("ALTER TABLE referrals ADD COLUMN is_ten_percent_paid BOOLEAN NOT NULL DEFAULT '0'"))
+            if "is_50gb_milestone_reached" not in cols:
+                conn.execute(text("ALTER TABLE referrals ADD COLUMN is_50gb_milestone_reached BOOLEAN NOT NULL DEFAULT '0'"))
+            if "is_milestone_bonus_paid" not in cols:
+                conn.execute(text("ALTER TABLE referrals ADD COLUMN is_milestone_bonus_paid BOOLEAN NOT NULL DEFAULT '0'"))
+            logging.getLogger(__name__).info("Ensured referrals ambassador tracking columns.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure referrals ambassador columns: %s", exc)
+
+
+@app.get("/healthz")
+@app.head("/healthz")
+def healthz():
+    # Liveness: process is up.
+    return {
+        "status": "ok",
+        "uptime_seconds": int(max(0, time.time() - _started_at)),
+        "service": settings.app_name,
+    }
+
+
+@app.get("/readyz")
+def readyz():
+    # Readiness: database is reachable.
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        return {
+            "status": "ready",
+            "uptime_seconds": int(max(0, time.time() - _started_at)),
+        }
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Readiness DB check failed: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "detail": "database_unavailable"},
+        )
+    finally:
+        db.close()

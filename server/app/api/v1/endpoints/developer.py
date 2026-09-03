@@ -1,0 +1,608 @@
+import hashlib
+import secrets
+import time
+import logging
+from decimal import Decimal
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+from app.core.database import get_db
+from app.models import User, UserRole, Transaction, TransactionStatus, TransactionType, DataPlan, ApiLog
+from app.models.service_transaction import ServiceTransaction
+from app.schemas.developer import (
+    DeveloperStatusResponse,
+    DeveloperApplyRequest,
+    ApiKeyResponse,
+    DeveloperWalletBalanceResponse,
+    DeveloperDataPurchaseRequest,
+    DeveloperAirtimePurchaseRequest,
+    DeveloperPurchaseResponse,
+    WebhookConfigRequest
+)
+from app.services.wallet import get_or_create_wallet, debit_wallet, credit_wallet
+from app.services.pricing import get_price_for_user
+from app.services.fraud import enforce_purchase_limits
+
+# Providers/Clients
+from app.providers.smeplug_provider import SMEPlugProvider
+from app.services.amigo import AmigoClient, AmigoApiError, resolve_network_id, normalize_plan_code
+from app.services.bills import get_bills_provider
+from app.dependencies import get_current_user
+from app.middlewares.rate_limit import limiter
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+security_bearer = HTTPBearer(auto_error=False)
+
+
+# --- API Key Helpers ---
+def generate_key_pair() -> tuple[str, str, str]:
+    pub = f"mele_pub_{secrets.token_hex(16)}"
+    sec_plain = f"mele_live_{secrets.token_hex(24)}"
+    sec_hash = hashlib.sha256(sec_plain.encode("utf-8")).hexdigest()
+    return pub, sec_plain, sec_hash
+
+
+# --- Developer Auth Dependency ---
+def get_developer_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(security_bearer),
+    db: Session = Depends(get_db)
+) -> User:
+    # 1. Try X-API-Key header first
+    token = request.headers.get("X-API-Key")
+    
+    # 2. Try Authorization header (Bearer / Token)
+    if not token and request.headers.get("Authorization"):
+        auth_val = request.headers.get("Authorization").strip()
+        parts = auth_val.split(None, 1)
+        if len(parts) == 2 and parts[0].lower() in {"bearer", "token"}:
+            token = parts[1]
+            
+    # 3. Fallback to HTTPBearer credentials
+    if not token and credentials:
+        token = credentials.credentials.strip()
+        
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authentication credentials. Pass X-API-Key or Authorization header.",
+        )
+        
+    token = token.strip()
+    is_test_mode = token.startswith("mele_test_")
+    lookup_token = token
+    if is_test_mode:
+        # Swap prefix to look up the hash of the user's primary live token
+        lookup_token = "mele_live_" + token[len("mele_test_"):]
+        
+    if not (token.startswith("MELE_SEC_") or token.startswith("mele_live_") or token.startswith("mele_test_") or token.startswith("mele_pub_")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key format.",
+        )
+        
+    token_hash = hashlib.sha256(lookup_token.encode("utf-8")).hexdigest()
+    user = db.query(User).filter(
+        ((User.api_public_key == token) | (User.api_secret_key_hash == token_hash)),
+        User.developer_status == "approved",
+        User.is_developer == True
+    ).first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed. Invalid developer API key or account suspended.",
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Developer account is inactive.",
+        )
+        
+    # Attach the dynamic test mode flag
+    user.is_test_mode = is_test_mode
+    return user
+
+
+# --- Developer Management Endpoints (User Panel) ---
+
+@router.get("/status", response_model=DeveloperStatusResponse)
+def get_status(user: User = Depends(get_current_user)):
+    secret_prefix = f"{user.webhook_secret[:10]}..." if getattr(user, "webhook_secret", None) else None
+    return {
+        "is_developer": user.is_developer,
+        "developer_status": user.developer_status,
+        "api_public_key": user.api_public_key,
+        "has_keys": user.api_secret_key_hash is not None,
+        "webhook_url": getattr(user, "webhook_url", None),
+        "webhook_secret_prefix": secret_prefix
+    }
+
+
+@router.post("/apply", response_model=DeveloperStatusResponse)
+def apply_developer(payload: DeveloperApplyRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.developer_status not in {"none", ""}:
+        raise HTTPException(status_code=400, detail=f"Developer application status is already: {user.developer_status}")
+    
+    pub, sec_plain, sec_hash = generate_key_pair()
+    user.developer_status = "approved"
+    user.is_developer = True
+    if user.role == UserRole.CUSTOMER:
+        user.role = UserRole.AGENT
+    user.api_public_key = pub
+    user.api_secret_key_hash = sec_hash
+    db.commit()
+    db.refresh(user)
+    return {
+        "is_developer": user.is_developer,
+        "developer_status": user.developer_status,
+        "api_public_key": user.api_public_key,
+        "has_keys": True,
+        "api_secret_key": sec_plain
+    }
+
+
+@router.post("/keys/generate", response_model=ApiKeyResponse)
+def generate_keys(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.developer_status != "approved" or not user.is_developer:
+        raise HTTPException(status_code=403, detail="Developer access has not been approved.")
+
+    pub, sec_plain, sec_hash = generate_key_pair()
+    user.api_public_key = pub
+    user.api_secret_key_hash = sec_hash
+    db.commit()
+    return {
+        "api_public_key": pub,
+        "api_secret_key": sec_plain
+    }
+
+
+@router.post("/keys/revoke", response_model=DeveloperStatusResponse)
+def revoke_keys(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user.api_public_key = None
+    user.api_secret_key_hash = None
+    db.commit()
+    db.refresh(user)
+    secret_prefix = f"{user.webhook_secret[:10]}..." if getattr(user, "webhook_secret", None) else None
+    return {
+        "is_developer": user.is_developer,
+        "developer_status": user.developer_status,
+        "api_public_key": user.api_public_key,
+        "has_keys": False,
+        "webhook_url": getattr(user, "webhook_url", None),
+        "webhook_secret_prefix": secret_prefix
+    }
+
+
+@router.post("/webhook/config", response_model=DeveloperStatusResponse)
+def configure_webhook(payload: WebhookConfigRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.developer_status != "approved" or not user.is_developer:
+        raise HTTPException(status_code=403, detail="Developer access has not been approved.")
+        
+    user.webhook_url = payload.webhook_url.strip()
+    if not getattr(user, "webhook_secret", None):
+        user.webhook_secret = f"whsec_{secrets.token_hex(24)}"
+        
+    db.commit()
+    db.refresh(user)
+    secret_prefix = f"{user.webhook_secret[:10]}..." if getattr(user, "webhook_secret", None) else None
+    return {
+        "is_developer": user.is_developer,
+        "developer_status": user.developer_status,
+        "api_public_key": user.api_public_key,
+        "has_keys": user.api_secret_key_hash is not None,
+        "webhook_url": user.webhook_url,
+        "webhook_secret_prefix": secret_prefix
+    }
+
+
+# --- Reseller Services API (Developer authenticated) ---
+
+# Sandbox balance state in memory
+SANDBOX_BALANCES = {}
+
+@router.get("/wallet")
+@router.get("/wallet/")
+def get_wallet_balance_amigo_style(user: User = Depends(get_developer_user), db: Session = Depends(get_db)):
+    is_test = getattr(user, "is_test_mode", False)
+    if is_test:
+        bal = SANDBOX_BALANCES.get(user.id, 1000000.0)
+    else:
+        wallet = get_or_create_wallet(db, user.id)
+        bal = float(wallet.balance)
+        
+    return {
+        "success": True,
+        "data": {
+            "balance": bal,
+            "display": f"₦{bal:,.2f}",
+            "currency": "NGN",
+            "livemode": not is_test,
+            "mode": "test" if is_test else "live"
+        }
+    }
+
+
+@router.post("/commerce/sandbox/reset-balance")
+@router.post("/commerce/sandbox/reset-balance/")
+def reset_sandbox_balance(user: User = Depends(get_developer_user)):
+    is_test = getattr(user, "is_test_mode", False)
+    if not is_test:
+        raise HTTPException(
+            status_code=403,
+            detail="Live tokens are not allowed to reset sandbox balances."
+        )
+    SANDBOX_BALANCES[user.id] = 1000000.0
+    return {
+        "success": True,
+        "data": {
+            "test_balance": 1000000.0,
+            "display": "₦1,000,000.00",
+            "livemode": False
+        }
+    }
+
+
+@router.get("/data/status")
+@router.get("/data/status/")
+def get_data_purchase_status(ref: str, user: User = Depends(get_developer_user), db: Session = Depends(get_db)):
+    ref = ref.strip()
+    if not ref:
+        raise HTTPException(status_code=422, detail="Missing required 'ref' query parameter.")
+        
+    internal_ref = f"DEV_{user.id}_{ref}"
+        
+    # Scope: only see own client transactions
+    tx = db.query(Transaction).filter(Transaction.user_id == user.id, Transaction.reference == internal_ref).first()
+    if not tx:
+        # Fallback to check ServiceTransaction (e.g. for airtime)
+        tx_service = db.query(ServiceTransaction).filter(ServiceTransaction.user_id == user.id, ServiceTransaction.reference == internal_ref).first()
+        if not tx_service:
+            raise HTTPException(status_code=404, detail="No purchase with that reference is owned by your client.")
+        
+        status_str = "failed"
+        if tx_service.status == TransactionStatus.SUCCESS.value:
+            status_str = "delivered"
+        elif tx_service.status == TransactionStatus.PENDING.value:
+            status_str = "pending"
+            
+        return {
+            "success": True,
+            "data": {
+                "reference": ref,
+                "status": status_str,
+                "network": tx_service.provider,
+                "mobile_number": tx_service.customer,
+                "plan": None,
+                "amount_charged": float(tx_service.amount),
+                "message": f"Airtime topup of ₦{tx_service.amount} delivered to {tx_service.customer} successfully.",
+                "purchased_at": tx_service.created_at.isoformat() if tx_service.created_at else None,
+                "queried_at": datetime.now(timezone.utc).isoformat() + "Z",
+                "livemode": not getattr(user, "is_test_mode", False),
+                "mode": "test" if getattr(user, "is_test_mode", False) else "live"
+            }
+        }
+        
+    status_str = "failed"
+    if tx.status == TransactionStatus.SUCCESS:
+        status_str = "delivered"
+    elif tx.status == TransactionStatus.PENDING:
+        status_str = "pending"
+        
+    return {
+        "success": True,
+        "data": {
+            "reference": ref,
+            "status": status_str,
+            "network": tx.network,
+            "mobile_number": tx.recipient_phone,
+            "plan": tx.data_plan_code,
+            "amount_charged": float(tx.amount),
+            "message": f"Data plan delivered to {tx.recipient_phone} successfully.",
+            "purchased_at": tx.created_at.isoformat() if tx.created_at else None,
+            "queried_at": datetime.now(timezone.utc).isoformat() + "Z",
+            "livemode": not getattr(user, "is_test_mode", False),
+            "mode": "test" if getattr(user, "is_test_mode", False) else "live"
+        }
+    }
+
+
+@router.get("/wallet/balance", response_model=DeveloperWalletBalanceResponse)
+def get_balance(user: User = Depends(get_developer_user), db: Session = Depends(get_db)):
+    is_test = getattr(user, "is_test_mode", False)
+    if is_test:
+        bal = Decimal(str(SANDBOX_BALANCES.get(user.id, 1000000.0)))
+    else:
+        wallet = get_or_create_wallet(db, user.id)
+        bal = wallet.balance
+    return {"balance": bal, "currency": "NGN"}
+
+
+@router.get("/data/plans")
+def list_data_plans(user: User = Depends(get_developer_user), db: Session = Depends(get_db)):
+    plans = db.query(DataPlan).filter(DataPlan.is_active == True).all()
+    result = []
+    for plan in plans:
+        price = get_price_for_user(db, plan, user)
+        result.append({
+            "plan_id": plan.id,
+            "plan_code": plan.plan_code,
+            "network": plan.network.upper(),
+            "plan_name": plan.plan_name,
+            "data_size": plan.data_size,
+            "validity": plan.validity,
+            "price": float(price)
+        })
+    return {"plans": result}
+
+
+@router.post("/data/purchase", response_model=DeveloperPurchaseResponse)
+@limiter.limit("30/minute")
+def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, user: User = Depends(get_developer_user), db: Session = Depends(get_db)):
+    # 1. Idempotency Check
+    client_ref = f"DEV_{user.id}_{payload.reference.strip()}"
+    existing = db.query(Transaction).filter(Transaction.user_id == user.id, Transaction.reference == client_ref).first()
+    if existing:
+        return {
+            "status": existing.status,
+            "reference": existing.reference,
+            "amount": existing.amount,
+            "message": "Duplicate request detected. Transaction already processed."
+        }
+
+    # 2. Plan lookup
+    network_key = payload.network.strip().lower()
+    plan = db.query(DataPlan).filter(
+        DataPlan.id == payload.plan_id,
+        func.lower(DataPlan.network) == network_key,
+        DataPlan.is_active == True
+    ).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Active data plan not found.")
+
+    price = get_price_for_user(db, plan, user.role)
+    wallet = get_or_create_wallet(db, user.id)
+    if wallet.balance < price:
+        raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
+
+    # 3. Debit Wallet
+    try:
+        debit_wallet(db, wallet, price, client_ref, f"API Data: {plan.plan_name} ({payload.phone_number})")
+    except Exception as e:
+        logger.error(f"Developer wallet debit failed: {e}")
+        raise HTTPException(status_code=400, detail="Wallet debit failed.")
+
+    # 4. Save transaction
+    tx = Transaction(
+        user_id=user.id,
+        amount=price,
+        tx_type=TransactionType.DATA,
+        status=TransactionStatus.PENDING,
+        reference=client_ref,
+        network=plan.network,
+        recipient_phone=payload.phone_number.strip(),
+        data_plan_code=plan.plan_code,
+        provider=plan.provider,
+        provider_plan_id=plan.provider_plan_id
+    )
+    db.add(tx)
+    db.commit()
+
+    # -----------------------------
+    # Release DB connection
+    # -----------------------------
+    tx_id = tx.id
+    user_id = user.id
+    plan_name = plan.plan_name
+    db.close()
+
+    # 5. Route to Provider
+    provider_res = {"status": "pending", "error": "Provider routing failed"}
+    start_time = time.time()
+    try:
+        provider_name = str(plan.provider or "").strip().lower()
+        phone = payload.phone_number.strip()
+        if provider_name in ("smeplug", "sim"):
+            sme = SMEPlugProvider()
+            sme_network_map = {"mtn": 1, "airtel": 2, "9mobile": 3, "glo": 4}
+            net_id = sme_network_map.get(network_key, 2)
+            provider_res = sme.purchase_network_data(net_id, phone, plan.provider_plan_id or plan.plan_code, client_ref)
+        elif provider_name == "amigo" or (not provider_name and network_key in {"mtn", "glo", "airtel", "9mobile"}):
+            amigo = AmigoClient()
+            amigo_payload = {
+                "network": resolve_network_id(network_key),
+                "mobile_number": phone,
+                "plan": normalize_plan_code(plan.plan_code),
+                "Ported_number": True
+            }
+            res = amigo.purchase_data(amigo_payload, idempotency_key=client_ref)
+            if res.get("success") or str(res.get("status")).lower() in {"delivered", "success", "successful"}:
+                provider_res = {"status": "success", "provider_reference": str(res.get("reference") or "")}
+            elif str(res.get("status")).lower() in {"pending", "processing"}:
+                provider_res = {"status": "pending", "provider_reference": str(res.get("reference") or "")}
+            else:
+                provider_res = {"status": "failed", "error": res.get("message") or "Amigo reported failure"}
+        elif provider_name == "clubkonnect" or (not provider_name and network_key == "9mobile"):
+            bills = get_bills_provider()
+            res = bills.purchase_data(network_key, phone, plan.provider_plan_id or plan.plan_code, amount=float(price), request_id=client_ref)
+            if res.ok:
+                provider_res = {"status": "success", "provider_reference": res.external_reference}
+            elif res.is_pending:
+                provider_res = {"status": "pending", "provider_reference": res.external_reference}
+            else:
+                provider_res = {"status": "failed", "error": res.message}
+    except Exception as exc:
+        logger.error("Developer purchase exception: %s", exc)
+        provider_res = {"status": "pending", "error": str(exc)}
+
+    duration_ms = (time.time() - start_time) * 1000
+
+    # RE-ACQUIRE DB CONNECTION
+    from app.core.database import SessionLocal
+    db2 = SessionLocal()
+    try:
+        tx = db2.query(Transaction).get(tx_id)
+        user = db2.query(User).get(user_id)
+        wallet = get_or_create_wallet(db2, user_id)
+
+        # 6. Update Transaction Status
+        final_status = provider_res.get("status", "pending")
+        tx.status = TransactionStatus.SUCCESS if final_status == "success" else (TransactionStatus.FAILED if final_status == "failed" else TransactionStatus.PENDING)
+        tx.external_reference = provider_res.get("provider_reference")
+        
+        if final_status == "failed":
+            tx.failure_reason = str(provider_res.get("error"))[:255]
+            credit_wallet(db2, wallet, price, client_ref, f"Refund: {plan_name} API purchase failed")
+            tx.status = TransactionStatus.REFUNDED
+        db2.commit()
+
+        # 7. Write Log
+        api_log = ApiLog(
+            user_id=user.id,
+            service=tx.provider or "data_api",
+            endpoint="/developer/data/purchase",
+            status_code=200,
+            duration_ms=Decimal(str(round(duration_ms, 2))),
+            reference=client_ref,
+            success=1 if final_status == "success" else 0
+        )
+        db2.add(api_log)
+        db2.commit()
+    finally:
+        db2.close()
+
+    return {
+        "status": final_status,
+        "reference": payload.reference.strip(),
+        "amount": price,
+        "message": provider_res.get("error") if final_status == "failed" else "Transaction successful" if final_status == "success" else "Processing"
+    }
+
+
+@router.post("/airtime/purchase", response_model=DeveloperPurchaseResponse)
+@limiter.limit("30/minute")
+def developer_buy_airtime(request: Request, payload: DeveloperAirtimePurchaseRequest, user: User = Depends(get_developer_user), db: Session = Depends(get_db)):
+    client_ref = f"DEV_{user.id}_{payload.reference.strip()}"
+    existing = db.query(ServiceTransaction).filter(ServiceTransaction.user_id == user.id, ServiceTransaction.reference == client_ref).first()
+    if existing:
+        return {
+            "status": existing.status,
+            "reference": existing.reference,
+            "amount": existing.amount,
+            "message": "Duplicate request detected. Transaction already processed."
+        }
+
+    base_amount = payload.amount
+    # Resolve discount
+    from app.api.v1.endpoints.services import get_service_charge_for_user
+    charge_amount, margin = get_service_charge_for_user(
+        db,
+        tx_type=TransactionType.AIRTIME.value,
+        provider=payload.network.strip().lower(),
+        base_amount=base_amount,
+        user_role=user.role,
+    )
+    if charge_amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid final purchase amount.")
+
+    wallet = get_or_create_wallet(db, user.id)
+    if wallet.balance < charge_amount:
+        raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
+
+    # 1. Debit Wallet
+    try:
+        debit_wallet(db, wallet, charge_amount, client_ref, f"API Airtime: ₦{base_amount} ({payload.phone_number})")
+    except Exception as e:
+        logger.error(f"Developer airtime debit failed: {e}")
+        raise HTTPException(status_code=400, detail="Wallet debit failed.")
+
+    # 2. Save Transaction
+    tx = ServiceTransaction(
+        user_id=user.id,
+        reference=client_ref,
+        tx_type=TransactionType.AIRTIME.value,
+        amount=charge_amount,
+        status=TransactionStatus.PENDING.value,
+        provider=payload.network.strip().lower(),
+        customer=payload.phone_number.strip(),
+        meta={
+            "network": payload.network.strip().lower(),
+            "phone_number": payload.phone_number.strip(),
+            "base_amount": str(base_amount),
+            "margin_applied": str(margin),
+            "charge_amount": str(charge_amount),
+        },
+    )
+    db.add(tx)
+    db.commit()
+
+    # -----------------------------
+    # Release DB connection
+    # -----------------------------
+    tx_id = tx.id
+    user_id = user.id
+    db.close()
+
+    # 3. Route to Provider
+    start_time = time.time()
+    provider_res = {"status": "pending", "error": "Provider confirmation pending"}
+    try:
+        provider = get_bills_provider()
+        result = provider.purchase_airtime(payload.network.strip().lower(), payload.phone_number.strip(), float(base_amount))
+        
+        if result.success:
+            provider_res = {"status": "success", "provider_reference": result.external_reference}
+        else:
+            provider_res = {"status": "failed", "error": result.message or "Provider rejected airtime"}
+    except Exception as exc:
+        logger.error("Developer airtime provider exception: %s", exc)
+        provider_res = {"status": "pending", "error": str(exc)}
+
+    duration_ms = (time.time() - start_time) * 1000
+
+    # RE-ACQUIRE DB CONNECTION
+    from app.core.database import SessionLocal
+    db2 = SessionLocal()
+    try:
+        tx = db2.query(ServiceTransaction).get(tx_id)
+        user = db2.query(User).get(user_id)
+        wallet = get_or_create_wallet(db2, user_id)
+
+        # 4. Handle Result
+        final_status = provider_res.get("status", "pending")
+        tx.status = TransactionStatus.SUCCESS.value if final_status == "success" else (TransactionStatus.FAILED.value if final_status == "failed" else TransactionStatus.PENDING.value)
+        tx.external_reference = provider_res.get("provider_reference")
+
+        if final_status == "failed":
+            tx.failure_reason = str(provider_res.get("error"))[:255]
+            credit_wallet(db2, wallet, charge_amount, client_ref, "API Refund: Airtime purchase failed")
+            tx.status = TransactionStatus.REFUNDED.value
+        db2.commit()
+
+        # 5. Write Log
+        api_log = ApiLog(
+            user_id=user.id,
+            service="airtime_api",
+            endpoint="/developer/airtime/purchase",
+            status_code=200,
+            duration_ms=Decimal(str(round(duration_ms, 2))),
+            reference=client_ref,
+            success=1 if final_status == "success" else 0
+        )
+        db2.add(api_log)
+        db2.commit()
+    finally:
+        db2.close()
+
+    return {
+        "status": final_status,
+        "reference": payload.reference.strip(),
+        "amount": charge_amount,
+        "message": provider_res.get("error") if final_status == "failed" else "Transaction successful" if final_status == "success" else "Processing"
+    }

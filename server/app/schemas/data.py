@@ -1,0 +1,35 @@
+from pydantic import BaseModel, Field
+from decimal import Decimal
+from typing import Optional
+
+
+class DataPlanOut(BaseModel):
+    id: int
+    network: str
+    plan_code: str
+    plan_name: str
+    data_size: str
+    validity: str
+    price: Decimal
+    base_price: Optional[Decimal] = None
+    promo_active: bool = False
+    promo_old_price: Optional[Decimal] = None
+    promo_label: Optional[str] = None
+    promo_remaining: Optional[int] = None
+    promo_limit: Optional[int] = None
+    provider: Optional[str] = None
+    provider_plan_id: Optional[str] = None
+    data_type: Optional[str] = None
+    cashback_amount: Optional[Decimal] = None
+    cashback_label: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+class BuyDataRequest(BaseModel):
+    client_request_id: Optional[str] = Field(default=None, max_length=128)
+    plan_code: str
+    phone_number: str
+    ported_number: bool = True
+    network: Optional[str] = None

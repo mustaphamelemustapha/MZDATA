@@ -1,0 +1,942 @@
+import hashlib
+import secrets
+import logging
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session
+from sqlalchemy import inspect
+
+from app.core.database import get_db
+from app.dependencies import get_current_user
+from app.middlewares.rate_limit import limiter
+from app.models import User, TransactionStatus, TransactionType, ServiceTransaction
+from app.schemas.services import (
+    AirtimePurchaseRequest,
+    CablePurchaseRequest,
+    CableVerifyRequest,
+    ElectricityPurchaseRequest,
+    ElectricityVerifyRequest,
+    ExamPurchaseRequest,
+    ServicesCatalogOut,
+)
+from app.services.bills import get_bills_provider
+from app.services.fraud import enforce_purchase_limits
+from app.services.wallet import get_or_create_wallet, debit_wallet, credit_wallet
+from app.services.pricing import get_service_charge_for_user
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+_PROVIDER_PENDING_STATUS = {"pending", "processing", "queued", "in_progress", "submitted", "accepted"}
+_TRANSPORT_ERROR_MARKERS = (
+    "network error",
+    "timed out",
+    "timeout",
+    "connection reset",
+    "connection aborted",
+    "connection refused",
+    "temporarily unavailable",
+    "service unavailable",
+)
+_PENDING_CONFIRMATION_MESSAGE = "Provider confirmation delayed. Purchase is being verified. Check history shortly."
+
+_NETWORK_PREFIXES: dict[str, set[str]] = {
+    "mtn": {
+        "0803", "0806", "0703", "0706", "0810", "0813", "0814", "0816",
+        "0903", "0906", "0913", "0916", "0704", "07025", "07026",
+    },
+    "airtel": {
+        "0802", "0808", "0708", "0812", "0701", "0902", "0907", "0901", "0912",
+    },
+    "glo": {
+        "0805", "0807", "0705", "0811", "0815", "0905", "0915",
+    },
+    "9mobile": {
+        "0809", "0817", "0818", "0908", "0909",
+    },
+}
+
+
+def _ref(prefix: str) -> str:
+    return f"{prefix}_{secrets.token_hex(8)}"
+
+
+def _client_request_reference(prefix: str, user_id: int, request_id: str | None) -> str | None:
+    raw = str(request_id or "").strip()
+    if not raw:
+        return None
+    digest = hashlib.sha256(f"{prefix}:{user_id}:{raw}".encode()).hexdigest()[:24].upper()
+    return f"{prefix}_{digest}"
+
+
+def _provider_status(result) -> str:
+    meta = result.meta or {}
+    for provider_key in ("vtpass", "clubkonnect"):
+        status = str((meta.get(provider_key) or {}).get("status") or "").strip().lower()
+        if status:
+            return status
+    return str(meta.get("status") or "").strip().lower()
+
+
+def _is_transport_error(exc: Exception) -> bool:
+    message = str(exc or "").strip().lower()
+    return any(marker in message for marker in _TRANSPORT_ERROR_MARKERS)
+
+
+def _mark_pending_confirmation(db: Session, tx: ServiceTransaction, result_meta: dict | None = None) -> None:
+    tx.status = TransactionStatus.PENDING.value
+    tx.failure_reason = _PENDING_CONFIRMATION_MESSAGE
+    if result_meta:
+        tx.meta = {**(tx.meta or {}), **result_meta}
+    db.commit()
+
+
+def _normalize_phone_for_network_inference(phone_number: str) -> str:
+    digits = "".join(ch for ch in str(phone_number or "") if ch.isdigit())
+    if digits.startswith("234") and len(digits) >= 13:
+        return f"0{digits[3:]}"
+    return digits
+
+
+def _infer_nigeria_network(phone_number: str) -> str | None:
+    normalized = _normalize_phone_for_network_inference(phone_number)
+    if len(normalized) < 4:
+        return None
+    prefix5 = normalized[:5]
+    prefix4 = normalized[:4]
+    for network, prefixes in _NETWORK_PREFIXES.items():
+        if prefix5 in prefixes or prefix4 in prefixes:
+            return network
+    return None
+
+
+def _ensure_service_table(db: Session):
+    try:
+        if not inspect(db.bind).has_table("service_transactions"):
+            raise HTTPException(
+                status_code=503,
+                detail="Services database is not ready yet. Enable AUTO_CREATE_TABLES=true once and redeploy to create required tables.",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Services database is not ready yet.")
+
+
+def _fetch_exam_packages(provider, exam_key: str) -> list[dict]:
+    fetcher = getattr(provider, "fetch_exam_packages", None)
+    if not callable(fetcher):
+        return []
+    try:
+        raw = fetcher(exam_key) or []
+    except Exception:
+        return []
+    packages: list[dict] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code") or row.get("exam_type") or row.get("id") or "").strip()
+        if not code:
+            continue
+        name = str(row.get("name") or row.get("description") or code).strip()
+        amount_raw = row.get("amount")
+        try:
+            amount = float(amount_raw) if amount_raw not in (None, "") else None
+        except Exception:
+            amount = None
+        packages.append({"code": code, "name": name or code, "amount": amount, "exam": exam_key})
+    return packages
+
+
+@router.get("/catalog", response_model=ServicesCatalogOut)
+def services_catalog(user: User = Depends(get_current_user)):
+    # Keep it simple: a UI-ready catalog. Real providers can replace this later.
+    return {
+        "airtime_networks": ["mtn", "glo", "airtel", "9mobile"],
+        "cable_providers": [
+            {"id": "dstv", "name": "DStv"},
+            {"id": "gotv", "name": "GOtv"},
+            {"id": "startimes", "name": "StarTimes"},
+            {"id": "showmax", "name": "Showmax"},
+        ],
+        "electricity_discos": [
+            "ikeja",
+            "eko",
+            "abuja",
+            "kano",
+            "ibadan",
+            "enugu",
+            "portharcourt",
+            "kaduna",
+            "benin",
+            "aba",
+        ],
+        "exam_types": ["waec", "neco", "jamb"],
+    }
+
+
+@router.get("/exam/packages")
+def exam_packages(exam: str, user: User = Depends(get_current_user)):
+    exam_key = str(exam or "").strip().lower()
+    if exam_key not in {"waec", "jamb"}:
+        raise HTTPException(status_code=400, detail="Exam must be one of: waec, jamb")
+    provider = get_bills_provider()
+    packages = _fetch_exam_packages(provider, exam_key)
+    if not packages:
+        raise HTTPException(status_code=503, detail=f"Unable to load {exam_key.upper()} packages right now.")
+    return {"exam": exam_key, "packages": packages}
+
+
+@router.post("/airtime/purchase")
+@limiter.limit("5/minute")
+def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _ensure_service_table(db)
+    wallet = get_or_create_wallet(db, user.id)
+    base_amount = Decimal(payload.amount)
+    charge_amount, margin = get_service_charge_for_user(
+        db,
+        tx_type=TransactionType.AIRTIME.value,
+        provider=payload.network,
+        base_amount=base_amount,
+        user_role=user.role,
+    )
+    if charge_amount <= 0:
+        raise HTTPException(status_code=400, detail="Final amount must be greater than zero")
+    selected_network = str(payload.network or "").strip().lower()
+    inferred_network = _infer_nigeria_network(payload.phone_number)
+    if inferred_network and inferred_network != selected_network:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Phone number appears to be {inferred_network.upper()}. "
+                f"Selected network {selected_network.upper()} does not match."
+            ),
+        )
+    enforce_purchase_limits(db, user_id=user.id, amount=charge_amount, tx_type=TransactionType.AIRTIME.value)
+    if Decimal(wallet.balance) < charge_amount:
+        raise HTTPException(status_code=400, detail="Insufficient balance")
+
+    reference = _client_request_reference("AIRTIME", user.id, getattr(payload, "client_request_id", None)) or _ref("AIRTIME")
+    existing = db.query(ServiceTransaction).filter(ServiceTransaction.user_id == user.id, ServiceTransaction.reference == reference).first()
+    if existing:
+        return {"reference": existing.reference, "status": existing.status, "message": existing.failure_reason or ""}
+    # 1. DEBIT WALLET
+    try:
+        debit_wallet(db, wallet, charge_amount, reference, "Airtime purchase")
+    except Exception as e:
+        logger.error(f"Wallet debit failed: {e}")
+        raise HTTPException(status_code=400, detail="Wallet debit failed.")
+
+    # 2. CREATE PENDING TRANSACTION
+    tx = ServiceTransaction(
+        user_id=user.id,
+        reference=reference,
+        tx_type=TransactionType.AIRTIME.value,
+        amount=charge_amount,
+        status=TransactionStatus.PENDING.value,
+        provider=payload.network.strip().lower(),
+        customer=payload.phone_number.strip(),
+        meta={
+            "network": payload.network.strip().lower(),
+            "phone_number": payload.phone_number.strip(),
+            "base_amount": str(base_amount),
+            "margin_applied": str(margin),
+            "charge_amount": str(charge_amount),
+        },
+    )
+    db.add(tx)
+    db.commit()
+    db.refresh(tx)
+
+    tx_id = tx.id
+    user_id = user.id
+    fcm_token = user.fcm_token
+    db.close()
+
+    provider = get_bills_provider()
+    try:
+        result = provider.purchase_airtime(tx.provider or "", tx.customer or "", float(base_amount))
+    except Exception as exc:
+        from app.core.database import SessionLocal
+        db2 = SessionLocal()
+        try:
+            tx = db2.query(ServiceTransaction).get(tx_id)
+            wallet = get_or_create_wallet(db2, user_id)
+            if _is_transport_error(exc):
+                logger.warning("Airtime provider confirmation delayed ref=%s error=%s", reference, exc)
+                _mark_pending_confirmation(db2, tx, {"provider_error": str(exc)})
+                return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE}
+            logger.exception("Airtime purchase failed with non-transport provider error ref=%s", reference)
+            tx.failure_reason = str(exc) or "Provider failed"
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase")
+            tx.status = TransactionStatus.REFUNDED.value
+            db2.commit()
+            raise HTTPException(status_code=502, detail=tx.failure_reason)
+        finally:
+            db2.close()
+
+    from app.core.database import SessionLocal
+    db2 = SessionLocal()
+    try:
+        tx = db2.query(ServiceTransaction).get(tx_id)
+        wallet = get_or_create_wallet(db2, user_id)
+        
+        provider_status = _provider_status(result)
+        if provider_status in _PROVIDER_PENDING_STATUS:
+            tx.status = TransactionStatus.PENDING.value
+            tx.external_reference = result.external_reference
+            if result.meta:
+                tx.meta = {**(tx.meta or {}), **result.meta}
+            tx.failure_reason = result.message or _PENDING_CONFIRMATION_MESSAGE
+            db2.commit()
+            return {"reference": reference, "status": tx.status, "message": tx.failure_reason}
+        if result.success:
+            tx.status = TransactionStatus.SUCCESS.value
+            tx.external_reference = result.external_reference
+            if result.meta:
+                tx.meta = {**(tx.meta or {}), **result.meta}
+            db2.commit()
+            if fcm_token:
+                try:
+                    from app.services.push_notification import PushNotificationService
+                    PushNotificationService.send_to_token(
+                        token=fcm_token,
+                        title="Airtime Purchase Successful",
+                        body=f"Your purchase of ₦{float(base_amount)} {payload.network.upper()} airtime for {payload.phone_number} was successful.",
+                        data={"type": "transaction", "reference": reference, "status": "success"}
+                    )
+                except Exception as e:
+                    logger.warning("Failed to send push notification: %s", e)
+            return {"reference": reference, "status": tx.status}
+
+        tx.failure_reason = result.message or "Provider failed"
+        if result.meta:
+            tx.meta = {**(tx.meta or {}), **result.meta}
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase")
+        tx.status = TransactionStatus.REFUNDED.value
+        db2.commit()
+        if fcm_token:
+            try:
+                from app.services.push_notification import PushNotificationService
+                PushNotificationService.send_to_token(
+                    token=fcm_token,
+                    title="Airtime Purchase Failed",
+                    body=f"Your purchase of ₦{float(base_amount)} {payload.network.upper()} airtime for {payload.phone_number} failed. A refund of ₦{float(charge_amount)} has been credited to your wallet.",
+                    data={"type": "transaction", "reference": reference, "status": "refunded"}
+                )
+            except Exception as e:
+                logger.warning("Failed to send push notification: %s", e)
+        raise HTTPException(status_code=502, detail=tx.failure_reason)
+    finally:
+        db2.close()
+
+
+@router.post("/cable/purchase")
+@limiter.limit("5/minute")
+def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _ensure_service_table(db)
+    wallet = get_or_create_wallet(db, user.id)
+    base_amount = Decimal(payload.amount)
+    charge_amount, margin = get_service_charge_for_user(
+        db,
+        tx_type=TransactionType.CABLE.value,
+        provider=payload.provider,
+        base_amount=base_amount,
+        user_role=user.role,
+    )
+    if charge_amount <= 0:
+        raise HTTPException(status_code=400, detail="Final amount must be greater than zero")
+    enforce_purchase_limits(db, user_id=user.id, amount=charge_amount, tx_type=TransactionType.CABLE.value)
+    if Decimal(wallet.balance) < charge_amount:
+        raise HTTPException(status_code=400, detail="Insufficient balance")
+
+    reference = _client_request_reference("CABLE", user.id, getattr(payload, "client_request_id", None)) or _ref("CABLE")
+    existing = db.query(ServiceTransaction).filter(ServiceTransaction.user_id == user.id, ServiceTransaction.reference == reference).first()
+    if existing:
+        return {"reference": existing.reference, "status": existing.status, "message": existing.failure_reason or ""}
+    # 1. DEBIT WALLET
+    try:
+        debit_wallet(db, wallet, charge_amount, reference, "Cable subscription")
+    except Exception as e:
+        logger.error(f"Wallet debit failed: {e}")
+        raise HTTPException(status_code=400, detail="Wallet debit failed.")
+
+    # 2. CREATE PENDING TRANSACTION
+    tx = ServiceTransaction(
+        user_id=user.id,
+        reference=reference,
+        tx_type=TransactionType.CABLE.value,
+        amount=charge_amount,
+        status=TransactionStatus.PENDING.value,
+        provider=payload.provider.strip().lower(),
+        customer=payload.smartcard_number.strip(),
+        product_code=payload.package_code.strip(),
+        meta={
+            "provider": payload.provider.strip().lower(),
+            "smartcard_number": payload.smartcard_number.strip(),
+            "phone_number": payload.phone_number.strip(),
+            "package_code": payload.package_code.strip(),
+            "base_amount": str(base_amount),
+            "margin_applied": str(margin),
+            "charge_amount": str(charge_amount),
+            "customer_name": payload.customer_name.strip() if getattr(payload, "customer_name", None) else None,
+        },
+    )
+    db.add(tx)
+    db.commit()
+    db.refresh(tx)
+
+    tx_id = tx.id
+    user_id = user.id
+    fcm_token = user.fcm_token
+    db.close()
+
+    provider = get_bills_provider()
+    try:
+        result = provider.purchase_cable(
+            tx.provider or "",
+            tx.customer or "",
+            tx.product_code or "",
+            float(base_amount),
+            payload.phone_number.strip(),
+        )
+    except Exception as exc:
+        from app.core.database import SessionLocal
+        db2 = SessionLocal()
+        try:
+            tx = db2.query(ServiceTransaction).get(tx_id)
+            wallet = get_or_create_wallet(db2, user_id)
+            if _is_transport_error(exc):
+                logger.warning("Cable provider confirmation delayed ref=%s error=%s", reference, exc)
+                _mark_pending_confirmation(db2, tx, {"provider_error": str(exc)})
+                return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE}
+            logger.exception("Cable purchase failed with non-transport provider error ref=%s", reference)
+            tx.failure_reason = str(exc) or "Provider failed"
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase")
+            tx.status = TransactionStatus.REFUNDED.value
+            db2.commit()
+            raise HTTPException(status_code=502, detail=tx.failure_reason)
+        finally:
+            db2.close()
+
+    from app.core.database import SessionLocal
+    db2 = SessionLocal()
+    try:
+        tx = db2.query(ServiceTransaction).get(tx_id)
+        wallet = get_or_create_wallet(db2, user_id)
+
+        provider_status = _provider_status(result)
+        if provider_status in _PROVIDER_PENDING_STATUS:
+            tx.status = TransactionStatus.PENDING.value
+            tx.external_reference = result.external_reference
+            if result.meta:
+                tx.meta = {**(tx.meta or {}), **result.meta}
+            tx.failure_reason = result.message or _PENDING_CONFIRMATION_MESSAGE
+            db2.commit()
+            return {"reference": reference, "status": tx.status, "message": tx.failure_reason}
+        if result.success:
+            tx.status = TransactionStatus.SUCCESS.value
+            tx.external_reference = result.external_reference
+            if result.meta:
+                tx.meta = {**(tx.meta or {}), **result.meta}
+            db2.commit()
+            if fcm_token:
+                try:
+                    from app.services.push_notification import PushNotificationService
+                    PushNotificationService.send_to_token(
+                        token=fcm_token,
+                        title="Cable Subscription Successful",
+                        body=f"Your subscription of {payload.package_code} for {payload.provider.upper()} ({payload.smartcard_number}) was successful.",
+                        data={"type": "transaction", "reference": reference, "status": "success"}
+                    )
+                except Exception as e:
+                    logger.warning("Failed to send push notification: %s", e)
+            return {"reference": reference, "status": tx.status}
+
+        tx.failure_reason = result.message or "Provider failed"
+        if result.meta:
+            tx.meta = {**(tx.meta or {}), **result.meta}
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase")
+        tx.status = TransactionStatus.REFUNDED.value
+        db2.commit()
+        if fcm_token:
+            try:
+                from app.services.push_notification import PushNotificationService
+                PushNotificationService.send_to_token(
+                    token=fcm_token,
+                    title="Cable Subscription Failed",
+                    body=f"Your subscription of {payload.package_code} for {payload.provider.upper()} failed. A refund of ₦{float(charge_amount)} has been credited to your wallet.",
+                    data={"type": "transaction", "reference": reference, "status": "refunded"}
+                )
+            except Exception as e:
+                logger.warning("Failed to send push notification: %s", e)
+        raise HTTPException(status_code=502, detail=tx.failure_reason)
+    finally:
+        db2.close()
+
+
+@router.get("/cable/packages")
+def cable_packages(provider: str, user: User = Depends(get_current_user)):
+    provider_key = str(provider or "").strip().lower()
+    if not provider_key:
+        raise HTTPException(status_code=400, detail="Provider is required.")
+    service = get_bills_provider()
+    fetcher = getattr(service, "fetch_cable_packages", None)
+    if not callable(fetcher):
+        return {"provider": provider_key, "packages": []}
+    try:
+        rows = fetcher(provider_key) or []
+    except Exception as exc:
+        logger.warning("Cable packages fetch failed provider=%s error=%s", provider_key, exc)
+        return {"provider": provider_key, "packages": []}
+    normalized = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code") or "").strip()
+        if not code:
+            continue
+        name = str(row.get("name") or code).strip()
+        amount_raw = row.get("amount")
+        try:
+            amount = float(amount_raw) if amount_raw not in (None, "") else None
+        except Exception:
+            amount = None
+        normalized.append(
+            {
+                "code": code,
+                "name": name or code,
+                "amount": amount,
+                "provider": str(row.get("provider") or provider_key).strip().lower(),
+            }
+        )
+    return {"provider": provider_key, "packages": normalized}
+
+
+@router.post("/cable/verify")
+@limiter.limit("15/minute")
+def cable_verify(
+    request: Request,
+    payload: CableVerifyRequest,
+    user: User = Depends(get_current_user),
+):
+    provider_key = str(payload.provider or "").strip().lower()
+    smartcard = str(payload.smartcard_number or "").strip()
+    if not provider_key or not smartcard:
+        raise HTTPException(status_code=400, detail="Provider and smartcard number are required.")
+    service = get_bills_provider()
+    verifier = getattr(service, "verify_cable_customer", None)
+    if not callable(verifier):
+        return {"ok": False, "message": "Smartcard verification is unavailable right now."}
+    try:
+        result = verifier(provider_key, smartcard) or {}
+    except Exception as exc:
+        logger.warning("Cable verify failed provider=%s smartcard=%s error=%s", provider_key, smartcard[-4:], exc)
+        return {"ok": False, "message": "Unable to verify smartcard right now."}
+    ok = bool(result.get("ok"))
+    return {
+        "ok": ok,
+        "customer_name": str(result.get("customer_name") or "").strip() if ok else "",
+        "message": "" if ok else str(result.get("message") or "Unable to verify smartcard number.").strip(),
+    }
+
+
+@router.post("/electricity/purchase")
+@limiter.limit("5/minute")
+def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _ensure_service_table(db)
+    disco = str(payload.disco or "").strip().lower()
+    if disco in {"yola", "yedc"}:
+        raise HTTPException(status_code=400, detail="Yola Electricity subscription is temporarily unavailable.")
+    wallet = get_or_create_wallet(db, user.id)
+    base_amount = Decimal(payload.amount)
+    charge_amount, margin = get_service_charge_for_user(
+        db,
+        tx_type=TransactionType.ELECTRICITY.value,
+        provider=payload.disco,
+        base_amount=base_amount,
+        user_role=user.role,
+    )
+    if charge_amount <= 0:
+        raise HTTPException(status_code=400, detail="Final amount must be greater than zero")
+    enforce_purchase_limits(db, user_id=user.id, amount=charge_amount, tx_type=TransactionType.ELECTRICITY.value)
+    if Decimal(wallet.balance) < charge_amount:
+        raise HTTPException(status_code=400, detail="Insufficient balance")
+
+    reference = _client_request_reference("ELECTRICITY", user.id, getattr(payload, "client_request_id", None)) or _ref("ELECTRICITY")
+    existing = db.query(ServiceTransaction).filter(ServiceTransaction.user_id == user.id, ServiceTransaction.reference == reference).first()
+    if existing:
+        return {"reference": existing.reference, "status": existing.status, "message": existing.failure_reason or "", "token": (existing.meta or {}).get("token")}
+    # 1. DEBIT WALLET
+    try:
+        debit_wallet(db, wallet, charge_amount, reference, "Electricity purchase")
+    except Exception as e:
+        logger.error(f"Wallet debit failed: {e}")
+        raise HTTPException(status_code=400, detail="Wallet debit failed.")
+
+    # 2. CREATE PENDING TRANSACTION
+    tx = ServiceTransaction(
+        user_id=user.id,
+        reference=reference,
+        tx_type=TransactionType.ELECTRICITY.value,
+        amount=charge_amount,
+        status=TransactionStatus.PENDING.value,
+        provider=payload.disco.strip().lower(),
+        customer=payload.meter_number.strip(),
+        product_code=payload.meter_type.strip().lower(),
+        meta={
+            "disco": payload.disco.strip().lower(),
+            "meter_number": payload.meter_number.strip(),
+            "meter_type": payload.meter_type.strip().lower(),
+            "phone_number": payload.phone_number.strip(),
+            "base_amount": str(base_amount),
+            "margin_applied": str(margin),
+            "charge_amount": str(charge_amount),
+        },
+    )
+    db.add(tx)
+    db.commit()
+    db.refresh(tx)
+
+    tx_id = tx.id
+    user_id = user.id
+    fcm_token = user.fcm_token
+    db.close()
+
+    provider = get_bills_provider()
+    try:
+        result = provider.purchase_electricity(
+            tx.provider or "",
+            tx.customer or "",
+            tx.product_code or "",
+            float(base_amount),
+            payload.phone_number.strip(),
+        )
+    except Exception as exc:
+        from app.core.database import SessionLocal
+        db2 = SessionLocal()
+        try:
+            tx = db2.query(ServiceTransaction).get(tx_id)
+            wallet = get_or_create_wallet(db2, user_id)
+            if _is_transport_error(exc):
+                logger.warning("Electricity provider confirmation delayed ref=%s error=%s", reference, exc)
+                _mark_pending_confirmation(db2, tx, {"provider_error": str(exc)})
+                return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE, "token": (tx.meta or {}).get("token")}
+            logger.exception("Electricity purchase failed with non-transport provider error ref=%s", reference)
+            tx.failure_reason = str(exc) or "Provider failed"
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase")
+            tx.status = TransactionStatus.REFUNDED.value
+            db2.commit()
+            raise HTTPException(status_code=502, detail=tx.failure_reason)
+        finally:
+            db2.close()
+
+    from app.core.database import SessionLocal
+    db2 = SessionLocal()
+    try:
+        tx = db2.query(ServiceTransaction).get(tx_id)
+        wallet = get_or_create_wallet(db2, user_id)
+
+        provider_status = _provider_status(result)
+        if provider_status in _PROVIDER_PENDING_STATUS:
+            tx.status = TransactionStatus.PENDING.value
+            tx.external_reference = result.external_reference
+            if result.meta:
+                tx.meta = {**(tx.meta or {}), **result.meta}
+            tx.failure_reason = result.message or _PENDING_CONFIRMATION_MESSAGE
+            db2.commit()
+            return {"reference": reference, "status": tx.status, "token": (tx.meta or {}).get("token"), "message": tx.failure_reason}
+        if result.success:
+            tx.status = TransactionStatus.SUCCESS.value
+            tx.external_reference = result.external_reference
+            if result.meta:
+                tx.meta = {**(tx.meta or {}), **result.meta}
+            db2.commit()
+            if fcm_token:
+                try:
+                    from app.services.push_notification import PushNotificationService
+                    token_str = (tx.meta or {}).get("token") or ""
+                    body_msg = f"Your purchase of ₦{float(base_amount)} electricity for meter {payload.meter_number} was successful."
+                    if token_str:
+                        body_msg += f" Token: {token_str}"
+                    PushNotificationService.send_to_token(
+                        token=fcm_token,
+                        title="Electricity Purchase Successful",
+                        body=body_msg,
+                        data={"type": "transaction", "reference": reference, "status": "success"}
+                    )
+                except Exception as e:
+                    logger.warning("Failed to send push notification: %s", e)
+            return {"reference": reference, "status": tx.status, "token": (tx.meta or {}).get("token")}
+
+        tx.failure_reason = result.message or "Provider failed"
+        if result.meta:
+            tx.meta = {**(tx.meta or {}), **result.meta}
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase")
+        tx.status = TransactionStatus.REFUNDED.value
+        db2.commit()
+        if fcm_token:
+            try:
+                from app.services.push_notification import PushNotificationService
+                PushNotificationService.send_to_token(
+                    token=fcm_token,
+                    title="Electricity Purchase Failed",
+                    body=f"Your purchase of ₦{float(base_amount)} electricity for meter {payload.meter_number} failed. A refund of ₦{float(charge_amount)} has been credited to your wallet.",
+                    data={"type": "transaction", "reference": reference, "status": "refunded"}
+                )
+            except Exception as e:
+                logger.warning("Failed to send push notification: %s", e)
+        raise HTTPException(status_code=502, detail=tx.failure_reason)
+    finally:
+        db2.close()
+
+
+@router.get("/electricity/discos")
+def electricity_discos(user: User = Depends(get_current_user)):
+    service = get_bills_provider()
+    fetcher = getattr(service, "fetch_electricity_discos", None)
+    if not callable(fetcher):
+        return {
+            "discos": [
+                {"code": "01", "id": "ekedc", "name": "EKEDC"},
+                {"code": "02", "id": "ikedc", "name": "IKEDC"},
+                {"code": "03", "id": "aedc", "name": "AEDC"},
+                {"code": "04", "id": "kedco", "name": "KEDCO"},
+                {"code": "05", "id": "phed", "name": "PHED"},
+                {"code": "06", "id": "jos", "name": "JED"},
+                {"code": "07", "id": "ibedc", "name": "IBEDC"},
+                {"code": "08", "id": "kaedco", "name": "KAEDCO"},
+                {"code": "09", "id": "eedc", "name": "EEDC"},
+                {"code": "10", "id": "bedc", "name": "BEDC"},
+                {"code": "12", "id": "aple", "name": "APLE"},
+            ]
+        }
+    try:
+        rows = fetcher() or []
+    except Exception as exc:
+        logger.warning("Electricity discos fetch failed error=%s", exc)
+        rows = []
+    normalized = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code") or row.get("id") or "").strip()
+        disco_id = str(row.get("id") or "").strip().lower()
+        if disco_id in {"yola", "yedc"}:
+            continue
+        name = str(row.get("name") or disco_id or code).strip()
+        if not disco_id and name:
+            disco_id = name.lower().replace(" ", "")
+        if not disco_id or disco_id in {"yola", "yedc"}:
+            continue
+        normalized.append({"code": code, "id": disco_id, "name": name or disco_id.upper()})
+    if not normalized:
+        normalized = [
+            {"code": "01", "id": "ekedc", "name": "EKEDC"},
+            {"code": "02", "id": "ikedc", "name": "IKEDC"},
+            {"code": "03", "id": "aedc", "name": "AEDC"},
+            {"code": "04", "id": "kedco", "name": "KEDCO"},
+            {"code": "05", "id": "phed", "name": "PHED"},
+            {"code": "06", "id": "jos", "name": "JED"},
+            {"code": "07", "id": "ibedc", "name": "IBEDC"},
+            {"code": "08", "id": "kaedco", "name": "KAEDCO"},
+            {"code": "09", "id": "eedc", "name": "EEDC"},
+            {"code": "10", "id": "bedc", "name": "BEDC"},
+            {"code": "12", "id": "aple", "name": "APLE"},
+        ]
+    return {"discos": normalized}
+
+
+@router.post("/electricity/verify")
+@router.post("/electricity/verify-meter")
+@limiter.limit("15/minute")
+def electricity_verify(request: Request, payload: ElectricityVerifyRequest, user: User = Depends(get_current_user)):
+    disco = str(payload.disco or "").strip().lower()
+    if disco in {"yola", "yedc"}:
+        raise HTTPException(status_code=400, detail="Yola Electricity verification is temporarily unavailable.")
+    meter_number = str(payload.meter_number or "").strip()
+    meter_type = str(payload.meter_type or "").strip().lower()
+    if not disco or not meter_number or not meter_type:
+        raise HTTPException(status_code=400, detail="Disco, meter type, and meter number are required.")
+
+    service = get_bills_provider()
+    verifier = getattr(service, "verify_electricity_customer", None)
+    if not callable(verifier):
+        return {"ok": False, "message": "Meter verification is unavailable right now."}
+    try:
+        result = verifier(disco, meter_number, meter_type) or {}
+    except Exception as exc:
+        logger.warning("Electricity verify failed disco=%s meter=%s error=%s", disco, meter_number[-4:], exc)
+        return {"ok": False, "message": "Unable to verify meter number right now."}
+    ok = bool(result.get("ok"))
+    return {
+        "ok": ok,
+        "customer_name": str(result.get("customer_name") or "").strip() if ok else "",
+        "message": "" if ok else str(result.get("message") or "Unable to verify meter number.").strip(),
+    }
+
+
+@router.post("/exam/purchase")
+@limiter.limit("5/minute")
+def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _ensure_service_table(db)
+    exam_key = str(payload.exam or "").strip().lower()
+    if exam_key not in {"waec", "jamb"}:
+        raise HTTPException(status_code=400, detail="Exam must be WAEC or JAMB")
+
+    provider = get_bills_provider()
+    selected_exam_type = str(payload.exam_type or "").strip()
+    packages = _fetch_exam_packages(provider, exam_key)
+    if not selected_exam_type and packages:
+        selected_exam_type = str(packages[0].get("code") or "").strip()
+    if not selected_exam_type:
+        raise HTTPException(status_code=400, detail="Select a package before purchase.")
+    selected_package = next((item for item in packages if str(item.get("code")) == selected_exam_type), None)
+    if not selected_package:
+        raise HTTPException(status_code=400, detail="Selected package is unavailable. Refresh and try again.")
+    package_amount = selected_package.get("amount")
+    if package_amount in (None, ""):
+        raise HTTPException(status_code=503, detail="Package amount is unavailable right now.")
+    unit_price = Decimal(str(package_amount))
+    base_total_amount = unit_price * Decimal(int(payload.quantity or 1))
+    charge_amount, margin = get_service_charge_for_user(
+        db,
+        tx_type=TransactionType.EXAM.value,
+        provider=exam_key,
+        base_amount=base_total_amount,
+        user_role=user.role,
+    )
+    if charge_amount <= 0:
+        raise HTTPException(status_code=400, detail="Final amount must be greater than zero")
+    enforce_purchase_limits(db, user_id=user.id, amount=charge_amount, tx_type=TransactionType.EXAM.value)
+
+    wallet = get_or_create_wallet(db, user.id)
+    if Decimal(wallet.balance) < charge_amount:
+        raise HTTPException(status_code=400, detail="Insufficient balance")
+
+    reference = _client_request_reference("EXAM", user.id, getattr(payload, "client_request_id", None)) or _ref("EXAM")
+    existing = db.query(ServiceTransaction).filter(ServiceTransaction.user_id == user.id, ServiceTransaction.reference == reference).first()
+    if existing:
+        return {"reference": existing.reference, "status": existing.status, "message": existing.failure_reason or "", "pins": (existing.meta or {}).get("pins", [])}
+    # 1. DEBIT WALLET
+    try:
+        debit_wallet(db, wallet, charge_amount, reference, "Exam pin purchase")
+    except Exception as e:
+        logger.error(f"Wallet debit failed: {e}")
+        raise HTTPException(status_code=400, detail="Wallet debit failed.")
+
+    # 2. CREATE PENDING TRANSACTION
+    tx = ServiceTransaction(
+        user_id=user.id,
+        reference=reference,
+        tx_type=TransactionType.EXAM.value,
+        amount=charge_amount,
+        status=TransactionStatus.PENDING.value,
+        provider=exam_key,
+        customer=(payload.phone_number or "").strip() or None,
+        product_code=str(int(payload.quantity or 1)),
+        meta={
+            "exam": exam_key,
+            "exam_type": selected_exam_type,
+            "exam_type_name": str(selected_package.get("name") or selected_exam_type),
+            "quantity": int(payload.quantity or 1),
+            "phone_number": (payload.phone_number or "").strip() or None,
+            "unit_price": str(unit_price),
+            "base_amount": str(base_total_amount),
+            "margin_applied": str(margin),
+            "charge_amount": str(charge_amount),
+        },
+    )
+    db.add(tx)
+    db.commit()
+    db.refresh(tx)
+
+    tx_id = tx.id
+    user_id = user.id
+    fcm_token = user.fcm_token
+    db.close()
+
+    try:
+        result = provider.purchase_exam_pin(
+            tx.provider or "",
+            int(payload.quantity or 1),
+            tx.customer,
+            selected_exam_type,
+        )
+    except Exception as exc:
+        from app.core.database import SessionLocal
+        db2 = SessionLocal()
+        try:
+            tx = db2.query(ServiceTransaction).get(tx_id)
+            wallet = get_or_create_wallet(db2, user_id)
+            if _is_transport_error(exc):
+                logger.warning("Exam provider confirmation delayed ref=%s error=%s", reference, exc)
+                _mark_pending_confirmation(db2, tx, {"provider_error": str(exc)})
+                return {"reference": reference, "status": tx.status, "pins": (tx.meta or {}).get("pins", []), "message": _PENDING_CONFIRMATION_MESSAGE}
+            logger.exception("Exam purchase failed with non-transport provider error ref=%s", reference)
+            tx.failure_reason = str(exc) or "Provider failed"
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase")
+            tx.status = TransactionStatus.REFUNDED.value
+            db2.commit()
+            raise HTTPException(status_code=502, detail=tx.failure_reason)
+        finally:
+            db2.close()
+
+    from app.core.database import SessionLocal
+    db2 = SessionLocal()
+    try:
+        tx = db2.query(ServiceTransaction).get(tx_id)
+        wallet = get_or_create_wallet(db2, user_id)
+
+        provider_status = _provider_status(result)
+        if provider_status in _PROVIDER_PENDING_STATUS:
+            tx.status = TransactionStatus.PENDING.value
+            tx.external_reference = result.external_reference
+            if result.meta:
+                tx.meta = {**(tx.meta or {}), **result.meta}
+            tx.failure_reason = result.message or _PENDING_CONFIRMATION_MESSAGE
+            db2.commit()
+            return {"reference": reference, "status": tx.status, "pins": (tx.meta or {}).get("pins", []), "message": tx.failure_reason}
+        if result.success:
+            tx.status = TransactionStatus.SUCCESS.value
+            tx.external_reference = result.external_reference
+            if result.meta:
+                tx.meta = {**(tx.meta or {}), **result.meta}
+            db2.commit()
+            if fcm_token:
+                try:
+                    from app.services.push_notification import PushNotificationService
+                    pins = (tx.meta or {}).get("pins") or []
+                    body_msg = f"Your purchase of {payload.quantity} {payload.exam.upper()} PIN(s) was successful."
+                    if pins:
+                        body_msg += f" PINs: {', '.join(pins)}"
+                    PushNotificationService.send_to_token(
+                        token=fcm_token,
+                        title="Exam PIN Purchase Successful",
+                        body=body_msg,
+                        data={"type": "transaction", "reference": reference, "status": "success"}
+                    )
+                except Exception as e:
+                    logger.warning("Failed to send push notification: %s", e)
+            return {"reference": reference, "status": tx.status, "pins": (tx.meta or {}).get("pins", [])}
+
+        tx.failure_reason = result.message or "Provider failed"
+        if result.meta:
+            tx.meta = {**(tx.meta or {}), **result.meta}
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase")
+        tx.status = TransactionStatus.REFUNDED.value
+        db2.commit()
+        if fcm_token:
+            try:
+                from app.services.push_notification import PushNotificationService
+                PushNotificationService.send_to_token(
+                    token=fcm_token,
+                    title="Exam PIN Purchase Failed",
+                    body=f"Your purchase of {payload.quantity} {payload.exam.upper()} PIN(s) failed. A refund of ₦{float(charge_amount)} has been credited to your wallet.",
+                    data={"type": "transaction", "reference": reference, "status": "refunded"}
+                )
+            except Exception as e:
+                logger.warning("Failed to send push notification: %s", e)
+        raise HTTPException(status_code=502, detail=tx.failure_reason)
+    finally:
+        db2.close()
