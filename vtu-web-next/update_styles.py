@@ -1,0 +1,215 @@
+import os
+
+globals_css = """@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 220 30% 96%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --muted: 220 20% 92%;
+  --muted-foreground: 215 22% 40%;
+  --border: 214 24% 86%;
+  --input: 214 24% 86%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 20% 92%;
+  --secondary-foreground: 222 47% 14%;
+  --accent: 221 83% 53%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --bg: var(--background);
+  --surface: var(--secondary);
+  --panel: var(--card);
+  --text: var(--foreground);
+}
+
+.dark {
+  --background: 222 47% 4%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 6%;
+  --card-foreground: 210 40% 98%;
+  --muted: 217 33% 12%;
+  --muted-foreground: 215 20% 65%;
+  --border: 217 33% 15%;
+  --input: 217 33% 15%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 222 47% 4%;
+  --secondary: 217 33% 12%;
+  --secondary-foreground: 210 40% 98%;
+  --accent: 217 91% 60%;
+  --accent-foreground: 222 47% 4%;
+  --destructive: 0 63% 46%;
+  --destructive-foreground: 0 0% 100%;
+}
+
+.light {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+html {
+  background: hsl(var(--background));
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+@keyframes axis-fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes axis-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes axis-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@layer components {
+  .axis-shell {
+    @apply min-h-screen bg-background text-foreground transition-colors duration-300;
+  }
+  .axis-grid-bg {
+    background-image: linear-gradient(hsl(var(--border) / 0.3) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border) / 0.3) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .axis-panel {
+    @apply rounded-3xl border border-border/50 bg-card/80 text-card-foreground shadow-soft backdrop-blur-2xl transition-all duration-300;
+  }
+  .axis-panel-soft {
+    @apply rounded-3xl border border-border/30 bg-secondary/70 text-secondary-foreground shadow-soft backdrop-blur-xl transition-all duration-300;
+  }
+  .axis-label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80;
+  }
+  .axis-metric {
+    @apply text-2xl font-bold tracking-tight text-foreground md:text-3xl;
+  }
+  .axis-muted {
+    @apply text-sm leading-6 text-muted-foreground;
+  }
+  .animate-fade-up { animation: axis-fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-rise { animation: axis-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-fade-in { animation: axis-fade-in 0.6s ease both; }
+  .animate-card-up { animation: axis-fade-up 0.65s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  
+  .delay-1 { animation-delay: 90ms; }
+  .delay-2 { animation-delay: 180ms; }
+  .delay-3 { animation-delay: 270ms; }
+  .delay-4 { animation-delay: 360ms; }
+  .delay-5 { animation-delay: 450ms; }
+}
+"""
+
+tailwind_config = """/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: ['class'],
+  content: [
+    './src/app/**/*.{js,jsx,ts,tsx}',
+    './src/components/**/*.{js,jsx,ts,tsx}',
+    './src/lib/**/*.{js,jsx,ts,tsx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        bg: 'hsl(var(--bg))',
+        surface: 'hsl(var(--surface))',
+        panel: 'hsl(var(--panel))',
+        text: 'hsl(var(--text))',
+        accent: {
+          DEFAULT: 'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        brand: {
+          50: '#eef6ff',
+          100: '#d9ecff',
+          200: '#bce0ff',
+          300: '#8fceff',
+          400: '#5bb1ff',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
+        },
+      },
+      boxShadow: {
+        soft: '0 20px 50px rgba(0, 0, 0, 0.08)',
+        panel: '0 24px 60px rgba(0, 0, 0, 0.12)',
+        glow: '0 0 40px rgba(59, 130, 246, 0.2)',
+      },
+      backgroundImage: {
+        'axis-radial': 'radial-gradient(circle at top, rgba(37,99,235,0.15), transparent 50%)',
+        'axis-grid': 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
+      },
+      backgroundSize: {
+        grid: '44px 44px',
+      },
+      borderRadius: {
+        xl2: '1.25rem',
+        xl3: '1.5rem',
+      },
+    },
+  },
+  plugins: [],
+};
+"""
+
+with open('/Users/mustaphamelemustapha/Code/client_vtu_app_standalone/vtu-web-next/src/app/globals.css', 'w') as f:
+    f.write(globals_css)
+
+with open('/Users/mustaphamelemustapha/Code/client_vtu_app_standalone/vtu-web-next/tailwind.config.js', 'w') as f:
+    f.write(tailwind_config)
+
+print("Updated globals.css and tailwind.config.js")

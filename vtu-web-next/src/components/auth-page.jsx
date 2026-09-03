@@ -198,7 +198,7 @@ export function AuthPage({ initialMode, refCode: presetRef }) {
             {/* Logo + heading */}
             <div className="text-center mb-7">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-800 ring-1 ring-slate-700">
-                <img src="/brand/mzdata-icon.png" alt="MZDATA" className="h-8 w-8 object-contain" />
+                <img src="/brand/mzdata-logo.jpg" alt="MZDATA" className="h-8 w-8 object-contain" />
               </div>
               <h1 className="text-[22px] font-semibold text-white tracking-[-0.02em]">
                 {isRegister ? 'Create your account' : 'Welcome back'}

@@ -189,7 +189,7 @@ export function AppShell({ children }) {
       <aside className="hidden border-r border-border bg-card p-5 text-card-foreground lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:overflow-y-auto">
         <Link href="/dashboard" className="flex items-center gap-3 rounded-2xl border border-border bg-secondary px-4 py-3">
           <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl bg-card ring-1 ring-border">
-            <img src="/brand/mzdata-icon.png" alt="MZDATA logo" className="h-full w-full object-contain" />
+            <img src="/brand/mzdata-logo.jpg" alt="MZDATA logo" className="h-full w-full object-contain" />
           </div>
           <div>
             <div className="text-sm font-semibold text-foreground">MZDATA</div>
@@ -374,7 +374,7 @@ export function AppShell({ children }) {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-card ring-1 ring-border">
-                        <img src="/brand/mzdata-icon.png" alt="MZDATA logo" className="h-full w-full object-contain" />
+                        <img src="/brand/mzdata-logo.jpg" alt="MZDATA logo" className="h-full w-full object-contain" />
                       </div>
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold tracking-tight text-foreground">MZDATA</div>

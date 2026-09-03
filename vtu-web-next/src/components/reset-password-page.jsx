@@ -69,7 +69,7 @@ export function ResetPasswordPage() {
         <Card className="w-full max-w-[420px] border border-border bg-card shadow-[0_8px_20px_rgba(0,0,0,0.14)] backdrop-blur-sm">
           <CardHeader className="space-y-3 px-6 pb-6 pt-8 text-center sm:px-7">
             <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-card ring-1 ring-border">
-              <img src="/brand/mzdata-icon.png" alt="MZDATA logo" className="h-full w-full object-contain" />
+              <img src="/brand/mzdata-logo.jpg" alt="MZDATA logo" className="h-full w-full object-contain" />
             </div>
             <CardTitle className="text-[1.6rem] font-semibold tracking-[-0.025em] text-foreground">
               Create New Password

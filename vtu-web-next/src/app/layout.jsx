@@ -10,9 +10,9 @@ export const metadata = {
   applicationName: 'MZDATA',
   metadataBase: new URL('https://mzdata.org'),
   icons: {
-    icon: '/brand/mzdata-icon.png',
-    shortcut: '/brand/mzdata-icon.png',
-    apple: '/brand/mzdata-icon.png',
+    icon: '/brand/mzdata-logo.jpg',
+    shortcut: '/brand/mzdata-logo.jpg',
+    apple: '/brand/mzdata-logo.jpg',
   },
 };
 

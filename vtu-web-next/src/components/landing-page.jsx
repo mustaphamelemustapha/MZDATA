@@ -144,7 +144,7 @@ const motionFadeUp = {
 function BrandLogo({ className = '' }) {
   return (
     <span className={`inline-flex items-center gap-2.5 ${className}`.trim()}>
-      <img src="/brand/mzdata-logo.png" alt="MZDATA logo" className="h-10 w-10 rounded-2xl object-contain" />
+      <img src="/brand/mzdata-logo.jpg" alt="MZDATA logo" className="h-10 w-10 rounded-2xl object-contain" />
       <span className="text-lg font-semibold tracking-tight text-foreground">MZDATA</span>
     </span>
   );
