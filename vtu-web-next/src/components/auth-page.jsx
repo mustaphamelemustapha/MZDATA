@@ -219,7 +219,7 @@ export function AuthPage({ initialMode, refCode: presetRef }) {
                       className={inputCls}
                       value={form.full_name}
                       onChange={set('full_name')}
-                      placeholder="e.g. Mustapha Mele"
+                      placeholder="e.g. John Doe"
                       autoComplete="name"
                       required
                     />
