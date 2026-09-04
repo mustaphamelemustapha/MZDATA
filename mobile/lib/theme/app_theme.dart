@@ -9,10 +9,10 @@ class AppTheme {
   static const _seed = Color(0xFF2457F5);
   static const _secondary = Color(0xFF14B8A6);
   static const _lightBg = Color(0xFFF8FAFC);
-  static const _darkBg = Color(0xFF0F172A); // Slate 900
-  static const _darkSurface = Color(0xFF1E293B); // Slate 800
+  static const _darkBg = Color(0xFF09090A);
+  static const _darkSurface = Color(0xFF121824);
   static const _lightSurfaceElevated = Colors.white;
-  static const _darkSurfaceSoft = Color(0xFF334155); // Slate 700
+  static const _darkSurfaceSoft = Color(0xFF1B2332);
 
   static ThemeData light() => _build(Brightness.light);
 
@@ -356,7 +356,7 @@ class AxisPalette extends ThemeExtension<AxisPalette> {
   );
 
   static const softBackgroundGradient = LinearGradient(
-    colors: [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F172A)],
+    colors: [Color(0xFF09090A), Color(0xFF121824), Color(0xFF09090A)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
