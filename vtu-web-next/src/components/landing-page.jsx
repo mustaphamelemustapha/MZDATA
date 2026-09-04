@@ -282,15 +282,18 @@ function Header() {
 
 function Hero() {
   return (
-    <section className="bg-background">
-      <div className="mx-auto grid max-w-7xl gap-12 px-4 pb-20 pt-14 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:pb-28 lg:pt-16">
-        <div className="flex flex-col justify-center">
+    <section className="bg-background relative overflow-hidden">
+      {/* Background Glow */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[400px] bg-primary/20 blur-[120px] rounded-full pointer-events-none" />
+      
+      <div className="relative mx-auto max-w-4xl px-4 pb-20 pt-20 sm:px-6 lg:px-8 lg:pb-32 lg:pt-24 text-center">
+        <div className="flex flex-col items-center justify-center">
           <motion.div
             variants={motionFadeUp}
             initial="hidden"
             animate="show"
             custom={0}
-            className="inline-flex w-fit items-center gap-2 rounded-full border border-blue-200 bg-card px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-primary shadow-sm"
+            className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-card/80 backdrop-blur-md px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-primary shadow-sm"
           >
             <Sparkles className="h-3.5 w-3.5" />
             MZDATA for everyday payments
@@ -301,7 +304,7 @@ function Hero() {
             initial="hidden"
             animate="show"
             custom={0.08}
-            className="mt-6 max-w-2xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl"
+            className="mt-8 max-w-3xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-7xl"
           >
             Buy Airtime, Data & Pay Bills in Seconds
           </motion.h1>
@@ -321,30 +324,30 @@ function Hero() {
             initial="hidden"
             animate="show"
             custom={0.24}
-            className="mt-8 flex flex-wrap gap-3 items-center"
+            className="mt-10 flex flex-wrap gap-4 items-center justify-center"
           >
-            <Button asChild className="h-12 rounded-full bg-primary px-6 text-base text-primary-foreground shadow-sm shadow-blue-200 hover:bg-primary/90">
+            <Button asChild className="h-14 rounded-full bg-primary px-8 text-lg text-primary-foreground shadow-md shadow-blue-500/20 hover:bg-primary/90 transition-all hover:scale-105">
               <Link href="/register">
                 Get Started
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight className="h-5 w-5 ml-2" />
               </Link>
             </Button>
-            <Button asChild variant="secondary" className="h-12 rounded-full border-border bg-card px-6 text-base text-muted-foreground hover:bg-secondary">
+            <Button asChild variant="secondary" className="h-14 rounded-full border-border bg-card/50 backdrop-blur-md px-8 text-lg text-muted-foreground hover:bg-secondary transition-all hover:scale-105">
               <Link href="/login">Log in</Link>
             </Button>
             <a
               href="https://play.google.com/store/apps/details?id=com.mmtech.mzdata&pcampaignid=web_share"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-12 items-center justify-center rounded-full border border-border bg-card px-5 hover:border-blue-300 hover:bg-secondary/40 transition duration-200"
+              className="inline-flex h-14 items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
             >
               <div className="flex items-center gap-2.5 text-left">
-                <svg className="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="currentColor">
+                <svg className="h-6 w-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M5.002 3c-.116 0-.23.018-.342.049L13.882 12 4.66 20.951c.112.03.226.049.342.049.278 0 .546-.076.784-.216l12.44-7.108c.556-.317.9-.9.9-1.547 0-.647-.344-1.23-.9-1.547L5.786 3.216a1.564 1.564 0 0 0-.784-.216zm-1.042.825V20.18L13.06 12 3.96 3.825z" />
                 </svg>
                 <div>
-                  <div className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground leading-none">Get it on</div>
-                  <div className="text-xs font-bold text-foreground leading-tight mt-0.5">Google Play</div>
+                  <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground leading-none">Get it on</div>
+                  <div className="text-sm font-bold text-foreground leading-tight mt-0.5">Google Play</div>
                 </div>
               </div>
             </a>
@@ -352,15 +355,15 @@ function Hero() {
               href="https://apps.apple.com/ng/app/mele-data/id6779367547"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-12 items-center justify-center rounded-full border border-border bg-card px-5 hover:border-blue-300 hover:bg-secondary/40 transition duration-200"
+              className="inline-flex h-14 items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
             >
               <div className="flex items-center gap-2.5 text-left">
-                <svg className="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="currentColor">
+                <svg className="h-6 w-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-1 .04-2.21.67-2.93 1.49-.62.69-1.16 1.84-1.01 2.96 1.12.09 2.27-.58 2.95-1.39z" />
                 </svg>
                 <div>
-                  <div className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground leading-none">Download on the</div>
-                  <div className="text-xs font-bold text-foreground leading-tight mt-0.5">App Store</div>
+                  <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground leading-none">Download on the</div>
+                  <div className="text-sm font-bold text-foreground leading-tight mt-0.5">App Store</div>
                 </div>
               </div>
             </a>
@@ -371,31 +374,16 @@ function Hero() {
             initial="hidden"
             animate="show"
             custom={0.32}
-            className="mt-9 flex flex-wrap gap-3"
+            className="mt-12 flex flex-wrap justify-center gap-4"
           >
             {heroPoints.map((point) => (
-              <div key={point} className="rounded-full border border-border bg-card px-4 py-2 text-sm text-muted-foreground">
+              <div key={point} className="flex items-center gap-2 rounded-full border border-border/50 bg-card/40 backdrop-blur-sm px-5 py-2.5 text-sm font-medium text-muted-foreground">
+                <BadgeCheck className="h-4 w-4 text-primary" />
                 {point}
               </div>
             ))}
           </motion.div>
         </div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-          className="relative flex items-center justify-center"
-        >
-          <div className="absolute inset-x-16 top-20 h-44 rounded-full bg-blue-100/40 blur-3xl" />
-          <div className="relative overflow-hidden rounded-3xl border border-border/80 bg-card p-2 shadow-[0_24px_70px_rgba(15,23,42,0.08)] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_30px_80px_rgba(15,23,42,0.12)]">
-            <img
-              src="/brand/mele_data_final_campaign.jpg"
-              alt="MZDATA Mobile App Mockup"
-              className="max-h-[520px] w-auto rounded-2xl object-contain"
-            />
-          </div>
-        </motion.div>
       </div>
     </section>
   );
