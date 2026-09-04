@@ -883,66 +883,52 @@ class _HomeScreenState extends State<HomeScreen> {
     final level = (announcement['level'] ?? 'info').toString().toLowerCase();
 
     // Default color maps for 'info'
-    List<Color> gradientColors = const [
-      Color(0xFF60A5FA), // Blue 400
-      Color(0xFF3B82F6), // Blue 500
-    ];
-    Color textPrimaryColor = const Color(0xFF1E3A8A); // Blue 900
-    Color textSecondaryColor = const Color(0xFF1E40AF); // Blue 800
+    Color bannerBg = const Color(0xFFE2E8F0);
+    Color textPrimaryColor = const Color(0xFF0F172A);
+    Color textSecondaryColor = const Color(0xFF334155);
     IconData iconData = Icons.info_outline_rounded;
-    Color iconColor = const Color(0xFF1E3A8A);
-    Color closeBtnBg = const Color(0xFF1E3A8A).withOpacity(0.08);
-    Color shadowColor = const Color(0xFF3B82F6).withOpacity(0.18);
+    Color iconColor = const Color(0xFF0F172A);
+    Color closeBtnBg = Colors.white;
 
     if (level == 'success') {
-      gradientColors = const [
-        Color(0xFF34D399), // Emerald 400
-        Color(0xFF10B981), // Emerald 500
-      ];
-      textPrimaryColor = const Color(0xFF064E3B); // Emerald 950
-      textSecondaryColor = const Color(0xFF065F46); // Emerald 900
+      bannerBg = const Color(0xFFCCFF00); // Electric Lime
+      textPrimaryColor = Colors.black;
+      textSecondaryColor = Colors.black87;
       iconData = Icons.check_circle_outline_rounded;
-      iconColor = const Color(0xFF064E3B);
-      closeBtnBg = const Color(0xFF064E3B).withOpacity(0.08);
-      shadowColor = const Color(0xFF10B981).withOpacity(0.18);
+      iconColor = Colors.black;
+      closeBtnBg = Colors.white;
     } else if (level == 'warning') {
-      gradientColors = const [
-        Color(0xFFFBBF24), // Amber 400
-        Color(0xFFF59E0B), // Amber 500
-      ];
-      textPrimaryColor = const Color(0xFF451A03); // Amber 950
-      textSecondaryColor = const Color(0xFF78350F); // Amber 900
+      bannerBg = const Color(0xFFFBBF24); // Amber
+      textPrimaryColor = Colors.black;
+      textSecondaryColor = Colors.black87;
       iconData = Icons.warning_amber_rounded;
-      iconColor = const Color(0xFF451A03);
-      closeBtnBg = const Color(0xFF451A03).withOpacity(0.08);
-      shadowColor = const Color(0xFFF59E0B).withOpacity(0.18);
+      iconColor = Colors.black;
+      closeBtnBg = Colors.white;
     } else if (level == 'critical') {
-      gradientColors = const [
-        Color(0xFFF87171), // Red 400
-        Color(0xFFEF4444), // Red 500
-      ];
-      textPrimaryColor = const Color(0xFF7F1D1D); // Red 950
-      textSecondaryColor = const Color(0xFF991B1B); // Red 900
+      bannerBg = const Color(0xFFEF4444); // Red
+      textPrimaryColor = Colors.black;
+      textSecondaryColor = Colors.white;
       iconData = Icons.gpp_bad_outlined;
-      iconColor = const Color(0xFF7F1D1D);
-      closeBtnBg = const Color(0xFF7F1D1D).withOpacity(0.08);
-      shadowColor = const Color(0xFFEF4444).withOpacity(0.18);
+      iconColor = Colors.black;
+      closeBtnBg = Colors.white;
     }
+    
+    final theme = Theme.of(context);
     
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradientColors,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: bannerBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.outline,
+          width: 2,
         ),
-        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: shadowColor,
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: theme.colorScheme.outline,
+            blurRadius: 0,
+            offset: const Offset(4, 4),
           ),
         ],
       ),
@@ -997,11 +983,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   }
                 },
                 style: TextButton.styleFrom(
-                  backgroundColor: textPrimaryColor.withOpacity(0.15),
+                  backgroundColor: Colors.transparent,
                   foregroundColor: textPrimaryColor,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(
+                      color: textPrimaryColor,
+                      width: 2,
+                    ),
                   ),
                 ),
                 child: Text(
@@ -1044,26 +1034,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildActionPill(BuildContext context, {required IconData icon, required String label, required VoidCallback onTap, required bool primary, required bool isDark}) {
+    final theme = Theme.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           color: primary 
-              ? Theme.of(context).colorScheme.primary 
-              : (isDark ? const Color(0xFF1E293B) : Colors.white),
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: primary ? [
+              ? theme.colorScheme.primary 
+              : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: theme.colorScheme.outline,
+            width: 2,
+          ),
+          boxShadow: [
             BoxShadow(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
-            )
-          ] : [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: theme.colorScheme.outline,
+              blurRadius: 0,
+              offset: const Offset(4, 4),
             )
           ],
         ),
@@ -1073,15 +1062,15 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(
               icon,
               size: 20,
-              color: primary ? Colors.white : (isDark ? Colors.white : Colors.black87),
+              color: primary ? Colors.black : theme.colorScheme.onSurface,
             ),
             const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w900,
                 fontSize: 14,
-                color: primary ? Colors.white : (isDark ? Colors.white : Colors.black87),
+                color: primary ? Colors.black : theme.colorScheme.onSurface,
               ),
             ),
           ],
@@ -1452,13 +1441,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                     width: double.infinity,
                                     height: 120,
                                     decoration: BoxDecoration(
-                                      color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                                      borderRadius: BorderRadius.circular(24),
+                                      color: Theme.of(context).colorScheme.surface,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: Theme.of(context).colorScheme.outline,
+                                        width: 2,
+                                      ),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
-                                          blurRadius: 15,
-                                          offset: const Offset(0, 5),
+                                          color: Theme.of(context).colorScheme.outline,
+                                          blurRadius: 0,
+                                          offset: const Offset(4, 4),
                                         ),
                                       ],
                                     ),
@@ -1475,16 +1468,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                   width: double.infinity,
                                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                                   decoration: BoxDecoration(
-                                    color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                                    borderRadius: BorderRadius.circular(24),
+                                    color: Theme.of(context).colorScheme.surface,
+                                    borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: Theme.of(context).colorScheme.outline.withValues(alpha: isDark ? 0.3 : 0.05),
+                                      color: Theme.of(context).colorScheme.outline,
+                                      width: 2,
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
-                                        blurRadius: 15,
-                                        offset: const Offset(0, 5),
+                                        color: Theme.of(context).colorScheme.outline,
+                                        blurRadius: 0,
+                                        offset: const Offset(4, 4),
                                       ),
                                     ],
                                   ),
@@ -2036,11 +2030,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.08),
+                    color: Theme.of(context).colorScheme.outline,
+                    width: 2,
                   ),
-                  boxShadow: AxisShadows.softGlow,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Theme.of(context).colorScheme.outline,
+                      blurRadius: 0,
+                      offset: const Offset(4, 4),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2075,7 +2076,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w800,
-                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
+                                  color: Theme.of(context).colorScheme.onSurface,
                                   letterSpacing: 0.8,
                                 ),
                               ),
@@ -2108,13 +2109,17 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+                              color: Theme.of(context).colorScheme.primary,
                               borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.outline,
+                                width: 1.5,
+                              ),
                             ),
                             child: Icon(
                               Icons.copy_rounded,
                               size: 14,
-                              color: Theme.of(context).colorScheme.primary,
+                              color: Colors.black,
                             ),
                           ),
                         ),
@@ -2123,7 +2128,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 10),
                     Divider(
                       height: 1,
-                      color: Theme.of(context).dividerColor.withValues(alpha: isDark ? 0.08 : 0.05),
+                      color: Theme.of(context).colorScheme.outline,
+                      thickness: 2,
                     ),
                     const SizedBox(height: 10),
                     Row(
@@ -2137,7 +2143,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w800,
-                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
+                                  color: Theme.of(context).colorScheme.onSurface,
                                   letterSpacing: 0.8,
                                 ),
                               ),
@@ -2170,8 +2176,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+                              color: Theme.of(context).colorScheme.primary,
                               borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.outline,
+                                width: 1.5,
+                              ),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -2179,7 +2189,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Icon(
                                   Icons.copy_rounded,
                                   size: 14,
-                                  color: Theme.of(context).colorScheme.primary,
+                                  color: Colors.black,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
@@ -2187,7 +2197,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w800,
-                                    color: Theme.of(context).colorScheme.primary,
+                                    color: Colors.black,
                                   ),
                                 ),
                               ],
@@ -3310,67 +3320,60 @@ class _ServiceCardState extends State<_ServiceCard> {
           },
           onHighlightChanged: (value) => setState(() => _pressed = value),
           borderRadius: BorderRadius.circular(24),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF0F172A).withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.75),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: isDark ? 0.1 : 0.6),
-                    width: 1.5,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline,
+                  width: 2,
+                ),
+                boxShadow: _pressed ? [] : [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.outline,
+                    blurRadius: 0,
+                    offset: const Offset(4, 4),
+                  )
+                ],
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: widget.item.accent,
+                      shape: BoxShape.rectangle,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.outline,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Icon(
+                      widget.item.icon,
+                      size: compact ? 22 : 26,
+                      color: Colors.black,
+                    ),
                   ),
-                  boxShadow: _pressed ? [] : [
-                    BoxShadow(
-                      color: widget.item.accent.withValues(alpha: 0.1),
-                      blurRadius: 15,
-                      offset: const Offset(0, 8),
-                    )
-                  ],
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: widget.item.accent.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: widget.item.accent.withValues(alpha: 0.4),
-                            blurRadius: 12,
+                  const SizedBox(height: 12),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      widget.item.label,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.2,
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: compact ? 11 : 12,
                           ),
-                        ]
-                      ),
-                      child: Icon(
-                        widget.item.icon,
-                        size: compact ? 22 : 26,
-                        color: widget.item.accent,
-                      ),
                     ),
-                    const SizedBox(height: 12),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        widget.item.label,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.2,
-                              color: isDark ? Colors.white : const Color(0xFF1E293B),
-                              fontSize: compact ? 11 : 12,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ),
         ),
       ),
     );

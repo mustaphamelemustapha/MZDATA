@@ -158,9 +158,8 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF070B12) : const Color(0xFFF8FAFC),
-      body: AuthBackdrop(
-        showBrandText: false,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: SafeArea(
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
           child: Column(
@@ -178,17 +177,17 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
                       width: 84,
                       height: 84,
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
+                        color: theme.colorScheme.primary,
+                        borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                          width: 1.5,
+                          color: Colors.white,
+                          width: 2,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                            blurRadius: 24,
-                            spreadRadius: 4,
+                            color: theme.colorScheme.primary,
+                            blurRadius: 0,
+                            offset: const Offset(4, 4),
                           ),
                         ],
                       ),
@@ -199,13 +198,13 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
                                 height: 32,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2.5,
-                                  color: theme.colorScheme.primary,
+                                  color: Colors.black, // Dark text on primary
                                 ),
                               )
                             : Icon(
                                 Icons.lock_person_rounded,
                                 size: 38,
-                                color: theme.colorScheme.primary,
+                                color: Colors.black, // Dark icon on primary
                               ),
                       ),
                     ),
@@ -237,12 +236,13 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
 
             // Main Lock Title
             Text(
-              'Unlock MzData',
+              'UNLOCK\nMZDATA',
               style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-                fontSize: 22,
-                letterSpacing: -0.5,
-                color: isDark ? Colors.white : SlateColors.shade900,
+                fontWeight: FontWeight.w900,
+                fontSize: 32,
+                letterSpacing: -1.0,
+                height: 1.0,
+                color: theme.colorScheme.onSurface,
               ),
               textAlign: TextAlign.center,
             ),
@@ -294,12 +294,12 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
                     width: 14,
                     height: 14,
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
+                      borderRadius: BorderRadius.circular(4), // Square for brutalism
                       color: active
-                          ? (isDark ? Colors.white : const Color(0xFF3B82F6))
+                          ? theme.colorScheme.primary
                           : Colors.transparent,
                       border: Border.all(
-                        color: isDark ? Colors.white54 : const Color(0xFF3B82F6).withValues(alpha: 0.5),
+                        color: active ? theme.colorScheme.primary : theme.colorScheme.outline,
                         width: 2,
                       ),
                     ),
@@ -310,9 +310,9 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
 
             const SizedBox(height: 20),
 
-            // Premium Custom Passcode Numeric Keypad ( Translucent glass keys )
+            // Premium Custom Passcode Numeric Keypad
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 44),
+              padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Column(
                 children: [
                   Row(
@@ -409,8 +409,8 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
           ],
         ),
       ),
-    ),
-  );
+      ),
+    );
   }
 }
 
@@ -446,12 +446,19 @@ class _KeypadButton extends StatelessWidget {
         width: 76,
         height: 76,
         decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isDark ? Colors.white.withValues(alpha: 0.05) : SlateColors.shade100,
+          borderRadius: BorderRadius.circular(12),
+          color: theme.colorScheme.surface,
           border: Border.all(
-            color: isDark ? Colors.white.withValues(alpha: 0.05) : SlateColors.shade200,
-            width: 1,
+            color: theme.colorScheme.outline,
+            width: 2,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: theme.colorScheme.outline,
+              blurRadius: 0,
+              offset: const Offset(4, 4),
+            )
+          ]
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -508,8 +515,12 @@ class _KeypadIconButton extends StatelessWidget {
         width: 76,
         height: 76,
         decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isDark ? Colors.white.withValues(alpha: 0.04) : SlateColors.shade50,
+          borderRadius: BorderRadius.circular(12),
+          color: theme.colorScheme.surface,
+          border: Border.all(
+            color: theme.colorScheme.outline,
+            width: 2,
+          ),
         ),
         child: Center(
           child: Icon(

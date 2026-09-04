@@ -6,13 +6,13 @@ import 'package:google_fonts/google_fonts.dart';
 import 'axis_tokens.dart';
 
 class AppTheme {
-  static const _seed = Color(0xFF2457F5);
-  static const _secondary = Color(0xFF14B8A6);
-  static const _lightBg = Color(0xFFF8FAFC);
-  static const _darkBg = Color(0xFF09090A);
-  static const _darkSurface = Color(0xFF121824);
-  static const _lightSurfaceElevated = Colors.white;
-  static const _darkSurfaceSoft = Color(0xFF1B2332);
+  static const _seed = Color(0xFFCCFF00); // Electric Lime
+  static const _secondary = Color(0xFFFFFFFF); // Pure White
+  static const _lightBg = Color(0xFFFFFFFF);
+  static const _darkBg = Color(0xFF000000); // True Black
+  static const _darkSurface = Color(0xFF111111); // Very Dark Gray
+  static const _lightSurfaceElevated = Color(0xFFF5F5F5);
+  static const _darkSurfaceSoft = Color(0xFF1A1A1A); // Input Fields
 
   static ThemeData light() => _build(Brightness.light);
 
@@ -29,22 +29,22 @@ class AppTheme {
           primary: _seed,
           secondary: _secondary,
           surface: isDark ? _darkBg : _lightBg,
-          onSurface: isDark ? const Color(0xFFE7EEF9) : const Color(0xFF0B1220),
-          onSurfaceVariant: isDark ? const Color(0xFFB8C4D6) : const Color(0xFF475569),
-          outline: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
-          outlineVariant: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
-          onPrimary: Colors.white,
-          onSecondary: Colors.white,
+          onSurface: isDark ? Colors.white : Colors.black,
+          onSurfaceVariant: isDark ? const Color(0xFFAAAAAA) : const Color(0xFF555555),
+          outline: isDark ? const Color(0xFF333333) : const Color(0xFFE5E5E5),
+          outlineVariant: isDark ? const Color(0xFF222222) : const Color(0xFFF0F0F0),
+          onPrimary: Colors.black, // Black text on Electric Lime buttons
+          onSecondary: isDark ? Colors.black : Colors.white,
           onError: Colors.white,
-          error: const Color(0xFFE11D48),
-          tertiary: const Color(0xFFF59E0B),
+          error: const Color(0xFFFF3333),
+          tertiary: const Color(0xFF888888),
           onTertiary: Colors.white,
           surfaceTint: Colors.transparent,
-          surfaceContainerHighest: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+          surfaceContainerHighest: isDark ? const Color(0xFF111111) : const Color(0xFFF5F5F5),
           shadow: Colors.black,
         );
 
-    final baseText = GoogleFonts.plusJakartaSansTextTheme().apply(
+    final baseText = GoogleFonts.outfitTextTheme().apply(
       bodyColor: scheme.onSurface,
       displayColor: scheme.onSurface,
     );
@@ -137,12 +137,12 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      fontFamily: GoogleFonts.plusJakartaSans().fontFamily,
+      fontFamily: GoogleFonts.outfit().fontFamily,
       visualDensity: VisualDensity.standard,
       scaffoldBackgroundColor: isDark ? _darkBg : _lightBg,
       textTheme: textTheme,
-      shadowColor: Colors.black.withValues(alpha: isDark ? 0.15 : 0.05),
-      splashFactory: InkRipple.splashFactory,
+      shadowColor: Colors.black.withValues(alpha: isDark ? 0.3 : 0.1),
+      splashFactory: NoSplash.splashFactory, // Neo-brutalism usually lacks ripples
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
@@ -165,12 +165,11 @@ class AppTheme {
       cardTheme: CardThemeData(
         color: isDark ? _darkSurface : Colors.white,
         surfaceTintColor: Colors.transparent,
-        elevation: isDark ? 0 : 2,
-        shadowColor: Colors.black.withOpacity(0.05),
+        elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-          side: isDark ? const BorderSide(color: Color(0xFF333333)) : BorderSide.none,
+          borderRadius: BorderRadius.circular(16),
+          side: isDark ? const BorderSide(color: Color(0xFF333333), width: 1.5) : const BorderSide(color: Color(0xFFE5E5E5), width: 1.5),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -187,41 +186,41 @@ class AppTheme {
           color: scheme.onSurface.withValues(alpha: isDark ? 0.76 : 0.64),
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AxisRadii.lg),
-          borderSide: BorderSide(color: scheme.outline.withValues(alpha: isDark ? 0.9 : 0.95)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: scheme.outline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AxisRadii.lg),
-          borderSide: BorderSide(color: scheme.outline.withValues(alpha: isDark ? 0.9 : 0.95)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: scheme.outline),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AxisRadii.lg),
-          borderSide: BorderSide(color: scheme.primary.withValues(alpha: 0.92), width: 1.4),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: scheme.primary, width: 2),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AxisRadii.lg),
-          borderSide: BorderSide(color: scheme.error.withValues(alpha: 0.9)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: scheme.error),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AxisRadii.lg),
-          borderSide: BorderSide(color: scheme.error),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: scheme.error, width: 2),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-          minimumSize: const Size.fromHeight(54),
+          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
+          minimumSize: const Size.fromHeight(56),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AxisRadii.lg),
+            borderRadius: BorderRadius.circular(12),
           ),
           textStyle: textTheme.labelLarge?.copyWith(
             fontSize: 16,
-            letterSpacing: 0.35,
-            fontWeight: FontWeight.w600,
+            letterSpacing: 0,
+            fontWeight: FontWeight.w800,
           ),
-          animationDuration: AxisDurations.normal,
+          animationDuration: AxisDurations.fast,
           backgroundColor: scheme.primary,
-          foregroundColor: Colors.white,
+          foregroundColor: scheme.onPrimary,
           elevation: 0,
           surfaceTintColor: Colors.transparent,
         ),
@@ -275,7 +274,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
-            top: Radius.circular(32),
+            top: Radius.circular(24),
           ),
         ),
       ),
@@ -344,25 +343,25 @@ class AxisPalette extends ThemeExtension<AxisPalette> {
   const AxisPalette();
 
   static const gradient = LinearGradient(
-    colors: [Color(0xFF2457F5), Color(0xFF14B8A6)],
+    colors: [Color(0xFFCCFF00), Color(0xFF00E5FF)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const warmGradient = LinearGradient(
-    colors: [Color(0xFFF59E0B), Color(0xFFF97316)],
+    colors: [Color(0xFFFF3333), Color(0xFFFF8800)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const softBackgroundGradient = LinearGradient(
-    colors: [Color(0xFF09090A), Color(0xFF121824), Color(0xFF09090A)],
+    colors: [Color(0xFF000000), Color(0xFF0A0A0A), Color(0xFF000000)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const lightWashGradient = LinearGradient(
-    colors: [Color(0xFFF5F9FF), Color(0xFFEAF2FF), Color(0xFFF7FBFF)],
+    colors: [Color(0xFFF5F5F5), Color(0xFFE5E5E5), Color(0xFFF5F5F5)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );

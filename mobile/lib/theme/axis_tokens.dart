@@ -11,11 +11,11 @@ class AxisSpacing {
 }
 
 class AxisRadii {
-  static const double sm = 12;
-  static const double md = 16;
-  static const double lg = 20;
-  static const double xl = 24;
-  static const double xxl = 28;
+  static const double sm = 4;
+  static const double md = 8;
+  static const double lg = 12;
+  static const double xl = 16;
+  static const double xxl = 24;
 }
 
 class AxisDurations {
@@ -40,14 +40,9 @@ class AxisShadows {
 
   static const List<BoxShadow> premiumGlow = [
     BoxShadow(
-      color: Color(0x122457F5),
-      blurRadius: 24.0,
-      offset: Offset(0, 8),
-    ),
-    BoxShadow(
-      color: Color(0x082457F5),
-      blurRadius: 8.0,
-      offset: Offset(0, 4),
+      color: Color(0x33CCFF00), // Harder, sharper lime glow
+      blurRadius: 0.0, // Hard shadow
+      offset: Offset(4, 4),
     ),
   ];
 }

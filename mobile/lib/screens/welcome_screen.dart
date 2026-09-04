@@ -5,10 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../state/session.dart';
 import '../widgets/auth_route.dart';
-import '../widgets/concentric_circles_bg.dart';
 import '../widgets/auth_segmented_control.dart';
-import '../widgets/theme_toggle_button.dart';
-import '../widgets/glass_card.dart';
 import '../services/biometric_service.dart';
 import 'forgot_password_screen.dart';
 import 'shell_screen.dart';
@@ -186,14 +183,15 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         children: [
           GestureDetector(
             onTap: () => FocusScope.of(context).unfocus(),
-            child: ConcentricCirclesBg(
+            child: Container(
+              color: theme.scaffoldBackgroundColor,
               child: Column(
                 children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
-                  children: const [ThemeToggleButton(size: 34)],
+                  children: const [SizedBox(height: 34)], // Removed theme toggle to force dark mode
                 ),
               ),
               Expanded(
@@ -207,51 +205,49 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         width: 72,
                         height: 72,
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
+                          color: theme.colorScheme.primary, // Electric Lime
+                          borderRadius: BorderRadius.circular(16), // Brutalist sharp
+                          border: Border.all(color: Colors.white, width: 2), // Hard border
                           boxShadow: [
                             BoxShadow(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                              blurRadius: 30,
-                              spreadRadius: 5,
-                            ),
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.1),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
+                              color: theme.colorScheme.primary,
+                              blurRadius: 0, // Hard shadow
+                              offset: const Offset(4, 4),
                             ),
                           ],
                         ),
-                        padding: const EdgeInsets.all(6),
+                        padding: const EdgeInsets.all(8),
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(36),
-                          child: Image.asset('assets/brand/mzdata-icon.png'),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.asset('assets/brand/mzdata-icon.png', color: Colors.black), // Make logo black to contrast lime
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 32),
                     
                     // Title
                     Text(
-                      _isLogin ? 'Welcome Back' : 'Create Account',
+                      _isLogin ? 'LOG IN' : 'SIGN UP',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
+                        fontSize: 48,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -2.0,
+                        height: 1.0,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 8),
                     Text(
-                      _isLogin ? 'Sign in to continue' : 'Join us to get started',
+                      _isLogin ? 'Enter your details below.' : 'Create an account to start.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.5,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 32),
                     
                     // Segmented Control
                     AuthSegmentedControl(
@@ -269,8 +265,20 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     AnimatedSize(
                       duration: const Duration(milliseconds: 300),
                       curve: Curves.easeOutCubic,
-                      child: GlassCard(
-                        padding: const EdgeInsets.all(20),
+                      child: Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: theme.colorScheme.outline, width: 2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: theme.colorScheme.outline,
+                              blurRadius: 0,
+                              offset: const Offset(4, 4),
+                            ),
+                          ],
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -419,19 +427,20 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       if (_isLogin && _biometricAvailable)
                         AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
-                          height: 52,
-                          width: 52,
+                          height: 56,
+                          width: 56,
                           decoration: BoxDecoration(
-                            color: theme.cardTheme.color,
-                            shape: BoxShape.circle,
+                            color: theme.colorScheme.surface,
+                            borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: theme.colorScheme.outline.withValues(alpha: isDark ? 0.3 : 0.1),
+                              color: theme.colorScheme.outline,
+                              width: 2,
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.05),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
+                                color: theme.colorScheme.outline,
+                                blurRadius: 0,
+                                offset: const Offset(2, 2),
                               )
                             ],
                           ),
@@ -441,35 +450,30 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                     width: 20, height: 20, 
                                     child: CircularProgressIndicator(strokeWidth: 2)
                                   )
-                                : Icon(Icons.fingerprint_rounded, color: theme.colorScheme.primary),
+                                : Icon(Icons.fingerprint_rounded, color: theme.colorScheme.onSurface),
                             onPressed: _biometricLoading ? null : _loginWithBiometrics,
                           ),
                         )
                       else
-                        const SizedBox(width: 52), // Placeholder to keep spacing
+                        const SizedBox(width: 56), // Placeholder to keep spacing
 
                       // Right Side: Submit Button
                       GestureDetector(
                         onTap: isLoading ? null : _submit,
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
-                          height: 52,
-                          padding: const EdgeInsets.symmetric(horizontal: 28),
+                          height: 56,
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
                           decoration: BoxDecoration(
-                            gradient: isLoading
-                                ? LinearGradient(colors: [theme.colorScheme.primary.withValues(alpha: 0.5), theme.colorScheme.primary.withValues(alpha: 0.5)])
-                                : LinearGradient(
-                                    colors: [theme.colorScheme.primary, theme.colorScheme.primary.withRed(100)],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                            borderRadius: BorderRadius.circular(26),
+                            color: isLoading ? theme.colorScheme.primary.withValues(alpha: 0.5) : theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white, width: 2), // Hard border for brutalism
                             boxShadow: [
                               if (!isLoading)
-                                BoxShadow(
-                                  color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 8),
+                                const BoxShadow(
+                                  color: Colors.white,
+                                  blurRadius: 0,
+                                  offset: Offset(4, 4),
                                 )
                             ],
                           ),
@@ -487,16 +491,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                 )
                               else
                                 Text(
-                                  _isLogin ? 'Sign In' : 'Sign Up',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 15,
+                                  _isLogin ? 'SIGN IN' : 'SIGN UP',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onPrimary,
+                                    fontWeight: FontWeight.w900, // Extra bold
+                                    fontSize: 16,
+                                    letterSpacing: 1.0,
                                   ),
                                 ),
                               if (!isLoading) ...[
                                 const SizedBox(width: 8),
-                                const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+                                Icon(Icons.arrow_forward_rounded, color: theme.colorScheme.onPrimary, size: 20),
                               ],
                             ],
                           ),
@@ -625,17 +630,17 @@ class _Input extends StatelessWidget {
         suffixIcon: suffix,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         filled: true,
-        fillColor: isDark ? Colors.white.withValues(alpha: 0.03) : theme.colorScheme.surface,
+        fillColor: isDark ? const Color(0xFF111111) : const Color(0xFFF5F5F5),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.05)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: theme.colorScheme.outline, width: 2),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.05)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: theme.colorScheme.outline, width: 2),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
         ),
       ),
