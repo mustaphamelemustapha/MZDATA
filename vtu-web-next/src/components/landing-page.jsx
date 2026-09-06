@@ -287,7 +287,7 @@ function Hero() {
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[400px] bg-primary/20 blur-[120px] rounded-full pointer-events-none" />
       
       <div className="relative mx-auto max-w-7xl px-4 pb-20 pt-20 sm:px-6 lg:px-8 lg:pb-32 lg:pt-24">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
+        <div className="flex flex-col-reverse lg:grid lg:grid-cols-2 gap-12 items-center">
           <div className="flex flex-col items-center lg:items-start text-center lg:text-left">
             <motion.div
               variants={motionFadeUp}
@@ -374,7 +374,7 @@ function Hero() {
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="relative hidden lg:block h-[600px] w-full"
+            className="relative h-[400px] lg:h-[600px] w-full mt-8 lg:mt-0"
           >
             {/* Animated Bubbles behind */}
             <motion.div 
