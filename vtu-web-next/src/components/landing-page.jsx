@@ -254,9 +254,7 @@ function Header() {
           </nav>
 
           <div className="hidden items-center gap-4 sm:flex">
-            <Link href="/developer/docs" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors mr-2">
-              For Developers
-            </Link>
+
             <Button asChild variant="secondary" className="h-11 rounded-full border-border bg-card px-5 text-muted-foreground hover:bg-secondary">
               <Link href="/login">Sign In</Link>
             </Button>
@@ -659,7 +657,7 @@ function Footer() {
                 <div><a href="#trust" className="hover:text-white">Why choose us</a></div>
                 <div><a href="#about" className="hover:text-white">About</a></div>
                 <div><a href="#faq" className="hover:text-white">FAQ</a></div>
-                <div><Link href="/developer/docs" className="hover:text-white">Developer Docs</Link></div>
+
               </div>
             </div>
             <div>
@@ -814,64 +812,6 @@ function PricingPreviewSection() {
   );
 }
 
-function WorkspaceSection() {
-  return (
-    <section className="bg-background px-4 py-24 sm:px-6 lg:px-8 border-t border-white/5">
-      <div className="mx-auto max-w-7xl">
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="axis-label text-primary font-semibold">Dual Workspace</div>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-            Whether you are building it or buying it
-          </h2>
-          <p className="mt-4 text-slate-400 text-sm leading-6">
-            MZDATA serves as both a beautiful web application for everyday Nigerians and a robust infrastructure platform for developers.
-          </p>
-        </div>
-
-        <div className="grid gap-8 lg:grid-cols-2">
-          {/* Everyday Resellers */}
-          <div className="bg-secondary/40 border border-border rounded-3xl p-8 flex flex-col justify-between hover:border-blue-500/20 transition-all duration-300">
-            <div>
-              <span className="text-xs font-semibold tracking-widest text-primary uppercase">For retail resellers</span>
-              <h3 className="mt-4 text-2xl font-bold text-foreground">Top up data, send airtime, print receipts</h3>
-              <p className="mt-4 text-slate-400 text-sm leading-6">
-                Mobile-friendly dashboard, automated wallets, transaction history filters, and immediate customer service. Built for Nigerians who want to sell or buy VTU services without code.
-              </p>
-            </div>
-            <div className="mt-8 flex flex-wrap gap-4 items-center">
-              <Button asChild className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 h-11">
-                <Link href="/register">Create Retail Account</Link>
-              </Button>
-              <Button asChild variant="ghost" className="text-slate-300 hover:text-white px-4 h-11">
-                <Link href="/login">Sign In →</Link>
-              </Button>
-            </div>
-          </div>
-
-          {/* Developers */}
-          <div className="bg-secondary/40 border border-border rounded-3xl p-8 flex flex-col justify-between hover:border-blue-500/20 transition-all duration-300">
-            <div>
-              <span className="text-xs font-semibold tracking-widest text-primary uppercase">For Developers</span>
-              <h3 className="mt-4 text-2xl font-bold text-foreground">Two robust APIs. One token. Sandbox included</h3>
-              <p className="mt-4 text-slate-400 text-sm leading-6">
-                Automate airtime distributions and data bundles directly from your backend. Free sandbox mode with ₦1,000,000 in test wallet credits to validate your API integrations before going live.
-              </p>
-            </div>
-            <div className="mt-8 flex flex-wrap gap-4 items-center">
-              <Button asChild className="rounded-full bg-slate-900 border border-border text-white hover:bg-slate-800 px-6 h-11">
-                <Link href="/developer/docs">Open Developer Docs</Link>
-              </Button>
-              <Button asChild variant="ghost" className="text-slate-300 hover:text-white px-4 h-11">
-                <Link href="/register">Get API Token →</Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export function LandingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -879,7 +819,6 @@ export function LandingPage() {
       <Hero />
       <ServicesSection />
       <PricingPreviewSection />
-      <WorkspaceSection />
       <TrustSection />
       <AboutSection />
       <FaqSection />
