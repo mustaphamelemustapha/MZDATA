@@ -188,20 +188,7 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        <Card id="developer">
-          <CardHeader>
-            <CardTitle>Developer API</CardTitle>
-            <CardDescription>Automate purchases by integrating our API.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-2xl border border-dashed border-border bg-secondary p-4 text-sm text-muted-foreground">
-              We provide a robust REST API for developers to connect and resell MZDATA services.
-            </div>
-            <Button className="w-full" variant="outline" onClick={() => router.push('/developer')}>
-              Open Developer Portal
-            </Button>
-          </CardContent>
-        </Card>
+
       </div>
     </div>
   );

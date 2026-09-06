@@ -28,7 +28,6 @@ export const appNav = [
   { label: 'Referrals', href: '/referrals', icon: Gift },
   { label: 'Notifications', href: '/notifications', icon: Bell },
   { label: 'History', href: '/history', icon: Clock3 },
-  { label: 'Developer API', href: '/developer', icon: Code2 },
   { label: 'Profile', href: '/profile', icon: UserCircle2 },
 ];
 
