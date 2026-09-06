@@ -141,7 +141,7 @@ export default function DeveloperPage() {
           <CardContent className="flex flex-col items-center py-10 space-y-4">
             <Code2 className="w-12 h-12 text-muted-foreground/50" />
             <div className="text-center">
-              <h3 className="text-lg font-medium mb-1">Build with Mele Data API</h3>
+              <h3 className="text-lg font-medium mb-1">Build with MZDATA API</h3>
               <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
                 Automate your data and airtime purchases by integrating directly with our powerful JSON API.
               </p>

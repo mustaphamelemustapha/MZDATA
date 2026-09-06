@@ -1,8 +1,8 @@
 import { ForgotPasswordPage } from '@/components/forgot-password-page';
 
 export const metadata = {
-  title: 'Forgot Password | Mele Data',
-  description: 'Reset your Mele Data password.',
+  title: 'Forgot Password | MZDATA',
+  description: 'Reset your MZDATA password.',
 };
 
 export default function Page() {

@@ -24,7 +24,7 @@ export function buildTransactionReceipt({
 }) {
   return {
     id: `receipt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    service: service || 'Mele Data Transaction',
+    service: service || 'MZDATA Transaction',
     status: ['success', 'failed', 'pending', 'refunded'].includes(status) ? status : 'pending',
     message: sanitizeProviderMessage(message || ''),
     amount: Number.isFinite(Number(amount)) ? Number(amount) : 0,
@@ -38,7 +38,7 @@ export function buildTransactionReceipt({
 export function receiptShareText(receipt) {
   const amountLine = `₦${formatMoney(receipt.amount || 0)}`;
   const lines = [
-    'Mele Data Transaction Receipt',
+    'MZDATA Transaction Receipt',
     `Amount: ${amountLine}`,
     `Service: ${receipt.service}`,
     `Ref: ${receipt.reference}`,
@@ -124,7 +124,7 @@ export async function downloadReceipt(receipt, sourceNode) {
       const url = window.URL.createObjectURL(blob);
       window.location.assign(url);
     } else {
-      pdf.save(`Mele Data-Receipt-${safeFileName(receipt.reference)}.pdf`);
+      pdf.save(`MZDATA-Receipt-${safeFileName(receipt.reference)}.pdf`);
     }
     return { ok: true };
   } catch (error) {
@@ -143,11 +143,11 @@ export async function shareReceipt(receipt, sourceNode) {
       if (imageBlob) {
         const file = new File(
           [imageBlob],
-          `Mele Data-Receipt-${safeFileName(receipt.reference)}.png`,
+          `MZDATA-Receipt-${safeFileName(receipt.reference)}.png`,
           { type: 'image/png' }
         );
         const payload = {
-          title: 'Mele Data Transaction Receipt',
+          title: 'MZDATA Transaction Receipt',
           text,
           files: [file],
         };
@@ -164,7 +164,7 @@ export async function shareReceipt(receipt, sourceNode) {
   if (typeof navigator !== 'undefined' && navigator.share) {
     try {
       await navigator.share({
-        title: 'Mele Data Transaction Receipt',
+        title: 'MZDATA Transaction Receipt',
         text,
       });
       return { mode: 'share' };

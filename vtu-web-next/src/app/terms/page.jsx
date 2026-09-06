@@ -1,8 +1,8 @@
 import React from 'react';
 
 export const metadata = {
-  title: 'Terms & Conditions | Mele Data',
-  description: 'Terms and Conditions of Service for Mele Data application and web portal.',
+  title: 'Terms & Conditions | MZDATA',
+  description: 'Terms and Conditions of Service for MZDATA application and web portal.',
 };
 
 export default function TermsAndConditions() {
@@ -14,7 +14,7 @@ export default function TermsAndConditions() {
       <section className="mb-8">
         <h2 className="text-2xl font-bold mb-4 text-slate-900 dark:text-slate-100">1. Agreement to Terms</h2>
         <p className="mb-4 leading-relaxed text-slate-700 dark:text-slate-300">
-          By accessing or using Mele Data, you agree to be bound by these Terms and Conditions. 
+          By accessing or using MZDATA, you agree to be bound by these Terms and Conditions. 
           If you do not agree with any part of these terms, you must not access or use our services.
         </p>
       </section>
@@ -34,7 +34,7 @@ export default function TermsAndConditions() {
       <section className="mb-8">
         <h2 className="text-2xl font-bold mb-4 text-slate-900 dark:text-slate-100">3. Services and Purchases</h2>
         <p className="mb-4 leading-relaxed text-slate-700 dark:text-slate-300">
-          Mele Data provides mobile airtime, data packages, utility bill payments, and educational PINs. 
+          MZDATA provides mobile airtime, data packages, utility bill payments, and educational PINs. 
           All transactions are final once processed. 
           If a transaction fails due to provider downtime, the system will automatically refund the debited amount to your wallet balance.
         </p>
@@ -64,7 +64,7 @@ export default function TermsAndConditions() {
       </section>
 
       <footer className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-slate-500 dark:text-slate-400 text-sm">
-        &copy; 2026 Mele Data. Powered by MMTECHGLOBE.
+        &copy; 2026 MZDATA. Powered by MMTECHGLOBE.
       </footer>
     </main>
   );

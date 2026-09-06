@@ -28,7 +28,7 @@ const actionDetails = {
   },
   '/services': {
     kicker: 'Catalog',
-    description: 'Browse available Mele Data services from one organized page.',
+    description: 'Browse available MZDATA services from one organized page.',
     cta: 'Open services',
     tone: 'from-sky-500/14 via-sky-500/7 to-transparent border-sky-300/70',
     iconTone: 'bg-sky-500 text-white shadow-sky-500/20',
@@ -120,7 +120,7 @@ export default function DashboardPage() {
       <PageHeader
         eyebrow="Dashboard"
         title={`Good to see you, ${String(profile?.full_name || profile?.email || 'User').split(' ')[0]}`}
-        description="A calm command center for Mele Data operations, balances, and referral activity."
+        description="A calm command center for MZDATA operations, balances, and referral activity."
         actions={(
           <>
             <Button variant="secondary" onClick={() => load(true)} className="border-border bg-card text-muted-foreground hover:bg-secondary">
@@ -151,7 +151,7 @@ export default function DashboardPage() {
               <div className="axis-label text-primary">Fund your wallet</div>
               <h2 className="mt-2 text-xl font-semibold tracking-tight text-foreground md:text-2xl">Dedicated funding account</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Transfer to this account to fund your Mele Data wallet. Copy the account number and send money from your bank app.
+                Transfer to this account to fund your MZDATA wallet. Copy the account number and send money from your bank app.
               </p>
             </div>
           </div>
@@ -183,7 +183,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="min-w-0 rounded-2xl border border-border bg-secondary p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Account name</div>
-                  <div className="mt-1 break-words text-sm font-semibold text-foreground">{primaryFundingAccount.account_name || 'Mele Data Wallet'}</div>
+                  <div className="mt-1 break-words text-sm font-semibold text-foreground">{primaryFundingAccount.account_name || 'MZDATA Wallet'}</div>
                 </div>
               </div>
               <div className="mt-3 text-xs font-medium text-primary">
