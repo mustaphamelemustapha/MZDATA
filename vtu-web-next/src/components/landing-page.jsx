@@ -286,102 +286,124 @@ function Hero() {
       {/* Background Glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[400px] bg-primary/20 blur-[120px] rounded-full pointer-events-none" />
       
-      <div className="relative mx-auto max-w-4xl px-4 pb-20 pt-20 sm:px-6 lg:px-8 lg:pb-32 lg:pt-24 text-center">
-        <div className="flex flex-col items-center justify-center">
-          <motion.div
-            variants={motionFadeUp}
-            initial="hidden"
-            animate="show"
-            custom={0}
-            className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-card/80 backdrop-blur-md px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-primary shadow-sm"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            MZDATA for everyday payments
-          </motion.div>
-
-          <motion.h1
-            variants={motionFadeUp}
-            initial="hidden"
-            animate="show"
-            custom={0.08}
-            className="mt-8 max-w-3xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-7xl"
-          >
-            Buy Airtime, Data & Pay Bills in Seconds
-          </motion.h1>
-
-          <motion.p
-            variants={motionFadeUp}
-            initial="hidden"
-            animate="show"
-            custom={0.16}
-            className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl"
-          >
-            Top up any network, fund your wallet, and manage everyday payments with a simple, reliable MZDATA account.
-          </motion.p>
-
-          <motion.div
-            variants={motionFadeUp}
-            initial="hidden"
-            animate="show"
-            custom={0.24}
-            className="mt-10 flex flex-wrap gap-4 items-center justify-center"
-          >
-            <Button asChild className="h-14 rounded-full bg-primary px-8 text-lg text-primary-foreground shadow-md shadow-blue-500/20 hover:bg-primary/90 transition-all hover:scale-105">
-              <Link href="/register">
-                Get Started
-                <ArrowRight className="h-5 w-5 ml-2" />
-              </Link>
-            </Button>
-            <Button asChild variant="secondary" className="h-14 rounded-full border-border bg-card/50 backdrop-blur-md px-8 text-lg text-muted-foreground hover:bg-secondary transition-all hover:scale-105">
-              <Link href="/login">Log in</Link>
-            </Button>
-            <a
-              href="https://play.google.com/store/apps/details?id=com.mmtech.mzdata&pcampaignid=web_share"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-14 items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
+      <div className="relative mx-auto max-w-7xl px-4 pb-20 pt-20 sm:px-6 lg:px-8 lg:pb-32 lg:pt-24">
+        <div className="grid lg:grid-cols-2 gap-12 items-center">
+          <div className="flex flex-col items-center lg:items-start text-center lg:text-left">
+            <motion.div
+              variants={motionFadeUp}
+              initial="hidden"
+              animate="show"
+              custom={0}
+              className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-card/80 backdrop-blur-md px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-primary shadow-sm"
             >
-              <div className="flex items-center gap-2.5 text-left">
-                <svg className="h-6 w-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M5.002 3c-.116 0-.23.018-.342.049L13.882 12 4.66 20.951c.112.03.226.049.342.049.278 0 .546-.076.784-.216l12.44-7.108c.556-.317.9-.9.9-1.547 0-.647-.344-1.23-.9-1.547L5.786 3.216a1.564 1.564 0 0 0-.784-.216zm-1.042.825V20.18L13.06 12 3.96 3.825z" />
-                </svg>
-                <div>
-                  <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground leading-none">Get it on</div>
-                  <div className="text-sm font-bold text-foreground leading-tight mt-0.5">Google Play</div>
-                </div>
-              </div>
-            </a>
-            <a
-              href="https://apps.apple.com/ng/app/mele-data/id6779367547"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-14 items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
-            >
-              <div className="flex items-center gap-2.5 text-left">
-                <svg className="h-6 w-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-1 .04-2.21.67-2.93 1.49-.62.69-1.16 1.84-1.01 2.96 1.12.09 2.27-.58 2.95-1.39z" />
-                </svg>
-                <div>
-                  <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground leading-none">Download on the</div>
-                  <div className="text-sm font-bold text-foreground leading-tight mt-0.5">App Store</div>
-                </div>
-              </div>
-            </a>
-          </motion.div>
+              <Sparkles className="h-3.5 w-3.5" />
+              MZDATA for everyday payments
+            </motion.div>
 
-          <motion.div
-            variants={motionFadeUp}
-            initial="hidden"
-            animate="show"
-            custom={0.32}
-            className="mt-12 flex flex-wrap justify-center gap-4"
+            <motion.h1
+              variants={motionFadeUp}
+              initial="hidden"
+              animate="show"
+              custom={0.08}
+              className="mt-8 max-w-3xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl xl:text-7xl"
+            >
+              Buy Airtime, Data & Pay Bills in Seconds
+            </motion.h1>
+
+            <motion.p
+              variants={motionFadeUp}
+              initial="hidden"
+              animate="show"
+              custom={0.16}
+              className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl"
+            >
+              Top up any network, fund your wallet, and manage everyday payments with a simple, reliable MZDATA account.
+            </motion.p>
+
+            <motion.div
+              variants={motionFadeUp}
+              initial="hidden"
+              animate="show"
+              custom={0.24}
+              className="mt-10 flex flex-wrap gap-4 items-center justify-center lg:justify-start"
+            >
+              <Button asChild className="h-14 rounded-full bg-primary px-8 text-lg text-primary-foreground shadow-md shadow-blue-500/20 hover:bg-primary/90 transition-all hover:scale-105">
+                <Link href="/register">
+                  Get Started
+                  <ArrowRight className="h-5 w-5 ml-2" />
+                </Link>
+              </Button>
+              <Button asChild variant="secondary" className="h-14 rounded-full border-border bg-card/50 backdrop-blur-md px-8 text-lg text-muted-foreground hover:bg-secondary transition-all hover:scale-105">
+                <Link href="/login">Log in</Link>
+              </Button>
+              <a
+                href="https://play.google.com/store/apps/details?id=com.mmtech.mzdata&pcampaignid=web_share"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-14 items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
+              >
+                <div className="flex items-center gap-2.5 text-left">
+                  <svg className="h-6 w-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M5.002 3c-.116 0-.23.018-.342.049L13.882 12 4.66 20.951c.112.03.226.049.342.049.278 0 .546-.076.784-.216l12.44-7.108c.556-.317.9-.9.9-1.547 0-.647-.344-1.23-.9-1.547L5.786 3.216a1.564 1.564 0 0 0-.784-.216zm-1.042.825V20.18L13.06 12 3.96 3.825z" />
+                  </svg>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground leading-none">Get it on</div>
+                    <div className="text-sm font-bold text-foreground leading-tight mt-0.5">Google Play</div>
+                  </div>
+                </div>
+              </a>
+            </motion.div>
+
+            <motion.div
+              variants={motionFadeUp}
+              initial="hidden"
+              animate="show"
+              custom={0.32}
+              className="mt-12 flex flex-wrap justify-center lg:justify-start gap-4"
+            >
+              {heroPoints.map((point) => (
+                <div key={point} className="flex items-center gap-2 rounded-full border border-border/50 bg-card/40 backdrop-blur-sm px-5 py-2.5 text-sm font-medium text-muted-foreground">
+                  <BadgeCheck className="h-4 w-4 text-primary" />
+                  {point}
+                </div>
+              ))}
+            </motion.div>
+          </div>
+          
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.8, delay: 0.2 }}
+            className="relative hidden lg:block h-[600px] w-full"
           >
-            {heroPoints.map((point) => (
-              <div key={point} className="flex items-center gap-2 rounded-full border border-border/50 bg-card/40 backdrop-blur-sm px-5 py-2.5 text-sm font-medium text-muted-foreground">
-                <BadgeCheck className="h-4 w-4 text-primary" />
-                {point}
-              </div>
-            ))}
+            {/* Animated Bubbles behind */}
+            <motion.div 
+              animate={{ y: [0, -20, 0], opacity: [0.5, 0.8, 0.5] }} 
+              transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
+              className="absolute top-[10%] left-[10%] w-24 h-24 rounded-full bg-primary/20 blur-xl"
+            />
+            <motion.div 
+              animate={{ y: [0, 30, 0], x: [0, 20, 0], opacity: [0.3, 0.7, 0.3] }} 
+              transition={{ repeat: Infinity, duration: 6, ease: "easeInOut", delay: 1 }}
+              className="absolute bottom-[20%] right-[10%] w-40 h-40 rounded-full bg-blue-500/20 blur-2xl"
+            />
+            <motion.div 
+              animate={{ scale: [1, 1.2, 1], opacity: [0.4, 0.9, 0.4] }} 
+              transition={{ repeat: Infinity, duration: 5, ease: "easeInOut", delay: 2 }}
+              className="absolute top-[40%] right-[20%] w-16 h-16 rounded-full bg-primary/30 blur-lg border border-primary/50"
+            />
+            <motion.div 
+              animate={{ y: [0, -40, 0], x: [0, -20, 0], opacity: [0.2, 0.6, 0.2] }} 
+              transition={{ repeat: Infinity, duration: 7, ease: "easeInOut" }}
+              className="absolute top-[60%] left-[5%] w-32 h-32 rounded-full border-2 border-primary/20"
+            />
+            
+            {/* Woman Image */}
+            <img 
+              src="/brand/hero_woman.png" 
+              alt="Woman using MZDATA" 
+              className="absolute bottom-0 left-1/2 -translate-x-1/2 h-[110%] w-auto object-contain object-bottom drop-shadow-2xl z-10"
+            />
           </motion.div>
         </div>
       </div>
