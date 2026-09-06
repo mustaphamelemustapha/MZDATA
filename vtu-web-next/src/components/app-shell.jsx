@@ -32,7 +32,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 function brandInitials(profile) {
-  const name = String(profile?.full_name || profile?.email || 'MZDATA').trim();
+  const name = String(profile?.full_name || profile?.email || 'Mele Data').trim();
   const parts = name.split(/\s+/).filter(Boolean);
   const letters = parts.slice(0, 2).map((part) => part[0]).join('');
   return (letters || 'AX').toUpperCase();
@@ -176,7 +176,7 @@ export function AppShell({ children }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
         <div className="rounded-3xl border border-border bg-card px-6 py-5 text-sm text-card-foreground shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
-          Loading MZDATA dashboard...
+          Loading Mele Data dashboard...
         </div>
       </div>
     );
@@ -189,10 +189,10 @@ export function AppShell({ children }) {
       <aside className="hidden border-r border-border bg-card p-5 text-card-foreground lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:overflow-y-auto">
         <Link href="/dashboard" className="flex items-center gap-3 rounded-2xl border border-border bg-secondary px-4 py-3">
           <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl bg-card ring-1 ring-border">
-            <img src="/brand/mzdata-logo.jpg" alt="MZDATA logo" className="h-full w-full object-contain" />
+            <img src="/brand/meledata-icon.png" alt="Mele Data logo" className="h-full w-full object-contain" />
           </div>
           <div>
-            <div className="text-sm font-semibold text-foreground">MZDATA</div>
+            <div className="text-sm font-semibold text-foreground">Mele Data</div>
             <div className="text-xs text-muted-foreground">Fintech dashboard</div>
           </div>
         </Link>
@@ -275,10 +275,10 @@ export function AppShell({ children }) {
             </Button>
             <div className="min-w-0 flex-1 md:hidden">
               <div className="truncate text-sm font-semibold text-foreground">
-                {activePage?.label || 'MZDATA'}
+                {activePage?.label || 'Mele Data'}
               </div>
               <div className="truncate text-[11px] text-muted-foreground">
-                MZDATA
+                Mele Data
               </div>
             </div>
             <div className="hidden h-11 flex-1 items-center gap-3 rounded-2xl border border-border bg-card px-4 md:flex">
@@ -374,10 +374,10 @@ export function AppShell({ children }) {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-card ring-1 ring-border">
-                        <img src="/brand/mzdata-logo.jpg" alt="MZDATA logo" className="h-full w-full object-contain" />
+                        <img src="/brand/meledata-icon.png" alt="Mele Data logo" className="h-full w-full object-contain" />
                       </div>
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold tracking-tight text-foreground">MZDATA</div>
+                        <div className="truncate text-sm font-semibold tracking-tight text-foreground">Mele Data</div>
                         <div className="truncate text-[11px] text-muted-foreground">{profile.full_name || profile.email || 'Wallet workspace'}</div>
                       </div>
                     </div>

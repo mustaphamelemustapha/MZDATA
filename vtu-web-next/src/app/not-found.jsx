@@ -4,7 +4,7 @@ export default function NotFound() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6">
       <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-8 text-center shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
-        <div className="axis-label">MZDATA</div>
+        <div className="axis-label">Mele Data</div>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">Page not found</h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           The page you are looking for does not exist or has moved.

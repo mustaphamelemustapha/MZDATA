@@ -62,7 +62,7 @@ class _MeleDataLoaderState extends State<MeleDataLoader>
                   ],
                 ),
                 child: Image.asset(
-                  'assets/brand/mzdata-icon-clean.png', // The clean icon
+                  'assets/brand/meledata-icon.png', // The clean icon
                   fit: BoxFit.contain,
                   errorBuilder: (context, error, stackTrace) {
                     // Fallback to primary color if image fails

@@ -35,7 +35,7 @@ module.exports = {
         },
         bg: 'hsl(var(--bg))',
         surface: 'hsl(var(--surface))',
-        panel: 'hsl(var(--panel))',
+        panel: '0 8px 24px rgba(0, 0, 0, 0.04)',
         text: 'hsl(var(--text))',
         accent: {
           DEFAULT: 'hsl(var(--accent))',
@@ -55,8 +55,8 @@ module.exports = {
         },
       },
       boxShadow: {
-        soft: '0 20px 50px rgba(0, 0, 0, 0.08)',
-        panel: '0 24px 60px rgba(0, 0, 0, 0.12)',
+        soft: '0 8px 24px rgba(0, 0, 0, 0.04)',
+        panel: '0 8px 24px rgba(0, 0, 0, 0.04)',
         glow: '0 0 40px rgba(59, 130, 246, 0.2)',
       },
       backgroundImage: {

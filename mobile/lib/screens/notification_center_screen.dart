@@ -489,7 +489,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                                   child: Padding(
                                     padding: const EdgeInsets.all(6),
                                     child: Image.asset(
-                                      'assets/brand/mzdata-icon-clean.png',
+                                      'assets/brand/meledata-icon.png',
                                       fit: BoxFit.contain,
                                       errorBuilder: (c, e, s) => Icon(
                                         _iconFor(tx),

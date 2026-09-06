@@ -110,7 +110,7 @@ export default function AdminOverviewPage() {
     <div className="space-y-6 pb-8">
       <AdminPageHeader
         eyebrow="Admin"
-        title="MZDATA operations center"
+        title="Mele Data operations center"
         description="Track users, transactions, support pressure, and margins from one internal dashboard."
         actions={(
           <Button variant="secondary" onClick={load} disabled={loading}>

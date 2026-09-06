@@ -3,16 +3,16 @@ import { LegacyCacheCleanup } from '@/components/legacy-cache-cleanup';
 
 export const metadata = {
   title: {
-    default: 'MZDATA',
-    template: '%s | MZDATA',
+    default: 'Mele Data',
+    template: '%s | Mele Data',
   },
-  description: 'Premium fintech dashboard for MZDATA',
-  applicationName: 'MZDATA',
+  description: 'Premium fintech dashboard for Mele Data',
+  applicationName: 'Mele Data',
   metadataBase: new URL('https://mzdata.org'),
   icons: {
-    icon: '/brand/mzdata-logo.jpg',
-    shortcut: '/brand/mzdata-logo.jpg',
-    apple: '/brand/mzdata-logo.jpg',
+    icon: '/brand/meledata-icon.png',
+    shortcut: '/brand/meledata-icon.png',
+    apple: '/brand/meledata-icon.png',
   },
 };
 

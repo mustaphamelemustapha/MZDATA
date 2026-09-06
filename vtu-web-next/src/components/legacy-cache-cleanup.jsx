@@ -35,7 +35,7 @@ export function LegacyCacheCleanup() {
       }
 
       if (!cancelled && typeof window !== 'undefined') {
-        window.__MZDATA_LEGACY_CLEANED__ = true;
+        window.__MELEDATA_LEGACY_CLEANED__ = true;
       }
     };
 

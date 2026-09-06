@@ -170,7 +170,7 @@ export function AuthPage({ initialMode, refCode: presetRef }) {
         <header className="border-b border-slate-800/60 bg-slate-900/40 backdrop-blur-md">
           <div className="mx-auto flex h-12 max-w-md items-center justify-between px-4">
             <Link href="/" className="text-[15px] font-bold text-white tracking-tight">
-              MZDATA
+              Mele Data
             </Link>
             <div className="flex items-center gap-2">
               <Link
@@ -198,13 +198,13 @@ export function AuthPage({ initialMode, refCode: presetRef }) {
             {/* Logo + heading */}
             <div className="text-center mb-7">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-800 ring-1 ring-slate-700">
-                <img src="/brand/mzdata-logo.jpg" alt="MZDATA" className="h-8 w-8 object-contain" />
+                <img src="/brand/meledata-icon.png" alt="Mele Data" className="h-8 w-8 object-contain" />
               </div>
               <h1 className="text-[22px] font-semibold text-white tracking-[-0.02em]">
                 {isRegister ? 'Create your account' : 'Welcome back'}
               </h1>
               <p className="mt-1 text-[13px] text-slate-400">
-                {isRegister ? "A few details and you're in" : 'Sign in to your MZDATA account'}
+                {isRegister ? "A few details and you're in" : 'Sign in to your Mele Data account'}
               </p>
             </div>
 
@@ -386,7 +386,7 @@ export function AuthPage({ initialMode, refCode: presetRef }) {
                 </>
               ) : (
                 <>
-                  New to MZDATA?{' '}
+                  New to Mele Data?{' '}
                   <Link href="/register" className="text-blue-400 hover:text-blue-300 transition-colors font-medium">Create an account</Link>
                 </>
               )}

@@ -126,7 +126,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           ),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(10),
-                            child: Image.asset('assets/brand/mzdata-icon.png'),
+                            child: Image.asset('assets/brand/meledata-icon.png'),
                           ),
                         ),
                         const SizedBox(width: 12),

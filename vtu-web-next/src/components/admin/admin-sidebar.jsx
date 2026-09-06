@@ -16,10 +16,10 @@ export function AdminSidebar({ profile, onSignOut, mobile = false, onClose }) {
         <div className="flex items-center justify-between gap-2">
           <Link href="/admin" className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-secondary ring-1 ring-border">
-              <img src="/brand/mzdata-logo.jpg" alt="MZDATA logo" className="h-full w-full object-contain" />
+              <img src="/brand/meledata-icon.png" alt="Mele Data logo" className="h-full w-full object-contain" />
             </div>
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-foreground">MZDATA Admin</div>
+              <div className="truncate text-sm font-semibold text-foreground">Mele Data Admin</div>
               <div className="truncate text-xs text-muted-foreground">Operations control center</div>
             </div>
           </Link>

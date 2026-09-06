@@ -1067,17 +1067,13 @@ class _DataScreenState extends State<DataScreen> {
                         width: 1,
                       ),
                       boxShadow: _network.isNotEmpty ? [
-                        BoxShadow(
-                          color: _getNetworkColor(_network).withValues(alpha: 0.1),
-                          blurRadius: 10,
-                          spreadRadius: 2,
-                        )
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 24,
+                          spreadRadius: 2,)
                       ] : [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        )
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),)
                       ],
                     ),
                     child: Row(
@@ -1258,11 +1254,9 @@ class _DataScreenState extends State<DataScreen> {
                             width: 1,
                           ),
                           boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.03),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            )
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 24,
+                              offset: const Offset(0, 8),)
                           ],
                         ),
                         child: Row(
@@ -1439,11 +1433,9 @@ class _EpicCheckoutButton extends StatelessWidget {
         color: isDark ? const Color(0xFF0F172A) : Colors.white,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 40,
-            offset: const Offset(0, -10),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 8),),
         ],
       ),
       child: SafeArea(
@@ -1510,11 +1502,9 @@ class _PremiumSmallButton extends StatelessWidget {
           color: primary,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
-            BoxShadow(
-              color: primary.withValues(alpha: 0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 24,
+              offset: const Offset(0, 8),),
           ],
         ),
         child: Row(
@@ -1572,14 +1562,12 @@ class _PremiumCheckoutCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(32),
         border: Border.all(
           color: primary.withValues(alpha: 0.2),
-          width: 2,
+          width: 1,
         ),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 8),),
         ],
       ),
       child: Column(
@@ -1759,11 +1747,9 @@ class _RecentRecipientsSheet extends StatelessWidget {
           color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.10),
         ),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 8),),
         ],
       ),
       child: SafeArea(
@@ -1894,11 +1880,9 @@ class _TransactionHeroCard extends StatelessWidget {
           color: isDark ? const Color(0xFF2A3A52) : const Color(0xFFE2E8F0),
         ),
         boxShadow: [
-          BoxShadow(
-            color: isDark ? const Color(0xFF08101F) : const Color(0xFFE2E8F0),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 8),),
         ],
       ),
       child: Stack(
@@ -2483,11 +2467,9 @@ class _PurchaseSummaryModalState extends State<_PurchaseSummaryModal> {
         color: isDark ? const Color(0xFF0F172A) : Colors.white,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
         boxShadow: [
-          BoxShadow(
-            color: netColor.withValues(alpha: 0.15),
-            blurRadius: 40,
-            offset: const Offset(0, -10),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 8),),
         ],
       ),
       child: SingleChildScrollView(
@@ -2512,11 +2494,9 @@ class _PurchaseSummaryModalState extends State<_PurchaseSummaryModal> {
                 color: netColor.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
                 boxShadow: [
-                  BoxShadow(
-                    color: netColor.withValues(alpha: 0.2),
-                    blurRadius: 20,
-                    spreadRadius: 2,
-                  )
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 24,
+                    spreadRadius: 2,)
                 ]
               ),
               child: Icon(Icons.check_circle_rounded, color: netColor, size: 36),
@@ -2557,14 +2537,12 @@ class _PurchaseSummaryModalState extends State<_PurchaseSummaryModal> {
                 borderRadius: BorderRadius.circular(32),
                 border: Border.all(
                   color: netColor.withValues(alpha: 0.3),
-                  width: 2,
+                  width: 1,
                 ),
                 boxShadow: [
-                  BoxShadow(
-                    color: netColor.withValues(alpha: 0.1),
-                    blurRadius: 15,
-                    offset: const Offset(0, 8),
-                  )
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),)
                 ],
               ),
               child: Column(
@@ -2806,11 +2784,9 @@ class _MasterpieceActionButton extends StatelessWidget {
           ],
         ),
         boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 8),),
         ],
       ),
       child: Material(
@@ -2890,11 +2866,9 @@ class _NetworkCard extends StatelessWidget {
           ),
           boxShadow: isSelected
               ? [
-                  BoxShadow(
-                    color: const Color(0xFF2457F5).withValues(alpha: 0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),),
                 ]
               : [],
         ),
@@ -3040,17 +3014,13 @@ class _ElitePlanTile extends StatelessWidget {
             width: selected ? 1.5 : 1.0,
           ),
           boxShadow: selected ? [
-            BoxShadow(
-              color: primary.withValues(alpha: 0.3),
-              blurRadius: 15,
-              offset: const Offset(0, 4),
-            )
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 24,
+              offset: const Offset(0, 8),)
           ] : [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            )
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 24,
+              offset: const Offset(0, 8),)
           ],
         ),
         child: Stack(
@@ -3860,7 +3830,7 @@ class _ShareableReceipt extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(6),
                     child: Image.asset(
-                      'assets/brand/mzdata-logo.png',
+                      'assets/brand/meledata-icon.png',
                       fit: BoxFit.contain,
                       errorBuilder: (c, e, s) => Icon(
                         ok ? Icons.local_florist : Icons.error_outline_rounded,

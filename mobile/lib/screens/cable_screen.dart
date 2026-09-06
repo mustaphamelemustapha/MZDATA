@@ -142,11 +142,9 @@ class _CableScreenState extends State<CableScreen> {
                     color: isDark ? const Color(0xFF1E2638) : Colors.white,
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: isDark ? [] : [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.02),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      )
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),)
                     ],
                   ),
                   child: _loading && _providers.length == 4 // Default length

@@ -206,7 +206,7 @@ export default function AdminSettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Referral reward policy</CardTitle>
-            <CardDescription>Current first-deposit referral reward rate used by MZDATA.</CardDescription>
+            <CardDescription>Current first-deposit referral reward rate used by Mele Data.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <label className="space-y-2 block">

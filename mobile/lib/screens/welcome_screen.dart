@@ -205,21 +205,24 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         width: 72,
                         height: 72,
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primary, // Electric Lime
-                          borderRadius: BorderRadius.circular(16), // Brutalist sharp
-                          border: Border.all(color: Colors.white, width: 2), // Hard border
+                          color: isDark ? const Color(0xFF131B2A) : Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: theme.colorScheme.outline.withValues(alpha: 0.5),
+                            width: 1,
+                          ),
                           boxShadow: [
                             BoxShadow(
-                              color: theme.colorScheme.primary,
-                              blurRadius: 0, // Hard shadow
-                              offset: const Offset(4, 4),
+                              color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
+                              blurRadius: 24,
+                              offset: const Offset(0, 8),
                             ),
                           ],
                         ),
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(4),
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.asset('assets/brand/mzdata-icon.png', color: Colors.black), // Make logo black to contrast lime
+                          borderRadius: BorderRadius.circular(16),
+                          child: Image.asset('assets/brand/meledata-icon.png'),
                         ),
                       ),
                     ),
@@ -272,11 +275,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: theme.colorScheme.outline, width: 2),
                           boxShadow: [
-                            BoxShadow(
-                              color: theme.colorScheme.outline,
-                              blurRadius: 0,
-                              offset: const Offset(4, 4),
-                            ),
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 24,
+                              offset: const Offset(0, 8),),
                           ],
                         ),
                         child: Column(
@@ -434,14 +435,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: theme.colorScheme.outline,
-                              width: 2,
+                              width: 1,
                             ),
                             boxShadow: [
-                              BoxShadow(
-                                color: theme.colorScheme.outline,
-                                blurRadius: 0,
-                                offset: const Offset(2, 2),
-                              )
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                                blurRadius: 24,
+                                offset: const Offset(0, 8),)
                             ],
                           ),
                           child: IconButton(
@@ -470,11 +469,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                             border: Border.all(color: Colors.white, width: 2), // Hard border for brutalism
                             boxShadow: [
                               if (!isLoading)
-                                const BoxShadow(
-                                  color: Colors.white,
-                                  blurRadius: 0,
-                                  offset: Offset(4, 4),
-                                )
+                                BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                                  blurRadius: 24,
+                                  offset: const Offset(0, 8),)
                             ],
                           ),
                           child: Row(
@@ -534,11 +531,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     color: theme.colorScheme.error.withValues(alpha: isDark ? 0.4 : 0.2),
                   ),
                   boxShadow: [
-                    BoxShadow(
-                      color: theme.colorScheme.error.withValues(alpha: 0.2),
-                      blurRadius: 30,
-                      offset: const Offset(0, 10),
-                    ),
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),),
                   ],
                 ),
                 child: Row(

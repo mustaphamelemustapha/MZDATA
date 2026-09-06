@@ -93,11 +93,9 @@ class AuthHeroBlock extends StatelessWidget {
                     width: 1,
                   ),
                   boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
                       blurRadius: 24,
-                      offset: const Offset(0, 8),
-                    ),
+                      offset: const Offset(0, 8),),
                   ],
                 ),
                 child: Center(
@@ -110,7 +108,7 @@ class AuthHeroBlock extends StatelessWidget {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(compact ? 20 : 28),
                       child: Image.asset(
-                        'assets/brand/mzdata-icon.png',
+                        'assets/brand/meledata-icon.png',
                         width: compact ? logoSize * 0.8 : logoSize,
                         height: compact ? logoSize * 0.8 : logoSize,
                         fit: BoxFit.cover,

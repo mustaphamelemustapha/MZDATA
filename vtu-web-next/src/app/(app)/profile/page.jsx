@@ -195,7 +195,7 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-2xl border border-dashed border-border bg-secondary p-4 text-sm text-muted-foreground">
-              We provide a robust REST API for developers to connect and resell MZDATA services.
+              We provide a robust REST API for developers to connect and resell Mele Data services.
             </div>
             <Button className="w-full" variant="outline" onClick={() => router.push('/developer')}>
               Open Developer Portal

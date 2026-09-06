@@ -69,7 +69,7 @@ export function ResetPasswordPage() {
         <Card className="w-full max-w-[420px] border border-border bg-card shadow-[0_8px_20px_rgba(0,0,0,0.14)] backdrop-blur-sm">
           <CardHeader className="space-y-3 px-6 pb-6 pt-8 text-center sm:px-7">
             <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-card ring-1 ring-border">
-              <img src="/brand/mzdata-logo.jpg" alt="MZDATA logo" className="h-full w-full object-contain" />
+              <img src="/brand/meledata-icon.png" alt="Mele Data logo" className="h-full w-full object-contain" />
             </div>
             <CardTitle className="text-[1.6rem] font-semibold tracking-[-0.025em] text-foreground">
               Create New Password
@@ -92,7 +92,7 @@ export function ResetPasswordPage() {
                   <Button
                     className="h-[50px] w-full rounded-[8px] border border-primary/20 bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(249,115,22,0.12)] transition-all duration-200 hover:bg-primary/90"
                   >
-                    Sign in to MZDATA
+                    Sign in to Mele Data
                   </Button>
                 </Link>
               </div>

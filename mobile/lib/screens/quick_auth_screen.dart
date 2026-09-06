@@ -200,17 +200,15 @@ class _QuickAuthScreenState extends State<QuickAuthScreen> with SingleTickerProv
                               color: Colors.white,
                               shape: BoxShape.circle,
                               boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.1),
-                                  blurRadius: 16,
-                                  offset: const Offset(0, 8),
-                                ),
+                                BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                                  blurRadius: 24,
+                                  offset: const Offset(0, 8),),
                               ],
                             ),
                             padding: const EdgeInsets.all(4),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(30),
-                              child: Image.asset('assets/brand/mzdata-icon.png'),
+                              child: Image.asset('assets/brand/meledata-icon.png'),
                             ),
                           ),
                         ),
@@ -240,11 +238,9 @@ class _QuickAuthScreenState extends State<QuickAuthScreen> with SingleTickerProv
                               color: theme.colorScheme.outline.withValues(alpha: isDark ? 0.3 : 0.05),
                             ),
                             boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.04),
                                 blurRadius: 24,
-                                offset: const Offset(0, 8),
-                              ),
+                                offset: const Offset(0, 8),),
                             ],
                           ),
                           child: Column(
@@ -287,7 +283,7 @@ class _QuickAuthScreenState extends State<QuickAuthScreen> with SingleTickerProv
                                       shape: BoxShape.circle,
                                       border: Border.all(
                                         color: primaryColor.withValues(alpha: 0.3),
-                                        width: 1.5,
+                                        width: 1,
                                       ),
                                     ),
                                     child: Center(
@@ -385,11 +381,9 @@ class _QuickAuthScreenState extends State<QuickAuthScreen> with SingleTickerProv
                     color: theme.colorScheme.error.withValues(alpha: isDark ? 0.4 : 0.2),
                   ),
                   boxShadow: [
-                    BoxShadow(
-                      color: theme.colorScheme.error.withValues(alpha: 0.15),
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
                       blurRadius: 24,
-                      offset: const Offset(0, 8),
-                    ),
+                      offset: const Offset(0, 8),),
                   ],
                 ),
                 child: Row(

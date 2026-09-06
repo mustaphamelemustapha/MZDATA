@@ -2236,7 +2236,7 @@ class _ShareableReceipt extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(6),
                     child: Image.asset(
-                      'assets/brand/mzdata-logo.png',
+                      'assets/brand/meledata-icon.png',
                       fit: BoxFit.contain,
                       errorBuilder: (c, e, s) => Icon(
                         ok ? Icons.local_florist : Icons.error_outline_rounded,

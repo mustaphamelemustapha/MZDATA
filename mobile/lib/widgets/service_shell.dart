@@ -82,7 +82,7 @@ class ServiceShell extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                   color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
-                                  width: 1.5,
+                                  width: 1,
                                 ),
                               ),
                               child: Icon(
@@ -177,15 +177,13 @@ class ServiceChoiceChip extends StatelessWidget {
             color: selected
                 ? primary
                 : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
-            width: 1.5,
+            width: 1,
           ),
           boxShadow: selected
               ? [
-                  BoxShadow(
-                    color: primary.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),),
                 ]
               : [],
         ),
@@ -235,14 +233,12 @@ class ServiceSectionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         border: Border.all(
           color: isDark ? const Color(0xFF2D3748) : const Color(0xFFE2E8F0),
-          width: 1.5,
+          width: 1,
         ),
         boxShadow: [
-          BoxShadow(
-            color: isDark ? const Color(0xFF08101F) : const Color(0xFFCBD5E1).withValues(alpha: 0.2),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 8),),
         ],
       ),
       child: Column(
@@ -285,7 +281,7 @@ class _ActionBtn extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
-            width: 1.5,
+            width: 1,
           ),
         ),
         child: Icon(icon, size: 20),

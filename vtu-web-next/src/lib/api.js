@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = 'https://mzdata-1.onrender.com/api/v1';
+const DEFAULT_API_BASE = 'https://meledata.com/api/v1';
 const TOKEN_KEY = 'mzdata_access_token';
 const REFRESH_KEY = 'mzdata_refresh_token';
 const PROFILE_KEY = 'mzdata_profile';
@@ -12,7 +12,7 @@ function normalizeBase(raw) {
 }
 
 function getApiBase() {
-  const env = typeof window !== 'undefined' ? window.__MZDATA_API_BASE__ : undefined;
+  const env = typeof window !== 'undefined' ? window.__MELEDATA_API_BASE__ : undefined;
   const candidate = normalizeBase(
     env || 
     process.env.NEXT_PUBLIC_API_BASE || 

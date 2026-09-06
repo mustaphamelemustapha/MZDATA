@@ -922,14 +922,12 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: theme.colorScheme.outline,
-          width: 2,
+          width: 1,
         ),
         boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.outline,
-            blurRadius: 0,
-            offset: const Offset(4, 4),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 8),),
         ],
       ),
       child: Padding(
@@ -990,7 +988,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(8),
                     side: BorderSide(
                       color: textPrimaryColor,
-                      width: 2,
+                      width: 1,
                     ),
                   ),
                 ),
@@ -1046,14 +1044,12 @@ class _HomeScreenState extends State<HomeScreen> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: theme.colorScheme.outline,
-            width: 2,
+            width: 1,
           ),
           boxShadow: [
-            BoxShadow(
-              color: theme.colorScheme.outline,
-              blurRadius: 0,
-              offset: const Offset(4, 4),
-            )
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 24,
+              offset: const Offset(0, 8),)
           ],
         ),
         child: Row(
@@ -1181,7 +1177,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           borderRadius: BorderRadius.circular(30),
                           border: Border.all(
                             color: Colors.white.withValues(alpha: isDark ? 0.1 : 0.5),
-                            width: 1.5,
+                            width: 1,
                           ),
                         ),
                         child: Row(
@@ -1194,7 +1190,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 shape: BoxShape.circle,
                                 border: Border.all(
                                   color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
-                                  width: 2,
+                                  width: 1,
                                 ),
                                 image: profileImageUrl != null && profileImageUrl.isNotEmpty
                                     ? DecorationImage(
@@ -1294,7 +1290,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             shape: BoxShape.circle,
                             border: Border.all(
                               color: Colors.white.withValues(alpha: isDark ? 0.1 : 0.5),
-                              width: 1.5,
+                              width: 1,
                             ),
                           ),
                           child: IconButton(
@@ -1445,14 +1441,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
                                         color: Theme.of(context).colorScheme.outline,
-                                        width: 2,
+                                        width: 1,
                                       ),
                                       boxShadow: [
-                                        BoxShadow(
-                                          color: Theme.of(context).colorScheme.outline,
-                                          blurRadius: 0,
-                                          offset: const Offset(4, 4),
-                                        ),
+                                        BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                                          blurRadius: 24,
+                                          offset: const Offset(0, 8),),
                                       ],
                                     ),
                                     child: const Center(
@@ -1472,14 +1466,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
                                       color: Theme.of(context).colorScheme.outline,
-                                      width: 2,
+                                      width: 1,
                                     ),
                                     boxShadow: [
-                                      BoxShadow(
-                                        color: Theme.of(context).colorScheme.outline,
-                                        blurRadius: 0,
-                                        offset: const Offset(4, 4),
-                                      ),
+                                      BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                                        blurRadius: 24,
+                                        offset: const Offset(0, 8),),
                                     ],
                                   ),
                                   child: Column(
@@ -1766,14 +1758,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                           borderRadius: BorderRadius.circular(20),
                                           border: Border.all(
                                             color: Colors.white.withValues(alpha: 0.25),
-                                            width: 1.5,
+                                            width: 1,
                                           ),
                                           boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withValues(alpha: 0.15),
-                                              blurRadius: 20,
-                                              offset: const Offset(0, 8),
-                                            ),
+                                            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                                              blurRadius: 24,
+                                              offset: const Offset(0, 8),),
                                           ],
                                         ),
                                     child: Column(
@@ -2033,14 +2023,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: Theme.of(context).colorScheme.outline,
-                    width: 2,
+                    width: 1,
                   ),
                   boxShadow: [
-                    BoxShadow(
-                      color: Theme.of(context).colorScheme.outline,
-                      blurRadius: 0,
-                      offset: const Offset(4, 4),
-                    ),
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),),
                   ],
                 ),
                 child: Column(
@@ -2113,13 +2101,13 @@ class _HomeScreenState extends State<HomeScreen> {
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: Theme.of(context).colorScheme.outline,
-                                width: 1.5,
+                                width: 1,
                               ),
                             ),
                             child: Icon(
                               Icons.copy_rounded,
                               size: 14,
-                              color: Colors.black,
+                              color: Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ),
@@ -2180,7 +2168,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: Theme.of(context).colorScheme.outline,
-                                width: 1.5,
+                                width: 1,
                               ),
                             ),
                             child: Row(
@@ -2189,7 +2177,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Icon(
                                   Icons.copy_rounded,
                                   size: 14,
-                                  color: Colors.black,
+                                  color: Theme.of(context).colorScheme.onSurface,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
@@ -2197,7 +2185,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w800,
-                                    color: Colors.black,
+                                    color: Theme.of(context).colorScheme.onSurface,
                                   ),
                                 ),
                               ],
@@ -2483,11 +2471,9 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: borderColor),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 8),),
         ],
       ),
       child: Column(
@@ -3150,11 +3136,9 @@ class _FundingAccountBlock extends StatelessWidget {
           color: Theme.of(context).colorScheme.outline.withValues(alpha: isDark ? 0.1 : 0.08),
         ),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
+            offset: const Offset(0, 8),),
         ],
       ),
       child: Column(
@@ -3326,14 +3310,12 @@ class _ServiceCardState extends State<_ServiceCard> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: Theme.of(context).colorScheme.outline,
-                  width: 2,
+                  width: 1,
                 ),
                 boxShadow: _pressed ? [] : [
-                  BoxShadow(
-                    color: Theme.of(context).colorScheme.outline,
-                    blurRadius: 0,
-                    offset: const Offset(4, 4),
-                  )
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),)
                 ],
               ),
               child: Column(
@@ -3347,13 +3329,13 @@ class _ServiceCardState extends State<_ServiceCard> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: Theme.of(context).colorScheme.outline,
-                        width: 1.5,
+                        width: 1,
                       ),
                     ),
                     child: Icon(
                       widget.item.icon,
                       size: compact ? 22 : 26,
-                      color: Colors.black,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -3980,7 +3962,7 @@ class _StepTile extends StatelessWidget {
               if (!isLast)
                 Expanded(
                   child: Container(
-                    width: 2,
+                    width: 1,
                     margin: const EdgeInsets.symmetric(vertical: 4),
                     color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1),
                   ),
@@ -4281,11 +4263,9 @@ class _MZDATAAccountActivationDialogState extends State<_MZDATAAccountActivation
                             borderRadius: BorderRadius.circular(8),
                             boxShadow: _option == 'bvn'
                                 ? [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.05),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
+                                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                                      blurRadius: 24,
+                                      offset: const Offset(0, 8),),
                                   ]
                                 : null,
                           ),
@@ -4326,11 +4306,9 @@ class _MZDATAAccountActivationDialogState extends State<_MZDATAAccountActivation
                             borderRadius: BorderRadius.circular(8),
                             boxShadow: _option == 'nin'
                                 ? [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.05),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
+                                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+                                      blurRadius: 24,
+                                      offset: const Offset(0, 8),),
                                   ]
                                 : null,
                           ),

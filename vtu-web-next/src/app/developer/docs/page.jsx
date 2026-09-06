@@ -73,7 +73,7 @@ export default function DevDocs() {
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-6">
             <Link href="/" className="text-lg font-bold tracking-tight text-white hover:text-blue-500 transition-colors">
-              MZDATA <span className="text-blue-500">Developers</span>
+              Mele Data <span className="text-blue-500">Developers</span>
             </Link>
             <nav className="hidden md:flex items-center gap-4 text-sm text-slate-400">
               <a href="#getting-started" className="hover:text-white transition-colors">Getting started</a>
@@ -128,7 +128,7 @@ export default function DevDocs() {
               Get started
             </h1>
             <p className="mt-4 text-base text-slate-400 leading-7 max-w-2xl">
-              The MZDATA API lets you sell mobile-data top-ups and airtime across every Nigerian network — MTN, Glo, Airtel, and 9mobile — straight from your backend. Token auth, idempotent retries, and a shared wallet that any of your apps can debit.
+              The Mele Data API lets you sell mobile-data top-ups and airtime across every Nigerian network — MTN, Glo, Airtel, and 9mobile — straight from your backend. Token auth, idempotent retries, and a shared wallet that any of your apps can debit.
             </p>
 
             {/* Feature cards */}
@@ -168,7 +168,7 @@ export default function DevDocs() {
           <section id="overview" className="scroll-mt-20">
             <h2 className="text-2xl font-bold text-white border-b border-slate-800 pb-2">Overview</h2>
             <p className="mt-4 text-sm text-slate-400 leading-7">
-              MZDATA Developers gives you two product APIs:
+              Mele Data Developers gives you two product APIs:
             </p>
             <ul className="mt-3 space-y-2 text-sm text-slate-400 list-disc list-inside leading-7">
               <li><strong className="text-white">Data API</strong> — buy mobile data on MTN, Glo, Airtel, and 9mobile. Per-plan pricing, idempotent retries.</li>
@@ -196,7 +196,7 @@ Authorization: Token mele_live_xxxxxxxxxxxxxxxxxxxxxxxx
 Authorization: Bearer mele_live_xxxxxxxxxxxxxxxxxxxxxxxx`}
             </CodeBlock>
             <p className="mt-4 text-sm text-slate-400 leading-7">
-              Each token belongs to a single MZDATA user. The token identifies whose wallet gets debited.
+              Each token belongs to a single Mele Data user. The token identifies whose wallet gets debited.
             </p>
             <div className="mt-4 bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
               <p className="text-xs text-amber-400 font-semibold">⚠️ Security</p>
@@ -645,7 +645,7 @@ echo curl_exec($ch);`}
             <div className="mt-4 bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
               <p className="text-xs text-blue-400 font-semibold">💡 Reseller discounts</p>
               <p className="text-xs text-slate-400 mt-1 leading-5">
-                As a MZDATA developer, you get reseller-tier pricing on airtime. The <code className="font-mono text-blue-400">amount</code> in the response reflects your discounted charge — not the face value sent to the customer.
+                As a Mele Data developer, you get reseller-tier pricing on airtime. The <code className="font-mono text-blue-400">amount</code> in the response reflects your discounted charge — not the face value sent to the customer.
               </p>
             </div>
           </section>
@@ -655,13 +655,13 @@ echo curl_exec($ch);`}
           <footer className="border-t border-slate-800 pt-8 mt-16 pb-12">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <p className="text-sm font-bold text-white">MZDATA Developers</p>
+                <p className="text-sm font-bold text-white">Mele Data Developers</p>
                 <p className="text-xs text-slate-500 mt-1">Data, airtime, and wallet APIs for Nigerian builders.</p>
               </div>
               <div className="flex gap-4 text-xs text-slate-400">
                 <Link href="/register" className="hover:text-blue-500 transition-colors">Create account</Link>
                 <Link href="/login" className="hover:text-blue-500 transition-colors">Login</Link>
-                <Link href="/" className="hover:text-blue-500 transition-colors">MZDATA home</Link>
+                <Link href="/" className="hover:text-blue-500 transition-colors">Mele Data home</Link>
               </div>
             </div>
           </footer>

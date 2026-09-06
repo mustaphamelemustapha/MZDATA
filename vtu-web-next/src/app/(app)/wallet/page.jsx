@@ -134,7 +134,7 @@ export default function WalletPage() {
                   </span>
                 </div>
                 <div className="mt-3 text-3xl font-bold tracking-[0.12em] text-foreground font-mono">{activeAccount.account_number}</div>
-                <div className="mt-3 text-sm font-black text-foreground uppercase tracking-wide">ACCOUNT NAME: {String(activeAccount.account_name || 'MZDATA Wallet').toUpperCase()}</div>
+                <div className="mt-3 text-sm font-black text-foreground uppercase tracking-wide">ACCOUNT NAME: {String(activeAccount.account_name || 'Mele Data Wallet').toUpperCase()}</div>
                 <Button variant="secondary" className="mt-4 w-full rounded-2xl" onClick={() => copy(activeAccount.account_number)}>
                   <Copy className="h-4 w-4 mr-2" />
                   Copy Account Number
@@ -148,7 +148,7 @@ export default function WalletPage() {
             <div className="mt-4 p-4 border border-blue-500/20 rounded-2xl bg-blue-500/5 text-xs text-foreground leading-relaxed flex gap-2.5 items-start">
               <span className="text-base select-none">🔒</span>
               <span>
-                <strong>Privacy Guarantee:</strong> MZDATA does <strong>NOT</strong> store or keep your BVN or NIN. This identity verification is securely routed directly to our central CBN-licensed payment partner (Monnify) to automatically generate your personalized funding accounts.
+                <strong>Privacy Guarantee:</strong> Mele Data does <strong>NOT</strong> store or keep your BVN or NIN. This identity verification is securely routed directly to our central CBN-licensed payment partner (Monnify) to automatically generate your personalized funding accounts.
               </span>
             </div>
           </CardContent>

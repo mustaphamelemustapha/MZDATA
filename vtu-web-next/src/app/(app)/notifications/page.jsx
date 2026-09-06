@@ -63,7 +63,7 @@ export default function NotificationsPage() {
       <PageHeader
         eyebrow="Notifications"
         title="Platform notifications"
-        description="Important MZDATA updates, broadcast messages, and service announcements in one place."
+        description="Important Mele Data updates, broadcast messages, and service announcements in one place."
         actions={(
           <Button variant="secondary" onClick={() => load()}>
             <RefreshCw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
