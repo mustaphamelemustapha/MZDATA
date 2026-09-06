@@ -9,10 +9,10 @@ class AppTheme {
   static const _seed = Color(0xFFCCFF00); // Electric Lime
   static const _secondary = Color(0xFFFFFFFF); // Pure White
   static const _lightBg = Color(0xFFFFFFFF);
-  static const _darkBg = Color(0xFF000000); // True Black
-  static const _darkSurface = Color(0xFF111111); // Very Dark Gray
-  static const _lightSurfaceElevated = Color(0xFFF5F5F5);
-  static const _darkSurfaceSoft = Color(0xFF1A1A1A); // Input Fields
+  static const _darkBg = Color(0xFF0A0E17); // Premium Navy Dark
+  static const _darkSurface = Color(0xFF131B2A); // Elevated Navy
+  static const _lightSurfaceElevated = Color(0xFFF8FAFC);
+  static const _darkSurfaceSoft = Color(0xFF1E293B); // Input Fields
 
   static ThemeData light() => _build(Brightness.light);
 
@@ -30,17 +30,17 @@ class AppTheme {
           secondary: _secondary,
           surface: isDark ? _darkBg : _lightBg,
           onSurface: isDark ? Colors.white : Colors.black,
-          onSurfaceVariant: isDark ? const Color(0xFFAAAAAA) : const Color(0xFF555555),
-          outline: isDark ? const Color(0xFF333333) : const Color(0xFFE5E5E5),
-          outlineVariant: isDark ? const Color(0xFF222222) : const Color(0xFFF0F0F0),
+          onSurfaceVariant: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+          outline: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+          outlineVariant: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
           onPrimary: Colors.black, // Black text on Electric Lime buttons
           onSecondary: isDark ? Colors.black : Colors.white,
           onError: Colors.white,
-          error: const Color(0xFFFF3333),
-          tertiary: const Color(0xFF888888),
+          error: const Color(0xFFEF4444),
+          tertiary: const Color(0xFF8B5CF6),
           onTertiary: Colors.white,
           surfaceTint: Colors.transparent,
-          surfaceContainerHighest: isDark ? const Color(0xFF111111) : const Color(0xFFF5F5F5),
+          surfaceContainerHighest: isDark ? const Color(0xFF131B2A) : const Color(0xFFF8FAFC),
           shadow: Colors.black,
         );
 
@@ -141,8 +141,8 @@ class AppTheme {
       visualDensity: VisualDensity.standard,
       scaffoldBackgroundColor: isDark ? _darkBg : _lightBg,
       textTheme: textTheme,
-      shadowColor: Colors.black.withValues(alpha: isDark ? 0.3 : 0.1),
-      splashFactory: NoSplash.splashFactory, // Neo-brutalism usually lacks ripples
+      shadowColor: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+      splashFactory: InkRipple.splashFactory, // Soft ripples for fintech
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
@@ -168,8 +168,8 @@ class AppTheme {
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: isDark ? const BorderSide(color: Color(0xFF333333), width: 1.5) : const BorderSide(color: Color(0xFFE5E5E5), width: 1.5),
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: scheme.outline, width: 1),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -186,23 +186,23 @@ class AppTheme {
           color: scheme.onSurface.withValues(alpha: isDark ? 0.76 : 0.64),
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: scheme.outline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: scheme.outline),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: scheme.primary, width: 2),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: scheme.error),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: scheme.error, width: 2),
         ),
       ),
@@ -211,7 +211,7 @@ class AppTheme {
           padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
           minimumSize: const Size.fromHeight(56),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
           ),
           textStyle: textTheme.labelLarge?.copyWith(
             fontSize: 16,

@@ -87,19 +87,16 @@ class AuthHeroBlock extends StatelessWidget {
                 width: compact ? logoSize * 0.8 : logoSize,
                 height: compact ? logoSize * 0.8 : logoSize,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(compact ? 24 : 32),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: isDark
-                        ? const Color(0xFF4F46E5).withValues(alpha: 0.35)
-                        : const Color(0xFF2563EB).withValues(alpha: 0.15),
-                    width: 2,
+                    color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
+                    width: 1,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: (isDark ? const Color(0xFF4F46E5) : Colors.black)
-                          .withValues(alpha: isDark ? 0.3 : 0.1),
-                      blurRadius: compact ? 24 : 32,
-                      offset: Offset(0, compact ? 10 : 16),
+                      color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
