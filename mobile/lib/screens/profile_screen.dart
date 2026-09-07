@@ -853,6 +853,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final session = context.watch<SessionController>();
     final user = session.user ?? {};
     final name = _displayName(user);
+    final phone = (user['phone_number'] ?? user['phone'] ?? '').toString().trim();
+    final email = (user['email'] ?? '').toString().trim();
     final role = (user['role'] ?? '').toString().trim().toLowerCase();
     final joined = _joinedLabel(user['created_at']);
     final initials = _initialsFromName(name);
@@ -909,7 +911,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          if (phone.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              phone,
+                              style: TextStyle(
+                                color: heroSoftText,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                          if (email.isNotEmpty && email != name) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              email,
+                              style: TextStyle(
+                                color: heroSoftText,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 6),
                           Row(
                             children: [
                               Text(

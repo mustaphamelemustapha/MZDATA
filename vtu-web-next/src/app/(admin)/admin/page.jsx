@@ -13,6 +13,7 @@ import { AdminMetricCard } from '@/components/admin/admin-metric-card';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { EmptyState } from '@/components/admin/empty-state';
+import { ChevronRight } from 'lucide-react';
 
 export default function AdminOverviewPage() {
   const [analytics, setAnalytics] = useState(null);
@@ -127,12 +128,12 @@ export default function AdminOverviewPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Revenue and margin pulse</CardTitle>
-            <CardDescription>Estimate based on backend analytics and provider cost snapshots.</CardDescription>
+        <Card className="overflow-hidden border-border/50 bg-card/60 backdrop-blur-xl shadow-sm hover:shadow-md transition-shadow">
+          <CardHeader className="border-b border-border/30 bg-secondary/20 pb-4">
+            <CardTitle className="text-xl">Revenue and margin pulse</CardTitle>
+            <CardDescription className="text-muted-foreground/80">Estimate based on backend analytics and provider cost snapshots.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4 p-6">
             {periodRows.map((item) => {
               const row = periodCards[item.key] || {};
               const revenue = asMoney(row.revenue);
@@ -140,18 +141,18 @@ export default function AdminOverviewPage() {
               const profit = asMoney(row.profit_estimate);
               const width = revenue > 0 ? Math.max(10, Math.min(100, (profit / revenue) * 100)) : 0;
               return (
-                <div key={item.key} className="rounded-2xl border border-border bg-secondary p-3">
+                <div key={item.key} className="group rounded-2xl border border-border/40 bg-secondary/30 p-4 transition-colors hover:bg-secondary/60 hover:border-border/60">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-foreground">{item.label}</div>
-                    <div className="text-xs text-muted-foreground">{Number(row.tx_count || 0)} tx</div>
+                    <div className="text-sm font-bold text-foreground">{item.label}</div>
+                    <div className="rounded-full bg-background/50 px-2.5 py-0.5 text-[11px] font-semibold text-muted-foreground shadow-sm">{Number(row.tx_count || 0)} tx</div>
                   </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-card">
-                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${width}%` }} />
+                  <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-background/80 shadow-inner">
+                    <div className="h-full rounded-full bg-gradient-to-r from-primary/80 to-primary transition-all duration-700 ease-out" style={{ width: `${width}%` }} />
                   </div>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                    <div>Revenue: ₦{formatMoney(revenue)}</div>
-                    <div>Cost: ₦{formatMoney(cost)}</div>
-                    <div>Profit: ₦{formatMoney(profit)}</div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-[12px] font-medium text-muted-foreground">
+                    <div className="flex flex-col"><span className="text-[10px] uppercase tracking-wider opacity-70">Revenue</span> <span className="text-foreground">₦{formatMoney(revenue)}</span></div>
+                    <div className="flex flex-col"><span className="text-[10px] uppercase tracking-wider opacity-70">Cost</span> <span className="text-foreground">₦{formatMoney(cost)}</span></div>
+                    <div className="flex flex-col text-right"><span className="text-[10px] uppercase tracking-wider opacity-70 text-emerald-600 dark:text-emerald-400">Profit</span> <span className="text-emerald-700 dark:text-emerald-300 font-bold">₦{formatMoney(profit)}</span></div>
                   </div>
                 </div>
               );
@@ -159,15 +160,18 @@ export default function AdminOverviewPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick controls</CardTitle>
-            <CardDescription>Jump into high-frequency admin workspaces.</CardDescription>
+        <Card className="border-border/50 bg-card/60 backdrop-blur-xl shadow-sm">
+          <CardHeader className="border-b border-border/30 bg-secondary/20 pb-4">
+            <CardTitle className="text-xl">Quick controls</CardTitle>
+            <CardDescription className="text-muted-foreground/80">Jump into high-frequency admin workspaces.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-2">
+          <CardContent className="grid gap-2.5 p-6">
             {adminQuickLinks.map((item) => (
-              <Button key={item.href} asChild variant="secondary" className="justify-between">
-                <Link href={item.href}>{item.label}</Link>
+              <Button key={item.href} asChild variant="outline" className="group justify-between h-12 rounded-xl border-border/50 bg-secondary/20 hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all duration-300 shadow-sm">
+                <Link href={item.href}>
+                  <span className="font-semibold">{item.label}</span>
+                  <ChevronRight className="h-4 w-4 opacity-50 group-hover:opacity-100 transition-transform group-hover:translate-x-1" />
+                </Link>
               </Button>
             ))}
           </CardContent>
@@ -175,26 +179,30 @@ export default function AdminOverviewPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent transactions</CardTitle>
-            <CardDescription>Latest operations touching payment rails.</CardDescription>
+        <Card className="border-border/50 bg-card/60 backdrop-blur-xl shadow-sm">
+          <CardHeader className="border-b border-border/30 bg-secondary/20 pb-4">
+            <CardTitle className="text-xl">Recent transactions</CardTitle>
+            <CardDescription className="text-muted-foreground/80">Latest operations touching payment rails.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 p-6">
             {recentTx.length === 0 ? (
               <EmptyState
                 title="No transactions"
                 description="Transactions will appear here once admin endpoints return data."
-                action={<Button asChild variant="secondary"><Link href="/admin/transactions">Open transactions</Link></Button>}
+                action={<Button asChild variant="secondary" className="rounded-xl"><Link href="/admin/transactions">Open transactions</Link></Button>}
               />
             ) : recentTx.map((tx) => (
-              <div key={tx.reference || tx.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-secondary p-3">
+              <div key={tx.reference || tx.id} className="group flex items-center justify-between gap-3 rounded-2xl border border-border/40 bg-secondary/30 p-4 transition-colors hover:bg-secondary/70 hover:border-border/60">
                 <div>
-                  <div className="text-sm font-medium text-foreground">{tx.reference || 'Reference unavailable'}</div>
-                  <div className="text-xs text-muted-foreground">{startCase(tx.tx_type)} • {formatDateTime(tx.created_at)}</div>
+                  <div className="text-[13px] font-bold text-foreground group-hover:text-primary transition-colors">{tx.reference || 'Reference unavailable'}</div>
+                  <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                    <span>{startCase(tx.tx_type)}</span>
+                    <span className="h-1 w-1 rounded-full bg-border" />
+                    <span>{formatDateTime(tx.created_at)}</span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-sm font-semibold text-foreground">₦{formatMoney(tx.amount || 0)}</div>
+                <div className="text-right flex flex-col items-end gap-1.5">
+                  <div className="text-[15px] font-bold text-foreground">₦{formatMoney(tx.amount || 0)}</div>
                   <StatusBadge status={tx.status} />
                 </div>
               </div>
@@ -202,26 +210,30 @@ export default function AdminOverviewPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Support load snapshot</CardTitle>
-            <CardDescription>Dispute and complaint queue health.</CardDescription>
+        <Card className="border-border/50 bg-card/60 backdrop-blur-xl shadow-sm">
+          <CardHeader className="border-b border-border/30 bg-secondary/20 pb-4">
+            <CardTitle className="text-xl">Support load snapshot</CardTitle>
+            <CardDescription className="text-muted-foreground/80">Dispute and complaint queue health.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 p-6">
             {reports.length === 0 ? (
               <EmptyState
                 title="No open support items"
                 description="Support cases are clear or endpoint data is not available yet."
-                action={<Button asChild variant="secondary"><Link href="/admin/support">Open support inbox</Link></Button>}
+                action={<Button asChild variant="secondary" className="rounded-xl"><Link href="/admin/support">Open support inbox</Link></Button>}
               />
             ) : reports.map((item) => (
-              <div key={item.id} className="rounded-2xl border border-border bg-secondary p-3">
+              <div key={item.id} className="rounded-2xl border border-border/40 bg-secondary/30 p-4 transition-colors hover:bg-secondary/70 hover:border-border/60">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-medium text-foreground">{item.transaction_reference || `Issue #${item.id}`}</div>
+                  <div className="text-[13px] font-bold text-foreground">{item.transaction_reference || `Issue #${item.id}`}</div>
                   <StatusBadge status={item.status} />
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{item.reason || 'No reason provided'}</p>
-                <div className="mt-1 text-xs text-muted-foreground">{item.user_email || 'Unknown user'} • {formatDateTime(item.created_at)}</div>
+                <p className="mt-2 text-[13px] text-muted-foreground/90 line-clamp-2 leading-relaxed">{item.reason || 'No reason provided'}</p>
+                <div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                  <span className="truncate max-w-[120px]">{item.user_email || 'Unknown user'}</span>
+                  <span className="h-1 w-1 rounded-full bg-border" />
+                  <span>{formatDateTime(item.created_at)}</span>
+                </div>
               </div>
             ))}
           </CardContent>

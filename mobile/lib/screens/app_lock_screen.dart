@@ -156,6 +156,11 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final session = context.watch<SessionController>();
+    final user = session.user ?? session.lastUser ?? {};
+    final profileImageUrl = user['profile_image_url'] as String?;
+    final name = (user['full_name'] ?? user['name'] ?? 'U').toString().trim();
+    final initials = name.isNotEmpty ? name.substring(0, 1).toUpperCase() : 'U';
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -164,116 +169,54 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
           physics: const BouncingScrollPhysics(),
           child: Column(
             children: [
+              const SizedBox(height: 48),
+              
+              // Avatar / Logo
+              Center(
+                child: CircleAvatar(
+                  radius: 42,
+                  backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
+                  backgroundImage: profileImageUrl != null && profileImageUrl.isNotEmpty
+                      ? NetworkImage(profileImageUrl)
+                      : const AssetImage('assets/brand/meledata-icon.png') as ImageProvider,
+                  child: profileImageUrl != null && profileImageUrl.isNotEmpty
+                      ? null
+                      : null,
+                ),
+              ),
               const SizedBox(height: 24),
 
-            // Premium Animated Scanner/Lock Icon
-            if (_hasBiometrics) ...[
-              Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      width: 84,
-                      height: 84,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: theme.colorScheme.primary,
-                            blurRadius: 0,
-                            offset: const Offset(4, 4),
-                          ),
-                        ],
-                      ),
-                      child: Center(
-                        child: _checkingBiometrics
-                            ? SizedBox(
-                                width: 32,
-                                height: 32,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.black, // Dark text on primary
-                                ),
-                              )
-                            : Icon(
-                                Icons.lock_person_rounded,
-                                size: 38,
-                                color: Colors.black, // Dark icon on primary
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    if (_checkingBiometrics)
-                      Text(
-                        'Verifying Biometrics...',
-                        style: TextStyle(
-                          color: theme.colorScheme.primary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.3,
-                        ),
-                      )
-                    else
-                      Text(
-                        'Face/Touch ID Enabled',
-                        style: TextStyle(
-                          color: isDark ? Colors.white54 : SlateColors.shade500,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 32),
-            ],
-
-            // Main Lock Title
-            Text(
-              'UNLOCK\nMZDATA',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-                fontSize: 32,
-                letterSpacing: -1.0,
-                height: 1.0,
-                color: theme.colorScheme.onSurface,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            
-            // Subtitle or Error Message
-            if (_errorMessage != null)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.error.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  _errorMessage!,
-                  style: TextStyle(
-                    color: theme.colorScheme.error,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              )
-            else
+              // Title
               Text(
-                'Enter your 4-digit PIN code to continue',
-                style: TextStyle(
-                  color: isDark ? SlateColors.shade400 : SlateColors.shade500,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
+                'Enter Passcode',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  color: isDark ? Colors.white : SlateColors.shade900,
                 ),
+                textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 8),
+              
+              // Subtitle or Error Message
+              if (_errorMessage != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.error.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _errorMessage!,
+                    style: TextStyle(
+                      color: theme.colorScheme.error,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              else
+                const SizedBox(height: 24),
 
             // PIN Indicator Dots with Shake Animation
             AnimatedBuilder(
@@ -364,45 +307,27 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
 
             const SizedBox(height: 24),
 
-            // Bottom Actions (Sign Out & Use Password)
+            // Bottom Actions (Sign out)
             SafeArea(
               top: false,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton(
-                      onPressed: () {
-                        context.read<SessionController>().logout();
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: isDark ? Colors.white38 : SlateColors.shade400,
-                      ),
-                      child: const Text(
-                        'Sign Out',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
+                child: Center(
+                  child: TextButton(
+                    onPressed: () {
+                      context.read<SessionController>().logout();
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: isDark ? Colors.white70 : SlateColors.shade500,
+                    ),
+                    child: const Text(
+                      'Sign out',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                    TextButton(
-                      onPressed: () {
-                        context.read<SessionController>().logout();
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: isDark ? Colors.white38 : SlateColors.shade400,
-                      ),
-                      child: const Text(
-                        'Use Password',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -442,23 +367,12 @@ class _KeypadButton extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Container(
         width: 76,
         height: 76,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: theme.colorScheme.surface,
-          border: Border.all(
-            color: theme.colorScheme.outline,
-            width: 2,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: theme.colorScheme.outline,
-              blurRadius: 0,
-              offset: const Offset(4, 4),
-            )
-          ]
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -466,8 +380,8 @@ class _KeypadButton extends StatelessWidget {
             Text(
               number,
               style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w500,
+                fontSize: 32,
+                fontWeight: FontWeight.w400,
                 color: isDark ? Colors.white : SlateColors.shade900,
               ),
             ),
@@ -476,10 +390,10 @@ class _KeypadButton extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  color: isDark ? Colors.white38 : SlateColors.shade500,
-                  letterSpacing: 0.5,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white54 : SlateColors.shade500,
+                  letterSpacing: 1.5,
                 ),
               ),
             ],
@@ -511,22 +425,18 @@ class _KeypadIconButton extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Container(
         width: 76,
         height: 76,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: theme.colorScheme.surface,
-          border: Border.all(
-            color: theme.colorScheme.outline,
-            width: 2,
-          ),
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
         ),
         child: Center(
           child: Icon(
             icon,
-            size: 24,
-            color: isDark ? Colors.white54 : SlateColors.shade600,
+            size: 28,
+            color: isDark ? Colors.white : SlateColors.shade900,
           ),
         ),
       ),
