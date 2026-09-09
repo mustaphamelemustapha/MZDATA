@@ -33,7 +33,7 @@ class Transaction(Base, TimestampMixin):
     data_plan_code = Column(String(64), nullable=True)
     amount = Column(Numeric(12, 2), nullable=False)
     status = Column(Enum(TransactionStatus, values_callable=lambda obj: [e.value for e in obj]), nullable=False, default=TransactionStatus.PENDING)
-    tx_type = Column(Enum(TransactionType, values_callable=lambda obj: [e.value for e in obj]), nullable=False)
+    tx_type = Column(Enum(TransactionType), nullable=False)
     external_reference = Column(String(64), nullable=True)
     provider = Column(String(64), nullable=True, index=True)
     provider_plan_id = Column(String(64), nullable=True, index=True)
