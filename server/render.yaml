@@ -2,6 +2,9 @@ services:
   - type: web
     name: vtu-backend
     env: python
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
     buildCommand: pip install -r requirements.txt
     startCommand: bash scripts/render_start.sh
     autoDeploy: true
@@ -9,6 +12,9 @@ services:
   - type: cron
     name: vtu-balance-monitor
     env: python
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
     schedule: "0 * * * *"
     buildCommand: pip install -r requirements.txt
     startCommand: python3 scripts/cron_check_balances.py
@@ -16,6 +22,9 @@ services:
   - type: cron
     name: vtu-daily-report
     env: python
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
     schedule: "59 23 * * *"
     buildCommand: pip install -r requirements.txt
     startCommand: python3 scripts/cron_daily_report.py
