@@ -19,7 +19,7 @@ class BroadcastAnnouncement(Base, TimestampMixin):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(120), nullable=False)
     message = Column(Text, nullable=False)
-    level = Column(Enum(AnnouncementLevel), nullable=False, default=AnnouncementLevel.INFO)
+    level = Column(Enum(AnnouncementLevel, values_callable=lambda obj: [e.value for e in obj]), nullable=False, default=AnnouncementLevel.INFO)
     is_active = Column(Boolean, nullable=False, default=True)
     starts_at = Column(DateTime(timezone=True), nullable=True)
     ends_at = Column(DateTime(timezone=True), nullable=True)

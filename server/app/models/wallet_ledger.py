@@ -16,7 +16,7 @@ class WalletLedger(Base, TimestampMixin):
     id = Column(Integer, primary_key=True, index=True)
     wallet_id = Column(Integer, ForeignKey("wallets.id"), nullable=False)
     amount = Column(Numeric(12, 2), nullable=False)
-    entry_type = Column(Enum(LedgerType), nullable=False)
+    entry_type = Column(Enum(LedgerType, values_callable=lambda obj: [e.value for e in obj]), nullable=False)
     reference = Column(String(64), nullable=False, index=True)
     description = Column(String(255), nullable=False)
 
