@@ -29,8 +29,8 @@ def upgrade() -> None:
         sa.Column('starts_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('ends_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('created_by_email', sa.String(length=255), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_broadcast_announcements_id'), 'broadcast_announcements', ['id'], unique=False)

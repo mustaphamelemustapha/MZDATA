@@ -27,8 +27,8 @@ def upgrade():
         sa.Column("reset_token_expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("verification_token", sa.String(128), nullable=True),
         sa.Column("verification_token_expires_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
     )
     op.create_index("ix_users_email", "users", ["email"], unique=True)
     op.create_index("ix_users_role_active", "users", ["role", "is_active"], unique=False)
@@ -41,8 +41,8 @@ def upgrade():
         sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False, unique=True),
         sa.Column("balance", sa.Numeric(12, 2), nullable=False, server_default="0"),
         sa.Column("is_locked", sa.Boolean, nullable=False, server_default=sa.text("false")),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
     )
     op.create_index("ix_wallets_user_id", "wallets", ["user_id"], unique=False)
 
@@ -54,8 +54,8 @@ def upgrade():
         sa.Column("entry_type", sa.Enum("credit", "debit", name="ledgertype"), nullable=False),
         sa.Column("reference", sa.String(64), nullable=False),
         sa.Column("description", sa.String(255), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
     )
     op.create_index("ix_wallet_ledger_wallet_id_type", "wallet_ledger", ["wallet_id", "entry_type"], unique=False)
     op.create_index("ix_wallet_ledger_reference", "wallet_ledger", ["reference"], unique=False)
@@ -70,8 +70,8 @@ def upgrade():
         sa.Column("validity", sa.String(32), nullable=False),
         sa.Column("base_price", sa.Numeric(12, 2), nullable=False),
         sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("true")),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
     )
     op.create_index("ix_data_plans_network_active", "data_plans", ["network", "is_active"], unique=False)
 
@@ -81,8 +81,8 @@ def upgrade():
         sa.Column("network", sa.String(32), nullable=False),
         sa.Column("role", sa.Enum("user", "reseller", name="pricingrole"), nullable=False),
         sa.Column("margin", sa.Numeric(12, 2), nullable=False, server_default="0"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
     )
     op.create_index("ix_pricing_rules_network_role", "pricing_rules", ["network", "role"], unique=True)
 
@@ -98,8 +98,8 @@ def upgrade():
         sa.Column("tx_type", sa.Enum("data", "wallet_fund", name="transactiontype"), nullable=False),
         sa.Column("external_reference", sa.String(64), nullable=True),
         sa.Column("failure_reason", sa.String(255), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
     )
     op.create_index("ix_transactions_reference", "transactions", ["reference"], unique=True)
     op.create_index("ix_transactions_user_status", "transactions", ["user_id", "status"], unique=False)
@@ -115,8 +115,8 @@ def upgrade():
         sa.Column("duration_ms", sa.Numeric(10, 2), nullable=False),
         sa.Column("reference", sa.String(64), nullable=True),
         sa.Column("success", sa.Integer, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
     )
     op.create_index("ix_api_logs_service_status", "api_logs", ["service", "status_code"], unique=False)
 

@@ -20,8 +20,8 @@ def upgrade():
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("service_name", sa.String(length=50), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.PrimaryKeyConstraint("id")
     )
     op.create_index(op.f("ix_service_toggles_id"), "service_toggles", ["id"], unique=False)
@@ -34,8 +34,8 @@ def upgrade():
         sa.Column("action", sa.String(length=100), nullable=False),
         sa.Column("target", sa.String(length=100), nullable=True),
         sa.Column("details", sa.JSON(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.PrimaryKeyConstraint("id")
     )
     op.create_index(op.f("ix_admin_audit_logs_admin_email"), "admin_audit_logs", ["admin_email"], unique=False)
