@@ -192,20 +192,24 @@ export default function CableTvPage() {
 
               {packageChoices.length > 0 ? (
                 <PremiumSelect
-                  label="Package Plan"
+                  label="Cable Plan"
                   required
                   value={packageCode}
                   onChange={(e) => setPackageCode(e.target.value)}
-                  options={packageChoices.map((item) => ({
-                    value: String(item?.code || item?.id || '').trim(),
-                    label: String(item?.name || item?.code || '').trim()
-                  }))}
+                  options={packageChoices.map((item) => {
+                    const name = String(item?.name || item?.code || '').trim();
+                    const price = item?.price ? ` - ₦${item.price}` : '';
+                    return {
+                      value: String(item?.code || item?.id || '').trim(),
+                      label: `${name}${price}`
+                    };
+                  })}
                   disabled={loading}
                 />
               ) : (
                 <div className="space-y-1.5">
                   <label className="text-[13px] font-semibold text-foreground/90">
-                    Package code <span className="text-rose-500">*</span>
+                    Cable Plan (Code) <span className="text-rose-500">*</span>
                   </label>
                   <Input
                     value={packageCode}
