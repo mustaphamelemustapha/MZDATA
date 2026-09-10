@@ -136,7 +136,7 @@ class AmigoClient:
     def purchase_data(self, payload: dict, idempotency_key: str | None = None) -> dict:
         # payload expected keys: network, mobile_number, plan, Ported_number (optional)
         # Amigo expects JSON body
-        return self._request("POST", "/data/", payload, idempotency_key=idempotency_key)
+        return self._request("POST", settings.amigo_data_purchase_path, payload, idempotency_key=idempotency_key)
 
     def get_balance(self) -> float | str:
         try:

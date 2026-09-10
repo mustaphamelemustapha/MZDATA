@@ -2,23 +2,15 @@
 
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, RefreshCw, Database } from 'lucide-react';
+import { ArrowRight, RefreshCw, Database, ChevronDown, CheckCircle2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { NetworkCard, PremiumReceipt, PlanCard } from '@/components/service-ui';
 
 const NETWORK_ORDER = ['mtn', 'airtel', 'glo', '9mobile'];
-const NETWORK_TABS = [
-  { key: 'mtn', label: 'MTN' },
-  { key: 'airtel', label: 'Airtel' },
-  { key: 'glo', label: 'Glo' },
-  { key: '9mobile', label: '9mobile' },
-];
 
 function normalizeNetwork(value) {
   const raw = String(value || '').trim().toLowerCase();
@@ -35,15 +27,6 @@ function networkLabel(value) {
   if (!normalized) return 'Other';
   if (normalized === '9mobile') return '9mobile';
   return normalized.toUpperCase();
-}
-
-function networkLogoSrc(value) {
-  const normalized = normalizeNetwork(value);
-  if (normalized === 'mtn') return '/brand/networks/mtn.png';
-  if (normalized === 'airtel') return '/brand/networks/airtel.png';
-  if (normalized === 'glo') return '/brand/networks/glo.png';
-  if (normalized === '9mobile') return '/brand/networks/9mobile.png';
-  return '/brand/networks/mtn.png';
 }
 
 function phoneDigits(value) {
@@ -105,13 +88,55 @@ function curatePlans(rows) {
   return curatedGroups;
 }
 
+// Reusable Select Component to match modern aesthetic
+const PremiumSelect = ({ label, helperText, value, onChange, options, placeholder, required = false, disabled = false }) => {
+  return (
+    <div className="space-y-1.5">
+      {label && (
+        <label className="text-[13px] font-semibold text-foreground/90">
+          {label} {required && <span className="text-rose-500">*</span>}
+        </label>
+      )}
+      <div className="relative">
+        <select
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+          className={cn(
+            "w-full h-[52px] appearance-none rounded-xl border border-border bg-card px-4 pr-10 text-[15px] font-medium text-foreground transition-all duration-200 outline-none focus:border-primary focus:ring-4 focus:ring-primary/10",
+            disabled && "opacity-60 cursor-not-allowed bg-muted/50",
+            !value && "text-muted-foreground"
+          )}
+        >
+          {placeholder && (
+            <option value="" disabled>
+              {placeholder}
+            </option>
+          )}
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4">
+          <ChevronDown className="h-5 w-5 text-muted-foreground/60" />
+        </div>
+      </div>
+      {helperText && <p className="text-[12.5px] text-muted-foreground mt-1.5">{helperText}</p>}
+    </div>
+  );
+};
+
 export default function BuyDataPage() {
   const [plans, setPlans] = useState([]);
   const [wallet, setWallet] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeNetwork, setActiveNetwork] = useState('mtn');
+  const [activeNetwork, setActiveNetwork] = useState('');
+  const [activeDataType, setActiveDataType] = useState('');
+  const [selectedPlanCode, setSelectedPlanCode] = useState('');
   const [phone, setPhone] = useState('');
-  const [selected, setSelected] = useState(null);
+  const [bypassValidator, setBypassValidator] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -142,19 +167,8 @@ export default function BuyDataPage() {
   }, [load]);
 
   const planGroups = useMemo(() => curatePlans(plans), [plans]);
-  const totalPlansCount = useMemo(
-    () => planGroups.reduce((total, group) => total + group.plans.length, 0),
-    [planGroups]
-  );
 
-  useEffect(() => {
-    if (activeNetwork !== 'all' && !planGroups.some((group) => group.network === activeNetwork)) {
-      if (planGroups.length > 0) {
-        // Only switch if the currently active network has no plans but others do
-      }
-    }
-  }, [activeNetwork, planGroups]);
-
+  // Derived states
   const activeGroup = useMemo(() => {
     return planGroups.find((group) => group.network === activeNetwork) || null;
   }, [activeNetwork, planGroups]);
@@ -165,20 +179,18 @@ export default function BuyDataPage() {
     for (const p of activeGroup.plans) {
       types.add(p.data_type || 'ALL');
     }
-    // If 'ALL' is the only type, or if there's a mix, sort them logically. Let's just return sorted array.
-    const arr = Array.from(types).sort();
-    // Prioritize standard types if present, else just sort.
-    return arr;
+    return Array.from(types).sort();
   }, [activeGroup]);
 
-  const [activeDataType, setActiveDataType] = useState('');
-
-  // When network changes or data types change, reset active data type to the first one
+  // Reset dependent fields when parent changes
   useEffect(() => {
-    if (activeDataType && !availableDataTypes.includes(activeDataType)) {
-      setActiveDataType('');
-    }
-  }, [availableDataTypes, activeDataType]);
+    setActiveDataType('');
+    setSelectedPlanCode('');
+  }, [activeNetwork]);
+
+  useEffect(() => {
+    setSelectedPlanCode('');
+  }, [activeDataType]);
 
   const visiblePlans = useMemo(() => {
     if (!activeGroup) return [];
@@ -186,29 +198,35 @@ export default function BuyDataPage() {
     return activeGroup.plans.filter((p) => (p.data_type || 'ALL') === activeDataType);
   }, [activeGroup, activeDataType]);
 
-  const summaryNetwork = selected?.network || activeNetwork;
-  const summaryPlanName = selected?.plan_name || selected?.plan_code || '—';
-  const summaryPlanCode = selected?.plan_code || '—';
-  const summaryPrice = selected?.price || 0;
-  const normalizedPhone = phoneDigits(phone);
-  const phoneError = normalizedPhone && !isValidNigerianPhone(phone) ? 'Enter a valid Nigerian phone number.' : '';
-  const canSubmit = Boolean(selected && normalizedPhone && !phoneError && !busy);
+  const selectedPlan = useMemo(() => {
+    return visiblePlans.find(p => p.plan_code === selectedPlanCode) || null;
+  }, [visiblePlans, selectedPlanCode]);
 
-  const purchase = async () => {
-    if (!selected || !normalizedPhone || phoneError) return;
+  const summaryPrice = selectedPlan?.price || 0;
+  const normalizedPhone = phoneDigits(phone);
+  const phoneError = normalizedPhone && !bypassValidator && !isValidNigerianPhone(phone) 
+    ? 'Enter a valid Nigerian phone number.' 
+    : '';
+  const canSubmit = Boolean(selectedPlan && normalizedPhone && (!phoneError || bypassValidator) && !busy);
+
+  const purchase = async (e) => {
+    if (e) e.preventDefault();
+    if (!canSubmit) return;
     setBusy(true);
     setMessage('');
     try {
       const payload = {
-        plan_code: selected.plan_code,
+        plan_code: selectedPlan.plan_code,
         phone_number: normalizedPhone,
-        network: selected.network,
+        network: selectedPlan.network,
       };
       const res = await apiFetch('/data/purchase', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
       setMessage(`${res?.message || 'Purchase submitted.'} Ref: ${res?.reference || '—'}`);
+      setPhone('');
+      setSelectedPlanCode('');
     } catch (err) {
       setMessage(err?.message || 'Purchase failed.');
     } finally {
@@ -218,188 +236,173 @@ export default function BuyDataPage() {
 
   return (
     <div className="-mx-4 -my-5 min-h-[calc(100vh-40px)] bg-background px-4 py-5 text-foreground md:-mx-6 md:-my-5 md:px-6 lg:-mx-8 lg:px-8 xl:-mx-10 xl:px-10">
-      <div className="space-y-6 pb-28 md:pb-8">
-        <div className="space-y-2">
-        <div className="axis-label text-muted-foreground">Services</div>
+      <div className="mx-auto max-w-6xl space-y-6 pb-28 md:pb-8 pt-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">Buy Data</h1>
-            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-              Affordable data bundles for MTN, Airtel, Glo, and 9mobile. All plans are synced in real-time from our providers.
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Buy Data Plan</h1>
+            <p className="text-[15px] text-muted-foreground">
+              Select your network, choose a plan, and get instantly topped up.
             </p>
           </div>
           <Button
-            variant="secondary"
+            variant="outline"
             onClick={() => load()}
-            className="border-border bg-secondary text-muted-foreground hover:bg-secondary hover:text-foreground"
+            disabled={loading}
+            className="h-10 rounded-full border-border bg-transparent hover:bg-secondary"
           >
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            Refresh plans
+            <RefreshCw className={cn('mr-2 h-4 w-4 text-muted-foreground', loading && 'animate-spin')} />
+            Refresh
           </Button>
         </div>
-      </div>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className="overflow-hidden border-border bg-card shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
-          <CardContent className="space-y-6 p-4 md:space-y-8 md:p-7">
-            <section className="space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Select network</div>
-                  <div className="mt-2 text-sm text-muted-foreground">Choose your network to see all active plans.</div>
-                </div>
-                <Badge className="border-border bg-secondary text-muted-foreground">Live catalog</Badge>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                {NETWORK_TABS.map((tab) => {
-                  const isActive = activeNetwork === tab.key;
-                  return (
-                    <NetworkCard
-                      key={tab.key}
-                      networkKey={tab.key}
-                      label={tab.label}
-                      selected={isActive}
-                      onClick={() => setActiveNetwork(tab.key)}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="space-y-4">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Phone number</div>
-                <div className="mt-2 text-sm text-muted-foreground">Enter the recipient phone number.</div>
-              </div>
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="08012345678"
-                className="h-[52px] rounded-2xl border-border bg-input text-base text-foreground placeholder:text-muted-foreground focus:border-primary/45 focus:ring-amber-500/10 md:h-12"
-              />
-              {phoneError ? (
-                <p className="text-xs font-medium text-rose-300">{phoneError}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground">Format: 080... or 234...</p>
-              )}
-            </section>
-
-            <section className="space-y-4">
-              <div className="flex items-end justify-between gap-3">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Select plan</div>
-                  <div className="mt-2 text-sm text-muted-foreground">
-                    All plans are managed via the Admin Dashboard.
-                  </div>
-                </div>
-                <Badge className="border-border bg-secondary text-muted-foreground">
-                  {visiblePlans.length} plan{visiblePlans.length === 1 ? '' : 's'}
-                </Badge>
-              </div>
-
-              {availableDataTypes.length > 1 && (
-                <div className="flex flex-wrap gap-2 pt-2 pb-1">
-                  {availableDataTypes.map((type) => {
-                    const isSelected = activeDataType === type;
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => setActiveDataType(type)}
-                        className={cn(
-                          "px-4 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-colors border",
-                          isSelected 
-                            ? "bg-primary text-primary-foreground border-primary" 
-                            : "bg-secondary text-muted-foreground border-border hover:bg-secondary/80 hover:text-foreground"
-                        )}
-                      >
-                        {type === 'ALL' ? 'General' : type}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {loading ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {Array.from({ length: 4 }).map((_, idx) => (
-                    <div key={idx} className="h-32 animate-pulse rounded-[22px] border border-border bg-secondary" />
-                  ))}
-                </div>
-              ) : null}
-
-              {!loading && !visiblePlans.length ? (
-                <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground border border-dashed border-border rounded-xl bg-card">
-                  <Database className="h-10 w-10 mb-3 opacity-20" />
-                  {!activeDataType 
-                    ? "Please select a Data Type Category above to view available plans."
-                    : "No plans available for this network or category."}
-                </div>
-              ) : null}
-
-              {!loading && visiblePlans.length ? (
-                <div className="grid grid-cols-2 gap-3.5 md:gap-4 lg:grid-cols-3">
-                  {visiblePlans.map((plan) => {
-                    const isActive = selected?.plan_code === plan.plan_code;
-                    return (
-                      <PlanCard
-                        key={plan.plan_code}
-                        plan={plan}
-                        selected={isActive}
-                        onClick={() => setSelected(plan)}
-                      />
-                    );
-                  })}
-                </div>
-              ) : null}
-            </section>
-          </CardContent>
-        </Card>
-
-        <div className="sticky top-6 h-fit">
-          <PremiumReceipt
-            title={`${networkLabel(summaryNetwork)} Data`}
-            items={[
-              { label: 'Network', value: networkLabel(summaryNetwork) },
-              { label: 'Plan', value: summaryPlanName },
-              { label: 'Recipient', value: phone.trim() || '—' },
-            ]}
-            total={formatMoney(summaryPrice || 0)}
-            totalLabel="Total Cost"
-            buttonText="Confirm & Purchase"
-            onConfirm={purchase}
-            isBusy={busy}
-            disabled={!canSubmit}
-            errorMessage={message}
-          />
-        </div>
-        </div>
-      </div>
-
-      <div
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 pt-3 shadow-[0_-18px_40px_rgba(0,0,0,0.35)] backdrop-blur md:hidden"
-        style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 1rem)' }}
-      >
-        <div className="mx-auto flex max-w-md items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-xs text-muted-foreground">
-              {selected ? summaryPlanName : 'Select a plan'}
+        <div className="grid gap-8 xl:grid-cols-[1fr_380px] items-start">
+          {/* Form Column */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
+              <Database className="w-64 h-64" />
             </div>
-            <div className="mt-1 text-lg font-semibold tracking-tight text-foreground">
-              ₦{formatMoney(summaryPrice || 0)}
+
+            <form onSubmit={purchase} className="relative z-10 space-y-6 max-w-2xl">
+              
+              <PremiumSelect
+                label="Network"
+                required
+                value={activeNetwork}
+                onChange={(e) => setActiveNetwork(e.target.value)}
+                options={planGroups.map(g => ({ value: g.network, label: networkLabel(g.network) }))}
+                placeholder="--------"
+                disabled={loading}
+              />
+
+              <PremiumSelect
+                label="Data type"
+                value={activeDataType}
+                onChange={(e) => setActiveDataType(e.target.value)}
+                options={availableDataTypes.map(t => ({ value: t, label: t === 'ALL' ? 'General' : t }))}
+                placeholder="--------"
+                disabled={!activeNetwork || loading}
+                helperText="Select Plan Type e.g., SME, GIFTING or CORPORATE GIFTING"
+              />
+
+              <PremiumSelect
+                label="Data Plan"
+                required
+                value={selectedPlanCode}
+                onChange={(e) => setSelectedPlanCode(e.target.value)}
+                options={visiblePlans.map(p => ({ 
+                  value: p.plan_code, 
+                  label: `${p.plan_name} - ₦${formatMoney(planPrice(p))}` 
+                }))}
+                placeholder={visiblePlans.length === 0 && activeDataType ? "No plans available" : "--------"}
+                disabled={!activeDataType || visiblePlans.length === 0 || loading}
+              />
+
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-semibold text-foreground/90">
+                  Mobile number <span className="text-rose-500">*</span>
+                </label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  inputMode="tel"
+                  autoComplete="tel"
+                  disabled={loading}
+                  className={cn(
+                    "h-[52px] w-full rounded-xl border-border bg-card px-4 text-[15px] font-medium text-foreground transition-all duration-200 focus:border-primary focus:ring-4 focus:ring-primary/10",
+                    phoneError && !bypassValidator && "border-rose-400 focus:border-rose-500 focus:ring-rose-500/10"
+                  )}
+                />
+                {!bypassValidator && phoneError && (
+                  <p className="text-[12.5px] font-medium text-rose-500 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {phoneError}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-semibold text-foreground/90">Amount</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-[15px] font-semibold text-muted-foreground">₦</span>
+                  <Input
+                    value={selectedPlan ? formatMoney(summaryPrice) : ''}
+                    readOnly
+                    className="h-[52px] w-full cursor-not-allowed rounded-xl border-border bg-muted/50 pl-8 pr-4 text-[16px] font-semibold text-foreground"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={bypassValidator}
+                  onClick={() => setBypassValidator(!bypassValidator)}
+                  className={cn(
+                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border transition-colors",
+                    bypassValidator 
+                      ? "border-primary bg-primary text-primary-foreground" 
+                      : "border-input bg-transparent text-transparent hover:border-primary/50"
+                  )}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 stroke-[3px]" />
+                </button>
+                <label 
+                  className="text-[14px] font-medium cursor-pointer select-none text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setBypassValidator(!bypassValidator)}
+                >
+                  Bypass number validator
+                </label>
+              </div>
+
+              {message && (
+                <div className={cn(
+                  "rounded-xl p-4 text-[14px] font-medium border",
+                  message.toLowerCase().includes('failed') || message.toLowerCase().includes('error')
+                    ? "border-rose-200 bg-rose-500/10 text-rose-600 dark:border-rose-500/20 dark:text-rose-400"
+                    : "border-emerald-200 bg-emerald-500/10 text-emerald-600 dark:border-emerald-500/20 dark:text-emerald-400"
+                )}>
+                  {message}
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                disabled={!canSubmit || loading}
+                className="w-full h-[54px] rounded-xl bg-[#111827] text-white hover:bg-[#1f2937] dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90 text-[16px] font-semibold shadow-md transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {busy ? 'Processing...' : 'Buy Now'}
+              </Button>
+            </form>
+          </div>
+
+          {/* Balance Codes Sidebar */}
+          <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm sticky top-6">
+            <div className="bg-secondary/50 border-b border-border p-4 text-center">
+              <h3 className="font-semibold text-[15px] text-[#2563eb] dark:text-blue-400">Codes for Data Balance:</h3>
+            </div>
+            <div className="p-4 space-y-2.5">
+              {[
+                { label: 'MTN [SME]', code: '*461*4# OR *323*3#', bg: 'bg-[#fff9e6] border-[#ffe48c] text-[#8a6b00]', darkBg: 'dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-400' },
+                { label: 'MTN [SME2]', code: '*460*260#', bg: 'bg-[#fff9e6] border-[#ffe48c] text-[#8a6b00]', darkBg: 'dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-400' },
+                { label: 'MTN [Corporate Gifting]', code: '*460*260# OR *323*1#', bg: 'bg-[#fff9e6] border-[#ffe48c] text-[#8a6b00]', darkBg: 'dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-400' },
+                { label: 'MTN [Data Coupon]', code: '*323*1#', bg: 'bg-[#fff9e6] border-[#ffe48c] text-[#8a6b00]', darkBg: 'dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-400' },
+                { label: '9mobile [Gifting]', code: '*228#', bg: 'bg-[#f3f4f6] border-[#d1d5db] text-[#4b5563]', darkBg: 'dark:bg-gray-500/10 dark:border-gray-500/20 dark:text-gray-400' },
+                { label: 'Glo & Airtel', code: '*323#', bg: 'bg-[#fdf2f8] border-[#fbcfe8] text-[#be185d]', darkBg: 'dark:bg-pink-500/10 dark:border-pink-500/20 dark:text-pink-400' },
+              ].map((item, idx) => (
+                <div 
+                  key={idx} 
+                  className={cn(
+                    "px-4 py-3 rounded-xl border text-[14px] font-medium flex justify-between items-center gap-3",
+                    item.bg, item.darkBg
+                  )}
+                >
+                  <span className="opacity-90">{item.label}</span>
+                  <span className="font-bold tracking-wide shrink-0">{item.code}</span>
+                </div>
+              ))}
             </div>
           </div>
-          <Button
-            className="h-12 shrink-0 rounded-xl bg-primary px-5 text-primary-foreground shadow-[0_12px_24px_rgba(249,115,22,0.18)] transition hover:bg-primary/90 active:scale-[0.98]"
-            onClick={purchase}
-            disabled={!canSubmit}
-          >
-            {busy ? 'Processing...' : 'Buy Data'}
-            <ArrowRight className="h-4 w-4" />
-          </Button>
         </div>
       </div>
     </div>
