@@ -46,6 +46,9 @@ export default function CableTvPage() {
   const [packageCode, setPackageCode] = useState('');
   const [amount, setAmount] = useState('');
   const [bypassValidator, setBypassValidator] = useState(false);
+  
+  const [packageChoices, setPackageChoices] = useState([]);
+  const [loadingPackages, setLoadingPackages] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,15 +71,31 @@ export default function CableTvPage() {
     if (!provider && providers.length) setProvider(providers[0].id);
   }, [provider, providers]);
 
-  const selectedProvider = providers.find((item) => item.id === provider) || null;
-  const packageChoices = Array.isArray(selectedProvider?.packages) ? selectedProvider.packages : [];
-
   useEffect(() => {
-    if (packageChoices.length > 0 && !packageCode) {
-      const first = packageChoices[0];
-      setPackageCode(String(first?.code || first?.id || '').trim());
+    if (!provider) {
+      setPackageChoices([]);
+      return;
     }
-  }, [packageChoices, packageCode]);
+    let active = true;
+    const fetchPackages = async () => {
+      setLoadingPackages(true);
+      try {
+        const res = await apiFetch(`/services/cable/packages?provider=${provider}`);
+        if (active && res?.packages) {
+          setPackageChoices(res.packages);
+          if (res.packages.length > 0) {
+            setPackageCode(String(res.packages[0]?.code || res.packages[0]?.id || '').trim());
+          }
+        }
+      } catch (err) {
+        if (active) setPackageChoices([]);
+      } finally {
+        if (active) setLoadingPackages(false);
+      }
+    };
+    fetchPackages();
+    return () => { active = false; };
+  }, [provider]);
 
   // When package code changes, auto-fill amount if the provider has a defined price
   useEffect(() => {
@@ -190,7 +209,17 @@ export default function CableTvPage() {
                 )}
               </div>
 
-              {packageChoices.length > 0 ? (
+              {loadingPackages ? (
+                <PremiumSelect
+                  label="Cable Plan"
+                  required
+                  value=""
+                  onChange={() => {}}
+                  options={[]}
+                  placeholder="Loading plans..."
+                  disabled={true}
+                />
+              ) : packageChoices.length > 0 ? (
                 <PremiumSelect
                   label="Cable Plan"
                   required
