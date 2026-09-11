@@ -1495,7 +1495,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           ),
                                           const SizedBox(width: 8),
                                           const Text(
-                                            'ACTIVATE MONIEPOINT ROUTE',
+                                            'ACTIVATE VIRTUAL ACCOUNT',
                                             style: TextStyle(
                                               color: Colors.blue,
                                               fontSize: 10,
@@ -1507,7 +1507,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
-                                        'Get a Dedicated Moniepoint Account ⚡',
+                                        'Get a Dedicated Virtual Account ⚡',
                                         style: TextStyle(
                                           color: heroText,
                                           fontSize: 14,
@@ -1516,7 +1516,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Enjoy 100% automated deposits for instant wallet funding. Link your BVN or NIN to generate Wema, Sterling, and Moniepoint accounts in seconds.',
+                                        'Enjoy 100% automated deposits for instant wallet funding. Link your BVN or NIN to generate your dedicated bank accounts in seconds.',
                                         style: TextStyle(
                                           color: heroSoftText,
                                           fontSize: 11,
@@ -1888,73 +1888,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ],
                                     ),
                                   ),
-                                ),
                               ),
-
-                                  // Breathtaking Moniepoint Upsell inside accounts list if they don't have Moniepoint yet
-                                  if (!hasMonie) ...[
-                                    const SizedBox(height: 12),
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.blue.withValues(alpha: 0.05),
-                                        borderRadius: BorderRadius.circular(14),
-                                        border: Border.all(
-                                          color: Colors.blue.withValues(alpha: 0.15),
-                                        ),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.auto_awesome, size: 16, color: Colors.blue),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                const Text(
-                                                  'MONIEPOINT ROUTE AVAILABLE',
-                                                  style: TextStyle(
-                                                    color: Colors.blue,
-                                                    fontSize: 9,
-                                                    fontWeight: FontWeight.w900,
-                                                    letterSpacing: 0.5,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  'Add Moniepoint for zero-delay instant wallet deposits! Link your BVN/NIN now.',
-                                                  style: TextStyle(
-                                                    color: Colors.white.withValues(alpha: 0.7),
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          ElevatedButton(
-                                            onPressed: () {
-                                              _showAccountActivationDialog();
-                                            },
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.blue.shade600,
-                                              foregroundColor: Colors.white,
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                              minimumSize: Size.zero,
-                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                            ),
-                                            child: const Text(
-                                              'Add',
-                                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
                                   ],
                                 ],
                               );
