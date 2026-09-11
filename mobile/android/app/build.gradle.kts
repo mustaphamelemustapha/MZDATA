@@ -19,7 +19,7 @@ val hasReleaseSigning =
         .all { !keystoreProperties.getProperty(it).isNullOrBlank() }
 
 android {
-    namespace = "com.clientvtu.app"
+    namespace = "com.mzdata.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -34,7 +34,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.clientvtu.app"
+        applicationId = "com.mzdata.app"
         // We explicitly set minSdk to 21 to support older budget/Redmi devices.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
