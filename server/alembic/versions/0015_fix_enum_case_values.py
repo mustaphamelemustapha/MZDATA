@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = '0015_fix_enum_case'
-down_revision = 'f036be8e1a7b'
+down_revision = 'e6476650fd37'
 branch_labels = None
 depends_on = None
 
