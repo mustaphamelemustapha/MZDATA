@@ -33,12 +33,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _searchCtrl.addListener(() => setState(() {}));
   }
 
+  int? _activeBalanceTick;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final token = (context.watch<SessionController>().token ?? '').trim();
+    final session = context.watch<SessionController>();
+    final token = (session.token ?? '').trim();
+    final balanceTick = session.balanceRefreshTick;
+    
+    bool shouldReload = false;
+    
     if (token.isNotEmpty && token != _activeToken) {
       _activeToken = token;
+      shouldReload = true;
+    }
+    
+    if (_activeBalanceTick == null) {
+      _activeBalanceTick = balanceTick;
+    } else if (balanceTick != _activeBalanceTick) {
+      _activeBalanceTick = balanceTick;
+      shouldReload = true;
+    }
+    
+    if (shouldReload) {
       _reload();
     }
   }

@@ -143,12 +143,18 @@ class _WalletScreenState extends State<WalletScreen> {
     _transactionsFuture = _loadRecentTransactions(token);
     _walletFuture!.then((data) {
       if (!mounted || dashboardKey != _activeDashboardKey) return;
+      setState(() {
+        _cachedWalletData = _asMap(data);
+      });
       unawaited(DashboardSnapshotCache.save(dashboardKey, wallet: data));
     }).catchError((e) {
       if (mounted) _handleAuthError(e);
     });
     _accountsFuture!.then((data) {
       if (!mounted || dashboardKey != _activeDashboardKey) return;
+      setState(() {
+        _cachedAccountsData = _asMap(data);
+      });
       unawaited(DashboardSnapshotCache.save(dashboardKey, accounts: data));
     }).catchError((e) {
       if (mounted) _handleAuthError(e);

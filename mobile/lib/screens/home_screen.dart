@@ -509,7 +509,9 @@ class _HomeScreenState extends State<HomeScreen> {
             (item) => item.map((k, v) => MapEntry(k.toString(), v)),
           )
           .toList();
-      _cachedTransactionsData = normalized;
+      setState(() {
+        _cachedTransactionsData = normalized;
+      });
       unawaited(
         DashboardSnapshotCache.save(
           dashboardKey,
