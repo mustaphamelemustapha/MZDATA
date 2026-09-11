@@ -809,9 +809,7 @@ class _WalletScreenState extends State<WalletScreen> {
                 });
 
                 if (accounts.isEmpty) {
-                  return _WalletAccountActivationCard(
-                    onActivated: () => _refresh(),
-                  );
+                  return const _WalletAccountUnavailable();
                 }
 
                 final activeIndex = _activeAccountIndex.clamp(0, accounts.length - 1);
@@ -903,14 +901,6 @@ class _WalletScreenState extends State<WalletScreen> {
                                 : null,
                           ),
                         ],
-                      ),
-                    ],
-                    if (!hasMonie) ...[
-                      const SizedBox(height: 16),
-                      _WalletAccountActivationCard(
-                        onActivated: () => _refresh(),
-                      ),
-                    ],
                   ],
                 );
               },
