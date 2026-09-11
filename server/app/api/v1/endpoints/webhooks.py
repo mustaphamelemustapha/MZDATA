@@ -387,6 +387,11 @@ def monnify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
     return {"status": "ok"}
 
 
+@router.head("/billstack")
+@router.get("/billstack")
+def billstack_webhook_verify():
+    return {"status": "ok"}
+
 @router.post("/billstack")
 def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
     signature = request.headers.get("x-billstack-signature") or request.headers.get("billstack-signature")
