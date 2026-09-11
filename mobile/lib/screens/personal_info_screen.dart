@@ -20,6 +20,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   bool _uploadingImage = false;
   late TextEditingController _fullNameCtrl;
   late TextEditingController _emailCtrl;
+  late TextEditingController _phoneCtrl;
   final ImagePicker _picker = ImagePicker();
 
   @override
@@ -33,12 +34,16 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
     _emailCtrl = TextEditingController(
       text: (currentUser['email'] ?? '').toString(),
     );
+    _phoneCtrl = TextEditingController(
+      text: (currentUser['phone_number'] ?? '').toString(),
+    );
   }
 
   @override
   void dispose() {
     _fullNameCtrl.dispose();
     _emailCtrl.dispose();
+    _phoneCtrl.dispose();
     super.dispose();
   }
 
@@ -57,9 +62,10 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
 
     setState(() => _updatingProfile = true);
     try {
-      // Note: We only update full_name, as email usually requires separate verification API
+      // Note: We only update full_name and phone_number, as email usually requires separate verification API
       final updated = await AuthService(token: token).updateProfile(
         fullName: fullName,
+        phoneNumber: _phoneCtrl.text.trim(),
       );
       session.updateUser(updated);
       if (!mounted) return;
@@ -241,6 +247,10 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                             _emailCtrl,
                             readOnly: true, // Email usually read-only
                           ),
+                          const SizedBox(height: 20),
+                          _buildInputLabel('Phone Number'),
+                          const SizedBox(height: 8),
+                          _buildTextField(_phoneCtrl),
                         ],
                       ),
                     ),
