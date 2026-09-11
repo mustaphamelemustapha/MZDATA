@@ -103,39 +103,9 @@ class _ReferralScreenState extends State<ReferralScreen> {
   }
 
   String _getReferralLink(Map<String, dynamic> data) {
-    // Ensure we don't double up the domain
-    String link = (data['referral_link'] ?? '').toString().trim();
-    
-    // Fix the "double mzdata" bug: mzdata.vercel.app -> mzdata.org
-    if (link.contains('mzdata.vercel.app') || link.contains('mzdata.vercel.app')) {
-      link = link.replaceFirst('https://mzdata.vercel.app', 'https://mzdata.org');
-      link = link.replaceFirst('mzdata.vercel.app', 'mzdata.org');
-      link = link.replaceFirst('https://mzdata.vercel.app', 'https://mzdata.org');
-      link = link.replaceFirst('mzdata.vercel.app', 'mzdata.org');
-    } else if (link.contains('.vercel.app')) {
-      link = link.replaceAll('.vercel.app', 'mzdata.org');
-    }
-
-    // Final check to ensure it's the correct production domain
-    if (!link.startsWith('https://mzdata.org')) {
-      if (link.contains('/signup?')) {
-        final query = link.split('?').last;
-        link = 'https://mzdata.org/signup?$query';
-      }
-    }
-    
-    // Absolute permanent fix for any doubling
-    if (link.contains('mzdata.orgmzdata.org')) {
-      link = link.replaceAll('mzdata.orgmzdata.org', 'mzdata.org');
-    }
-    if (link.contains('mzdata.org/mzdata')) {
-      link = link.replaceFirst('mzdata.org/mzdata', 'mzdata.org');
-    }
-    if (link.contains('mzdata.org/mzdata')) {
-      link = link.replaceFirst('mzdata.org/mzdata', 'mzdata.org');
-    }
-    
-    return link;
+    final code = (data['referral_code'] ?? '').toString().trim();
+    if (code.isEmpty) return '';
+    return 'https://mzdata.org/register?ref=$code';
   }
 
   String _money(dynamic value) {
