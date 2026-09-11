@@ -815,7 +815,11 @@ class _WalletScreenState extends State<WalletScreen> {
                 });
 
                 if (accounts.isEmpty) {
-                  return const _WalletAccountUnavailable();
+                  return _WalletAccountUnavailable(
+                    message: 'Wallet account unavailable',
+                    actionLabel: 'Refresh',
+                    onAction: () => _refresh(),
+                  );
                 }
 
                 final activeIndex = _activeAccountIndex.clamp(0, accounts.length - 1);
@@ -907,6 +911,8 @@ class _WalletScreenState extends State<WalletScreen> {
                                 : null,
                           ),
                         ],
+                      ),
+                  ],
                   ],
                 );
               },
