@@ -21,7 +21,7 @@
 - Limitation of liability
 
 ## Support contact
-- Email: mzdata@gmail.com
+- Email: mzdatamzdata2@gmail.com
 
 ## Account deletion expectations
 - User can request deletion from the app

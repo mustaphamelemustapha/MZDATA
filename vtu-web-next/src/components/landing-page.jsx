@@ -619,7 +619,7 @@ function FaqSection() {
               </div>
               <div className="flex flex-wrap gap-3">
                 <Button asChild className="h-11 rounded-full bg-primary px-5 text-primary-foreground hover:bg-primary/90">
-                  <a href="mailto:mzdata@gmail.com">Email Support</a>
+                  <a href="mailto:mzdatamzdata2@gmail.com">Email Support</a>
                 </Button>
                 <Button asChild variant="secondary" className="h-11 rounded-full border-border bg-card px-5 text-muted-foreground hover:bg-secondary">
                   <Link href="/login">Log in</Link>
@@ -645,7 +645,7 @@ function Footer() {
             </p>
             <div className="mt-5 flex items-center gap-3 text-sm text-slate-200">
               <span className="h-2 w-2 rounded-full bg-primary" />
-              <a href="mailto:mzdata@gmail.com" className="hover:text-white">mzdata@gmail.com</a>
+              <a href="mailto:mzdatamzdata2@gmail.com" className="hover:text-white">mzdatamzdata2@gmail.com</a>
             </div>
           </div>
 

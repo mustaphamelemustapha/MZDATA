@@ -59,7 +59,7 @@ export default function TermsAndConditions() {
       <section className="mb-8">
         <h2 className="text-2xl font-bold mb-4 text-slate-900 dark:text-slate-100">6. Contact Us</h2>
         <p className="mb-4 leading-relaxed text-slate-700 dark:text-slate-300">
-          For any clarifications regarding these Terms and Conditions, please contact our support desk at mzdata@gmail.com.
+          For any clarifications regarding these Terms and Conditions, please contact our support desk at mzdatamzdata2@gmail.com.
         </p>
       </section>
 

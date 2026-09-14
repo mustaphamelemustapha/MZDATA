@@ -785,19 +785,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final messenger = ScaffoldMessenger.of(sheetContext);
     final uri = Uri(
       scheme: 'mailto',
-      path: 'mzdata@gmail.com',
+      path: 'mzdatamzdata2@gmail.com',
       queryParameters: {'subject': subject, 'body': body},
     );
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
         await Clipboard.setData(
-          const ClipboardData(text: 'mzdata@gmail.com'),
+          const ClipboardData(text: 'mzdatamzdata2@gmail.com'),
         );
         messenger.showSnackBar(
           const SnackBar(
             content: Text(
-              'Support email copied. Send your issue to mzdata@gmail.com.',
+              'Support email copied. Send your issue to mzdatamzdata2@gmail.com.',
             ),
           ),
         );
@@ -805,12 +805,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (_) {
       if (!mounted) return;
       await Clipboard.setData(
-        const ClipboardData(text: 'mzdata@gmail.com'),
+        const ClipboardData(text: 'mzdatamzdata2@gmail.com'),
       );
       messenger.showSnackBar(
         const SnackBar(
           content: Text(
-            'Support email copied. Send your issue to mzdata@gmail.com.',
+            'Support email copied. Send your issue to mzdatamzdata2@gmail.com.',
           ),
         ),
       );

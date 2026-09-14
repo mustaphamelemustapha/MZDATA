@@ -23,7 +23,7 @@ from app.schemas.data import BuyDataRequest
 from app.api.v1.endpoints.data import buy_data
 
 try:
-    user = db.query(User).filter(User.email == "mzdata@gmail.com").first()
+    user = db.query(User).filter(User.email == "mzdatamzdata2@gmail.com").first()
     if not user:
         print("User not found.")
         sys.exit(1)

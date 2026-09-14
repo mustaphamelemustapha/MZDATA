@@ -1,4 +1,4 @@
-package com.mmtech.axisvtu
+package com.mzdata.app
 
 import android.app.NotificationChannel
 import android.app.NotificationManager

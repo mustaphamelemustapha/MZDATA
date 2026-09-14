@@ -225,7 +225,7 @@ export default function AdminSettingsPage() {
           <CardContent className="space-y-3">
             <label className="space-y-2 block">
               <span className="text-sm text-muted-foreground">Support email</span>
-              <Input value="mzdata@gmail.com" readOnly />
+              <Input value="mzdatamzdata2@gmail.com" readOnly />
             </label>
             <div className="rounded-2xl border border-amber-300/80 bg-amber-50/70 p-3 text-sm text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100">
               <div className="flex items-start gap-2">

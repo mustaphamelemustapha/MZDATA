@@ -53,7 +53,7 @@ const mobilePrimaryMenu = [
 const mobileSettingsMenu = [
   { label: 'Profile', href: '/profile', icon: UserCircle2 },
   { label: 'Security', href: '/profile#security', icon: ShieldCheck },
-  { label: 'Support', href: 'mailto:mzdata@gmail.com', icon: Headphones, external: true },
+  { label: 'Support', href: 'mailto:mzdatamzdata2@gmail.com', icon: Headphones, external: true },
   { label: 'WhatsApp Channel', href: 'https://whatsapp.com/channel/0029VbCanujEawdvqLAYu83T', icon: Headphones, external: true },
   { label: 'TikTok Page', href: 'https://www.tiktok.com/@mzdata_ng', icon: Tv2, external: true },
 ];

@@ -7,4 +7,4 @@ Files:
 - mzdata-mark.svg and mzdata-logo.svg: MzData company assets.
 
 Support email:
-- mzdata@gmail.com
+- mzdatamzdata2@gmail.com

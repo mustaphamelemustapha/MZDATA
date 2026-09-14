@@ -65,7 +65,7 @@ export default function PrivacyPolicy() {
       <section className="mb-8">
         <h2 className="text-2xl font-bold mb-4 text-slate-900 dark:text-slate-100">6. Contact Us</h2>
         <p className="mb-4 leading-relaxed text-slate-700 dark:text-slate-300">
-          If you have any questions about this Privacy Policy, please contact us at mzdata@gmail.com.
+          If you have any questions about this Privacy Policy, please contact us at mzdatamzdata2@gmail.com.
         </p>
       </section>
 
