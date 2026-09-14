@@ -1940,7 +1940,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       crossAxisCount: columns,
                       crossAxisSpacing: 10,
                       mainAxisSpacing: 10,
-                      mainAxisExtent: compact ? 98 : 104,
+                      mainAxisExtent: compact ? 82 : 88,
                     ),
                     itemBuilder: (context, index) {
                       final item = services[index];
@@ -3258,7 +3258,7 @@ class _ServiceCardState extends State<_ServiceCard> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: widget.item.accent,
                       shape: BoxShape.rectangle,
@@ -3270,7 +3270,7 @@ class _ServiceCardState extends State<_ServiceCard> {
                     ),
                     child: Icon(
                       widget.item.icon,
-                      size: compact ? 22 : 26,
+                      size: compact ? 18 : 22,
                       color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),

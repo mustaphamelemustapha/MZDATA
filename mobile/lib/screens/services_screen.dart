@@ -124,7 +124,7 @@ class _ServiceGrid extends StatelessWidget {
         crossAxisCount: 3,
         crossAxisSpacing: 12,
         mainAxisSpacing: 16,
-        childAspectRatio: 0.85,
+        childAspectRatio: 0.95,
       ),
       itemBuilder: (context, index) => _ServiceCard(item: items[index]),
     );
@@ -173,12 +173,12 @@ class _ServiceCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: item.accent.withValues(alpha: isDark ? 0.15 : 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(item.icon, color: item.accent, size: 28),
+              child: Icon(item.icon, color: item.accent, size: 22),
             ),
             const SizedBox(height: 12),
             Text(
