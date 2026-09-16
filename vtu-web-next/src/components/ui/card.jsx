@@ -20,4 +20,8 @@ function CardDescription({ className, ...props }) {
   return <p className={cn('text-sm leading-6 text-muted-foreground', className)} {...props} />;
 }
 
-export { Card, CardHeader, CardContent, CardTitle, CardDescription };
+function CardFooter({ className, ...props }) {
+  return <div className={cn('flex items-center p-6 pt-0', className)} {...props} />;
+}
+
+export { Card, CardHeader, CardContent, CardTitle, CardDescription, CardFooter };
