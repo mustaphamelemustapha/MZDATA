@@ -597,6 +597,7 @@ export default function AdminDataPlansPage() {
                       <option value="smeplug">SMEPlug</option>
                       <option value="clubkonnect">ClubKonnect</option>
                       <option value="autosync">Autosync</option>
+                      <option value="boltnet">Boltnet</option>
                     </select>
                     <p className="text-[10px] text-muted-foreground">
                       Provider to try if primary fails
@@ -712,6 +713,7 @@ export default function AdminDataPlansPage() {
                       <option value="smeplug">SMEPlug</option>
                       <option value="clubkonnect">ClubKonnect</option>
                       <option value="autosync">Autosync</option>
+                      <option value="boltnet">Boltnet</option>
                     </select>
                   </div>
                 </div>
@@ -778,6 +780,7 @@ export default function AdminDataPlansPage() {
                       <option value="smeplug">SMEPlug</option>
                       <option value="clubkonnect">ClubKonnect</option>
                       <option value="autosync">Autosync</option>
+                      <option value="boltnet">Boltnet</option>
                     </select>
                   </div>
                   <div className="space-y-2">

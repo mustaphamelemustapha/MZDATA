@@ -135,6 +135,10 @@ class Settings(BaseSettings):
     autosync_api_key: str = ""
     autosync_webhook_pin: str = ""
 
+    # Boltnet API
+    boltnet_base_url: AnyHttpUrl = "https://api.boltnet.com.ng"
+    boltnet_api_key: str = ""
+
     # Fraud / abuse guardrails for purchases
     fraud_guard_enabled: bool = True
     fraud_single_tx_limit_ngn: Decimal = Decimal("50000")
