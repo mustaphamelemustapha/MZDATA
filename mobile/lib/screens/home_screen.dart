@@ -409,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _launchSupport() async {
-    final phone = '+2348141114647';
+    final phone = '+2349067054672';
     final url = Uri.parse('https://wa.me/${phone.replaceAll('+', '')}');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (mounted) {

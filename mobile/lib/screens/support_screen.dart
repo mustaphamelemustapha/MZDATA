@@ -9,7 +9,7 @@ class SupportScreen extends StatelessWidget {
   static const String route = '/support';
 
   Future<void> _launchWhatsApp(BuildContext context) async {
-    final Uri url = Uri.parse("whatsapp://send?phone=2348141114647&text=Hello%20Mele%20Data%20Support");
+    final Uri url = Uri.parse("whatsapp://send?phone=2349067054672&text=Hello%20Mele%20Data%20Support");
     if (!await launchUrl(url)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

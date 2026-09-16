@@ -263,7 +263,7 @@ class _SupportCard extends StatelessWidget {
   final bool isDark;
 
   Future<void> _launchSupport(BuildContext context) async {
-    final phone = '+2348141114647';
+    final phone = '+2349067054672';
     final url = Uri.parse('https://wa.me/${phone.replaceAll('+', '')}');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (context.mounted) {

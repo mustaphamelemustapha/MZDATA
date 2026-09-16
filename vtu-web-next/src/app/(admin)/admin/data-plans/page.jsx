@@ -6,7 +6,7 @@ import { adminGetDataPlans, adminGetPricingRules, adminSyncDataPlans, adminUpdat
 import { filterAllowedAmigoPlans } from '@/lib/amigo-plan-policy';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { AdminTable } from '@/components/admin/admin-table';
 import { FilterBar } from '@/components/admin/filter-bar';
