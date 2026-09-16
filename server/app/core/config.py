@@ -138,6 +138,7 @@ class Settings(BaseSettings):
     # Boltnet API
     boltnet_base_url: AnyHttpUrl = "https://api.boltnet.com.ng"
     boltnet_api_key: str = ""
+    boltnet_webhook_secret: Optional[str] = None
 
     # Fraud / abuse guardrails for purchases
     fraud_guard_enabled: bool = True
