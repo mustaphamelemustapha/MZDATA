@@ -571,6 +571,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _refresh() async {
     final token = (context.read<SessionController>().token ?? '').trim();
     if (token.isEmpty) return;
+    
+    // Clear cache to ensure pull-to-refresh gets fresh data
+    await ApiClient.clearCache();
+    
     final dashboardKey =
         DashboardSnapshotCache.identityFromUser(
           context.read<SessionController>().user,

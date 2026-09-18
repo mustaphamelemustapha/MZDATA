@@ -55,8 +55,8 @@ class PushNotificationService {
       if (fcmToken != null && session.isAuthenticated) {
         await syncTokenWithBackend(fcmToken, session.token!);
         try {
-          await messaging.subscribeToTopic('all_users');
-          debugPrint("[PushNotification] Subscribed to broadcast topic: all_users");
+          await messaging.subscribeToTopic('vtu_all_users');
+          debugPrint("[PushNotification] Subscribed to broadcast topic: vtu_all_users");
         } catch (topicExc) {
           debugPrint("[PushNotification] Failed to subscribe to topic: $topicExc");
         }

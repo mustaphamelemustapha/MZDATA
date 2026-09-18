@@ -445,9 +445,8 @@ class _ExamScreenState extends State<ExamScreen> {
     required String reference,
     required List<ReceiptField> fields,
   }) {
-    if (status != 'failed') {
-      context.read<SessionController>().refreshBalance();
-    }
+    // Always refresh balance so failed or successful transactions appear immediately
+    context.read<SessionController>().refreshBalance();
     final ok = status == 'success';
     final isSuccess = status.toLowerCase() != 'failed';
     final userName = context.read<SessionController>().user?['full_name'] ?? 'User';

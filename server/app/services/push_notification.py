@@ -135,7 +135,7 @@ class PushNotificationService:
             message = messaging.Message(
                 notification=messaging.Notification(title=title, body=body),
                 data=data or {},
-                topic="all_users",
+                topic="vtu_all_users",
                 android=android_config,
                 apns=apns_config,
             )

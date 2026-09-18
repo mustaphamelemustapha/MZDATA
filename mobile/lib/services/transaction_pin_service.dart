@@ -26,7 +26,7 @@ class TransactionPinService {
   ApiClient get _client => ApiClient(baseUrl: AppConfig.baseUrl, token: token);
 
   Future<TransactionPinStatus> status() async {
-    final data = await _client.get('/security/pin/status');
+    final data = await _client.get('/security/pin/status', forceRefresh: true);
     return TransactionPinStatus.fromJson(data);
   }
 

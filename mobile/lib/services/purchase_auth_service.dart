@@ -204,25 +204,34 @@ class PurchaseAuthService {
         }
       },
       onSubmit: (value) async {
-        try {
-          await service.verify(value);
-          return null;
-        } on ApiException catch (e) {
-          if (e.statusCode == 404 || e.message.toLowerCase().contains('not set')) {
-             Navigator.of(context).pop('PIN_NOT_SET');
-             return null;
-          }
-          return _friendlyError(e.message, e.statusCode);
-        } catch (e) {
-          return _friendlyError(e.toString());
-        }
+        // Return null instantly so the bottom sheet dismisses immediately
+        // Verification happens while the main purchase overlay is showing.
+        return null;
       },
     );
 
     if (pin == null || !context.mounted) return false;
-    
-    if (pin == 'PIN_NOT_SET') {
-      return _setupFlow(context: context, service: service, reason: reason, pinLength: pinLength);
+
+    // Verify the PIN with the loading overlay to make it feel instantly loading
+    PurchaseLoadingOverlay.show(context, title: 'Verifying PIN...');
+    try {
+      await service.verify(pin);
+      // DO NOT hide overlay on success so it transitions smoothly 
+      // into the parent's "Processing order" overlay without flickering.
+    } on ApiException catch (e) {
+      PurchaseLoadingOverlay.hide();
+      if (e.statusCode == 404 || e.message.toLowerCase().contains('not set')) {
+         if (context.mounted) {
+           return _setupFlow(context: context, service: service, reason: reason, pinLength: pinLength);
+         }
+         return false;
+      }
+      if (context.mounted) _showSnack(context, _friendlyError(e.message, e.statusCode));
+      return false;
+    } catch (e) {
+      PurchaseLoadingOverlay.hide();
+      if (context.mounted) _showSnack(context, _friendlyError(e.toString()));
+      return false;
     }
 
     // 4. Sync PIN for future biometric use

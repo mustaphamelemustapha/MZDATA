@@ -67,8 +67,11 @@ class SessionController extends ChangeNotifier {
   int get balanceRefreshTick => _balanceRefreshTick;
 
   void refreshBalance() {
-    _balanceRefreshTick++;
-    notifyListeners();
+    ApiClient.clearCache().then((_) {
+      _balanceRefreshTick++;
+      syncProfileIfNeeded();
+      notifyListeners();
+    });
   }
 
   String _getUserPrefKey(String? identifier) {

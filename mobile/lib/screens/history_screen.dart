@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../services/api_client.dart';
 import '../services/transactions_service.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
@@ -70,6 +71,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _reload() async {
     final token = (context.read<SessionController>().token ?? '').trim();
     if (token.isEmpty) return;
+    
+    // Clear cache to ensure pull-to-refresh gets fresh data
+    await ApiClient.clearCache();
+    
     setState(() {
       _txFuture = TransactionsService(token: token).getTransactions();
     });
