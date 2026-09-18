@@ -182,8 +182,10 @@ export default function AdminTransactionsPage() {
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="h-11 rounded-2xl border border-border bg-card px-3 text-sm text-foreground" />
       </FilterBar>
 
-      <div className="rounded-3xl border border-border bg-card p-4">
-        <h3 className="text-base font-semibold text-foreground">Bulk reconcile delivered</h3>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Bulk Reconcile Card */}
+        <div className="rounded-3xl border border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/10 p-4">
+          <h3 className="text-base font-semibold text-emerald-700 dark:text-emerald-400">Bulk reconcile delivered</h3>
         <p className="mt-1 text-sm text-muted-foreground">Paste references (one per line). Use only when customers confirmed delivery.</p>
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_280px_auto]">
           <textarea
@@ -233,8 +235,11 @@ export default function AdminTransactionsPage() {
         </div>
         {bulkError ? <div className="mt-2 text-xs font-medium text-destructive">{bulkError}</div> : null}
         {bulkSuccess ? <div className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-300">{bulkSuccess}</div> : null}
-        <div className="mt-5 border-t border-border pt-4">
-          <h4 className="text-sm font-semibold text-foreground">Bulk fail + refund pending</h4>
+        </div>
+
+        {/* Bulk Fail Card */}
+        <div className="rounded-3xl border border-red-500/20 bg-red-50/50 dark:bg-red-950/10 p-4">
+          <h4 className="text-base font-semibold text-red-700 dark:text-red-400">Bulk fail + refund pending</h4>
           <p className="mt-1 text-sm text-muted-foreground">
             Use only for provider-confirmed failures that are still pending. This refunds user wallets.
           </p>
@@ -280,6 +285,7 @@ export default function AdminTransactionsPage() {
           </div>
           {bulkFailError ? <div className="mt-2 text-xs font-medium text-destructive">{bulkFailError}</div> : null}
           {bulkFailSuccess ? <div className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-300">{bulkFailSuccess}</div> : null}
+        </div>
         </div>
       </div>
 

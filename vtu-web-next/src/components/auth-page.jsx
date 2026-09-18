@@ -141,14 +141,22 @@ export function AuthPage({ initialMode, refCode: presetRef }) {
         setAuthTokens(loginData?.access_token || loginData?.token, loginData?.refresh_token, true);
         const me = await apiFetch('/auth/me');
         setProfile(me);
-        router.push('/dashboard');
+        if (me?.role === 'admin' || me?.role === 'superadmin') {
+          router.push('/admin');
+        } else {
+          router.push('/dashboard');
+        }
       } else {
         const identifier = form.phone_number || form.email;
         const data = await loginRequest(identifier, form.password);
         setAuthTokens(data?.access_token || data?.token, data?.refresh_token, true);
         const me = await apiFetch('/auth/me');
         setProfile(me);
-        router.push('/dashboard');
+        if (me?.role === 'admin' || me?.role === 'superadmin') {
+          router.push('/admin');
+        } else {
+          router.push('/dashboard');
+        }
       }
     } catch (err) {
       clearAuth();
