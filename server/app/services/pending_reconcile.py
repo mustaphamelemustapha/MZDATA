@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models import DataPlan, Transaction, TransactionStatus, TransactionType
-from app.services.amigo import AmigoApiError, AmigoClient, normalize_plan_code, resolve_network_id
+
 from app.services.wallet import credit_wallet, get_or_create_wallet
 from app.services.outbound_webhooks import dispatch_developer_webhook
 
@@ -148,110 +148,28 @@ def reconcile_pending_data_once(limit: int = 50) -> dict[str, int]:
             .all()
         )
 
-        client = AmigoClient()
         for tx in rows:
             if not _should_attempt_recheck(tx):
                 continue
 
             processed += 1
-            plan = db.query(DataPlan).filter(DataPlan.plan_code == tx.data_plan_code).first()
-            network = str(tx.network or (plan.network if plan else "")).strip()
-            recipient_phone = str(tx.recipient_phone or "").strip()
-            if not recipient_phone:
+            age = _tx_age_seconds(tx)
+            if age >= max(30, int(settings.pending_reconcile_auto_success_seconds)):
+                _finalize_refund(
+                    db,
+                    tx,
+                    "Pending reconciliation timeout reached without provider confirmation",
+                )
+                moved_refunded += 1
+                logger.warning(
+                    "Pending data auto-refunded after reconciliation timeout ref=%s age=%ss",
+                    tx.reference,
+                    age,
+                )
+            else:
                 tx.failure_reason = f"{str(tx.failure_reason or '').strip()} {_RECHECK_TAG}".strip()[:255]
                 stayed_pending += 1
-                db.commit()
-                continue
-            network_id = resolve_network_id(network)
-            if network_id is None:
-                _finalize_refund(db, tx, "Unsupported network during pending reconciliation")
-                moved_refunded += 1
-                db.commit()
-                continue
-
-            try:
-                response = client.purchase_data(
-                    {
-                        "network": network_id,
-                        "mobile_number": recipient_phone,
-                        "plan": normalize_plan_code(tx.data_plan_code),
-                        "Ported_number": True,
-                    },
-                    idempotency_key=tx.reference,
-                )
-                outcome = _classify_outcome(response)
-                if outcome == TransactionStatus.SUCCESS.value:
-                    tx.status = TransactionStatus.SUCCESS
-                    tx.failure_reason = None
-                    tx.external_reference = (
-                        response.get("reference")
-                        or response.get("transaction_reference")
-                        or response.get("transaction_id")
-                        or tx.external_reference
-                    )
-                    db.commit()
-                    logger.info("Reconciled pending tx %s -> SUCCESS", tx.reference)
-                    try:
-                        from app.services.referrals import trigger_referral_data_activity
-                        trigger_referral_data_activity(db, tx)
-                        db.commit()
-                    except Exception as ref_exc:
-                        logger.error("Failed to trigger referral activity for reconciled tx %s: %s", tx.reference, ref_exc)
-                    dispatch_developer_webhook(tx, tx.user)
-                    moved_success += 1
-                elif outcome == TransactionStatus.FAILED.value:
-                    msg = str(response.get("message") or "Provider rejected transaction")
-                    if _is_definitive_failure(response=response, reason=msg):
-                        _finalize_refund(db, tx, msg)
-                        moved_refunded += 1
-                    else:
-                        stayed_pending += 1
-                else:
-                    age = _tx_age_seconds(tx)
-                    if age >= max(30, int(settings.pending_reconcile_auto_success_seconds)):
-                        _finalize_refund(
-                            db,
-                            tx,
-                            "Pending reconciliation timeout reached without provider confirmation",
-                        )
-                        moved_refunded += 1
-                        logger.warning(
-                            "Pending data auto-refunded after reconciliation timeout ref=%s age=%ss",
-                            tx.reference,
-                            age,
-                        )
-                    else:
-                        tx.failure_reason = f"{str(tx.failure_reason or '').strip()} {_RECHECK_TAG}".strip()[:255]
-                        stayed_pending += 1
-                db.commit()
-            except AmigoApiError as exc:
-                msg = str(exc.message or "Provider reconciliation error").strip()
-                code = exc.status_code or 0
-                # Definitive 4xx failures can be safely refunded.
-                if _is_definitive_failure(reason=msg, status_code=code):
-                    _finalize_refund(db, tx, msg)
-                    moved_refunded += 1
-                else:
-                    age = _tx_age_seconds(tx)
-                    if age >= max(30, int(settings.pending_reconcile_auto_success_seconds)):
-                        _finalize_refund(
-                            db,
-                            tx,
-                            "Pending reconciliation timeout reached after provider ambiguity",
-                        )
-                        moved_refunded += 1
-                        logger.warning(
-                            "Pending data auto-refunded after provider ambiguity timeout ref=%s age=%ss",
-                            tx.reference,
-                            age,
-                        )
-                    else:
-                        stayed_pending += 1
-                db.commit()
-            except Exception as exc:
-                stayed_pending += 1
-                db.commit()
-                logger.warning("Pending reconcile exception for %s: %s", tx.reference, exc)
+            db.commit()
     finally:
         db.close()
 

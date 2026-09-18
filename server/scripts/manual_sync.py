@@ -8,7 +8,7 @@ sys.path.append(os.path.join(os.getcwd()))
 from app.core.database import SessionLocal
 from app.api.v1.endpoints.data import _upsert_plan_from_provider, _parse_size_gb
 from app.providers.smeplug_provider import SMEPlugProvider
-from app.services.amigo import AmigoClient
+
 from app.services.bills import get_bills_provider
 from app.models import DataPlan
 
@@ -34,22 +34,7 @@ def run_sync():
             db.rollback()
             logger.error(f"SMEPlug sync failed: {e}")
 
-        # 2. MTN/Glo (Amigo)
-        logger.info("Syncing MTN/Glo from Amigo...")
-        try:
-            amigo = AmigoClient()
-            res = amigo.fetch_data_plans()
-            items = res.get("data", [])
-            logger.info(f"Found {len(items)} plans from Amigo")
-            touched = 0
-            for item in items:
-                if _upsert_plan_from_provider(db, item):
-                    touched += 1
-            db.commit()
-            logger.info(f"Amigo sync done. Touched {touched} plans.")
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Amigo sync failed: {e}")
+
 
         # 3. 9mobile
         logger.info("Syncing 9mobile...")
