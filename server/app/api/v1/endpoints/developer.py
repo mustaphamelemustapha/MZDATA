@@ -30,7 +30,7 @@ from app.services.fraud import enforce_purchase_limits
 
 # Providers/Clients
 from app.providers.smeplug_provider import SMEPlugProvider
-from app.services.amigo import AmigoClient, AmigoApiError, resolve_network_id, normalize_plan_code
+
 from app.services.bills import get_bills_provider
 from app.dependencies import get_current_user
 from app.middlewares.rate_limit import limiter
@@ -413,21 +413,7 @@ def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, 
             sme_network_map = {"mtn": 1, "airtel": 2, "9mobile": 3, "glo": 4}
             net_id = sme_network_map.get(network_key, 2)
             provider_res = sme.purchase_network_data(net_id, phone, plan.provider_plan_id or plan.plan_code, client_ref)
-        elif provider_name == "amigo" or (not provider_name and network_key in {"mtn", "glo", "airtel", "9mobile"}):
-            amigo = AmigoClient()
-            amigo_payload = {
-                "network": resolve_network_id(network_key),
-                "mobile_number": phone,
-                "plan": normalize_plan_code(plan.plan_code),
-                "Ported_number": True
-            }
-            res = amigo.purchase_data(amigo_payload, idempotency_key=client_ref)
-            if res.get("success") or str(res.get("status")).lower() in {"delivered", "success", "successful"}:
-                provider_res = {"status": "success", "provider_reference": str(res.get("reference") or "")}
-            elif str(res.get("status")).lower() in {"pending", "processing"}:
-                provider_res = {"status": "pending", "provider_reference": str(res.get("reference") or "")}
-            else:
-                provider_res = {"status": "failed", "error": res.get("message") or "Amigo reported failure"}
+
         elif provider_name == "clubkonnect" or (not provider_name and network_key == "9mobile"):
             bills = get_bills_provider()
             res = bills.purchase_data(network_key, phone, plan.provider_plan_id or plan.plan_code, amount=float(price), request_id=client_ref)

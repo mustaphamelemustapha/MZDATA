@@ -107,7 +107,7 @@ def _extract_provider_payload(meta: dict | None):
     for key in ("provider_response", "raw_provider_response", "provider_raw", "response", "result"):
         if key in payload and payload.get(key) is not None:
             return payload.get(key)
-    for provider_key in ("amigo", "clubkonnect", "vtpass"):
+    for provider_key in ("clubkonnect", "vtpass", "smeplug", "autosync", "boltnet"):
         provider_obj = payload.get(provider_key)
         if isinstance(provider_obj, dict):
             for key in ("raw_response", "response", "result"):
@@ -760,7 +760,7 @@ def get_transaction_details(
             .first()
         )
         provider_trace = {
-            "provider": tx.provider or ("amigo" if _normalize_type_value(tx.tx_type) == "data" else "unknown"),
+            "provider": tx.provider or "unknown",
             "tx_status": _normalize_status_value(tx.status),
             "failure_reason": tx.failure_reason or "",
             "external_reference": tx.external_reference or "",

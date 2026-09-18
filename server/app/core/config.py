@@ -78,15 +78,6 @@ class Settings(BaseSettings):
     billstack_enabled: bool = False
     billstack_preferred_bank: str = "PALMPAY"
 
-    # Amigo API
-    amigo_base_url: AnyHttpUrl
-    amigo_api_key: str
-    amigo_timeout_seconds: int = 15
-    amigo_retry_count: int = 2
-    amigo_test_mode: bool = False
-    # Provider endpoint paths (Amigo deployments differ; keep these configurable).
-    amigo_data_purchase_path: str = "/data/"
-    amigo_plans_path: str = "/plans/"
     pending_reconcile_enabled: bool = True
     pending_reconcile_interval_seconds: int = 25
     pending_reconcile_batch_size: int = 30

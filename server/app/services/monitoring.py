@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User, UserRole
 from app.models.system_setting import SystemSetting
 from app.services.push_notification import PushNotificationService
-from app.services.amigo import AmigoClient
+
 from app.providers.smeplug_provider import SMEPlugProvider
 from app.services.bills import ClubKonnectBillsProvider
 
@@ -14,19 +14,6 @@ THRESHOLD = 5000.0
 def check_provider_balances(db: Session) -> dict:
     results = {}
     
-    # 1. Amigo
-    try:
-        amigo = AmigoClient()
-        am_bal = amigo.get_balance()
-        results["amigo"] = am_bal
-        if isinstance(am_bal, (int, float)):
-            if am_bal < THRESHOLD:
-                _alert_admins(db, "Amigo", am_bal, alert_type="low_balance")
-            _check_and_update_funding(db, "amigo_last_balance", "Amigo", float(am_bal))
-    except Exception as e:
-        logger.error(f"Monitoring Amigo failed: {e}")
-        results["amigo"] = f"Error: {e}"
-
     # 2. SMEPlug
     try:
         sme = SMEPlugProvider()

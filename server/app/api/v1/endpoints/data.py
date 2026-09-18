@@ -16,14 +16,9 @@ from app.core.config import get_settings
 from app.dependencies import get_current_user, require_admin
 from app.models import User, UserRole, DataPlan, Transaction, TransactionStatus, TransactionType, ApiLog
 from app.schemas.data import DataPlanOut, BuyDataRequest
-from app.services.amigo import (
-    AmigoClient,
-    AmigoApiError,
-    canonical_plan_code,
-    normalize_plan_code,
-    resolve_network_id,
-     split_plan_code,
-)
+def canonical_plan_code(provider: str, network: str, plan_code: str) -> str:
+    """Generate a consistent unique identifier for a plan."""
+    return f"{provider.lower()}-{network.lower()}-{str(plan_code).strip()}"
 from app.providers.smeplug_provider import SMEPlugProvider
 from app.providers.autosync_provider import AutosyncProvider
 from app.providers.boltnet_provider import BoltnetProvider
@@ -251,23 +246,6 @@ def list_data_plans(user: User = Depends(get_current_user), db: Session = Depend
         except Exception as exc:
             logger.warning("9mobile sync failed: %s", exc)
 
-    # 3. MTN/GLO -> Amigo Sync (If low)
-    if breakdown.get("mtn", 0) < 5 or breakdown.get("glo", 0) < 5:
-        logger.info("MTN or Glo plans low. Syncing from Amigo...")
-        try:
-            amigo = AmigoClient()
-            res = amigo.fetch_data_plans()
-            items = res.get("data", [])
-            if items:
-                touched = 0
-                for item in items:
-                    touched += 1 if _upsert_plan_from_provider(db, item) else 0
-                if touched:
-                    db.commit()
-                    plans = db.query(DataPlan).filter(DataPlan.is_active == True).all()
-                    logger.info("Amigo sync finished. Touched %d plans.", touched)
-        except Exception as exc:
-            logger.warning("Amigo sync failed: %s", exc)
 
     promo_snapshot = _mtn_1gb_promo_snapshot(db)
     user_promo_used = _user_has_used_mtn_1gb_promo(db, user.id)
@@ -520,32 +498,6 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
                 )
                 tx_provider = "boltnet"
 
-            elif p_name == "amigo" or (not p_name and network_key in {"mtn", "glo", "airtel", "9mobile"}):
-                amigo = AmigoClient()
-                amigo_network_id = resolve_network_id(network_key)
-                amigo_payload = {
-                    "network": amigo_network_id,
-                    "mobile_number": phone,
-                    "plan": normalize_plan_code(p_plan_id or plan_plan_code),
-                    "Ported_number": True
-                }
-                tx_provider = "amigo"
-                try:
-                    res = amigo.purchase_data(amigo_payload, idempotency_key=reference)
-                    if res.get("success") or str(res.get("status")).lower() in {"delivered", "success", "successful"}:
-                        p_res = {"status": "success", "provider_reference": str(res.get("reference") or "")}
-                    elif str(res.get("status")).lower() in {"pending", "processing"}:
-                        p_res = {"status": "pending", "provider_reference": str(res.get("reference") or "")}
-                    else:
-                        p_res = {"status": "failed", "error": res.get("message") or "Amigo reported failure"}
-                except AmigoApiError as e:
-                    err_msg = str(e)
-                    if _is_ambiguous_provider_error(e):
-                        logger.warning("Amigo reported ambiguous error for reference %s. Marking as pending for safety: %s", reference, err_msg)
-                        p_res = {"status": "pending", "error": err_msg}
-                    else:
-                        logger.warning("Amigo reported hard failure for reference %s. Failing immediately: %s", reference, err_msg)
-                        p_res = {"status": "failed", "error": err_msg}
 
             elif p_name == "clubkonnect" or (not p_name and network_key == "9mobile"):
                 bills = get_bills_provider()
@@ -682,18 +634,6 @@ def sync_data_plans(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error("SMEPlug sync failed: %s", e)
 
-    # 2. Amigo (All Networks - MTN/GLO/AIRTEL/9MOBILE)
-    try:
-        amigo = AmigoClient()
-        res = amigo.fetch_data_plans()
-        items = res.get("data", [])
-        for item in items:
-            # Amigo usually sends MTN and GLO
-            _upsert_plan_from_provider(db, item)
-        db.commit()
-        logger.info("Amigo sync finished (MTN/Glo).")
-    except Exception as e:
-        logger.error("Amigo sync failed: %s", e)
 
     # 3. ClubKonnect (Strictly 9MOBILE)
     try:

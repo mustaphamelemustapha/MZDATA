@@ -187,7 +187,7 @@ def get_finance_overview(
     total_assets = Decimal("0.0")
     try:
         from app.services.bills import get_bills_provider
-        from app.services.amigo import AmigoService
+
         from app.services.clubkonnect import ClubKonnect
         
         provider = get_bills_provider()
@@ -195,10 +195,7 @@ def get_finance_overview(
         assets_list.append({"name": "SMEPlug", "balance": float(sme_bal), "type": "PROVIDER_WALLET"})
         total_assets += Decimal(str(sme_bal))
         
-        amigo = AmigoService()
-        amigo_bal = amigo.get_balance()
-        assets_list.append({"name": "Amigo", "balance": float(amigo_bal), "type": "PROVIDER_WALLET"})
-        total_assets += Decimal(str(amigo_bal))
+
         
         club = ClubKonnect()
         club_bal = club.get_balance()
