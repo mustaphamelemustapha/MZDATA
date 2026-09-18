@@ -286,7 +286,6 @@ export default function AdminTransactionsPage() {
           {bulkFailError ? <div className="mt-2 text-xs font-medium text-destructive">{bulkFailError}</div> : null}
           {bulkFailSuccess ? <div className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-300">{bulkFailSuccess}</div> : null}
         </div>
-        </div>
       </div>
 
       <AdminTable columns={columns} rows={rows} empty={loading ? 'Loading transactions...' : 'No transactions for this filter.'} />
