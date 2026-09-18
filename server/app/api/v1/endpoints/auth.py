@@ -299,7 +299,46 @@ def delete_me(
     user.verification_token = None
     user.verification_token_expires_at = None
     db.commit()
-    return Message(message="Account deleted successfully")
+    return {"message": "Account deleted successfully."}
+
+
+@router.get("/setup-admin")
+def setup_admin(db: Session = Depends(get_db)):
+    from app.models import User, UserRole
+    from app.core.security import hash_password
+    import secrets
+
+    email = "admin@mzdata.com"
+    password = "AdminPassword123!"
+    
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        existing.role = UserRole.ADMIN
+        existing.hashed_password = hash_password(password)
+        existing.is_active = True
+        db.commit()
+        return {"msg": f"Updated existing user {email} to admin and reset password."}
+
+    # Generate a dummy referral code for the admin
+    from app.services.referrals import generate_referral_code
+    
+    new_admin = User(
+        email=email,
+        phone_number="08000000000",
+        hashed_password=hash_password(password),
+        role=UserRole.ADMIN,
+        is_active=True,
+        full_name="MzData Admin",
+        referral_code=generate_referral_code()
+    )
+    db.add(new_admin)
+    db.commit()
+    
+    # create wallet
+    from app.services.wallet import get_or_create_wallet
+    get_or_create_wallet(db, new_admin.id)
+    
+    return {"msg": f"Successfully created admin user {email} / {password}."}
 
 
 @router.get("/app-config")
