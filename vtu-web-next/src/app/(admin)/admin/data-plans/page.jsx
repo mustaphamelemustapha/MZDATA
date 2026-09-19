@@ -147,6 +147,7 @@ export default function AdminDataPlansPage() {
       await adminCreateDataPlan(payload);
       setIsAddModalOpen(false);
       setNewPlan({
+        id: undefined,
         network: 'mtn',
         plan_code: '',
         plan_name: '',
@@ -746,6 +747,16 @@ export default function AdminDataPlansPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Custom Plan ID (Optional)</label>
+                    <Input 
+                      placeholder="e.g. 500"
+                      type="number"
+                      value={newPlan.id || ''}
+                      onChange={(e) => setNewPlan({...newPlan, id: e.target.value ? parseInt(e.target.value) : undefined})}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Leave blank to auto-generate</p>
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">System Plan Code (Unique)</label>
                     <Input 

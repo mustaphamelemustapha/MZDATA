@@ -2154,28 +2154,38 @@ def create_data_plan(payload: DataPlanUpdate, admin: User = Depends(require_admi
     existing = db.query(DataPlan).filter(DataPlan.plan_code == payload.plan_code).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"Plan code {payload.plan_code} already exists.")
+        
+    if payload.id is not None:
+        existing_id = db.query(DataPlan).filter(DataPlan.id == payload.id).first()
+        if existing_id:
+            raise HTTPException(status_code=400, detail=f"Plan ID {payload.id} already exists.")
 
-    plan = DataPlan(
-        network=payload.network,
-        plan_code=payload.plan_code,
-        plan_name=payload.plan_name,
-        data_size=payload.data_size or "—",
-        validity=payload.validity or "30 Days",
-        base_price=payload.base_price or Decimal("0"),
-        display_price=payload.display_price,
-        agent_price=payload.agent_price,
-        is_active=payload.is_active if payload.is_active is not None else True,
-        provider=payload.provider,
-        provider_plan_id=payload.provider_plan_id,
-        fallback_provider=payload.fallback_provider if payload.fallback_provider != 'none' else None,
-        fallback_provider_plan_id=payload.fallback_provider_plan_id,
-        data_type=payload.data_type,
-        promo_active=payload.promo_active if payload.promo_active is not None else False,
-        promo_old_price=payload.promo_old_price,
-        promo_label=payload.promo_label,
-        cashback_amount=payload.cashback_amount,
-        cashback_label=payload.cashback_label
-    )
+    plan_data = {
+        "network": payload.network,
+        "plan_code": payload.plan_code,
+        "plan_name": payload.plan_name,
+        "data_size": payload.data_size or "—",
+        "validity": payload.validity or "30 Days",
+        "base_price": payload.base_price or Decimal("0"),
+        "display_price": payload.display_price,
+        "agent_price": payload.agent_price,
+        "is_active": payload.is_active if payload.is_active is not None else True,
+        "provider": payload.provider,
+        "provider_plan_id": payload.provider_plan_id,
+        "fallback_provider": payload.fallback_provider if payload.fallback_provider != 'none' else None,
+        "fallback_provider_plan_id": payload.fallback_provider_plan_id,
+        "data_type": payload.data_type,
+        "promo_active": payload.promo_active if payload.promo_active is not None else False,
+        "promo_old_price": payload.promo_old_price,
+        "promo_label": payload.promo_label,
+        "cashback_amount": payload.cashback_amount,
+        "cashback_label": payload.cashback_label
+    }
+    if payload.id is not None:
+        plan_data["id"] = payload.id
+        
+    plan = DataPlan(**plan_data)
+    
     db.add(plan)
     db.commit()
     db.refresh(plan)

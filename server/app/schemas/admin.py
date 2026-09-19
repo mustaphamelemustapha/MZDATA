@@ -146,6 +146,7 @@ class ServiceToggleOut(BaseModel):
 
 
 class DataPlanUpdate(BaseModel):
+    id: Optional[int] = None
     network: Optional[str] = None
     plan_code: Optional[str] = None
     plan_name: Optional[str] = None
