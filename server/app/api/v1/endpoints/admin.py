@@ -1906,6 +1906,7 @@ def get_data_plans(admin=Depends(require_admin), db: Session = Depends(get_db)):
             "base_price": float(p.base_price),
             "display_price": float(p.display_price) if p.display_price is not None else None,
             "agent_price": float(p.agent_price) if p.agent_price is not None else None,
+            "api_price": float(p.api_price) if getattr(p, "api_price", None) is not None else None,
             "is_active": p.is_active,
             "provider": p.provider,
             "provider_plan_id": p.provider_plan_id,
@@ -1981,6 +1982,16 @@ def update_data_plan(
         plan.agent_price = payload.agent_price
         changes["agent_price"] = float(payload.agent_price)
 
+    if payload.clear_api_price:
+        if getattr(plan, "api_price", None) is not None:
+            plan.api_price = None
+            changes["api_price"] = None
+    elif getattr(payload, "api_price", None) is not None:
+        if payload.api_price < 0:
+            raise HTTPException(status_code=400, detail="api_price must be >= 0")
+        plan.api_price = payload.api_price
+        changes["api_price"] = float(payload.api_price)
+
     # Promo / marketing field updates
     if payload.promo_active is not None:
         plan.promo_active = payload.promo_active
@@ -2049,6 +2060,7 @@ def update_data_plan(
             "is_active": plan.is_active,
             "display_price": float(plan.display_price) if plan.display_price is not None else None,
             "agent_price": float(plan.agent_price) if plan.agent_price is not None else None,
+            "api_price": float(plan.api_price) if getattr(plan, "api_price", None) is not None else None,
             "plan_name": plan.plan_name,
             "promo_active": plan.promo_active,
         }
@@ -2169,6 +2181,7 @@ def create_data_plan(payload: DataPlanUpdate, admin: User = Depends(require_admi
         "base_price": payload.base_price or Decimal("0"),
         "display_price": payload.display_price,
         "agent_price": payload.agent_price,
+        "api_price": getattr(payload, "api_price", None),
         "is_active": payload.is_active if payload.is_active is not None else True,
         "provider": payload.provider,
         "provider_plan_id": payload.provider_plan_id,

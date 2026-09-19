@@ -37,6 +37,7 @@ export default function AdminDataPlansPage() {
   const [editingPlan, setEditingPlan] = useState(null);
   const [displayPriceInput, setDisplayPriceInput] = useState('');
   const [agentPriceInput, setAgentPriceInput] = useState('');
+  const [apiPriceInput, setApiPriceInput] = useState('');
   const [planNameInput, setPlanNameInput] = useState('');
   const [costPriceInput, setCostPriceInput] = useState('');
   const [dataSizeInput, setDataSizeInput] = useState('');
@@ -121,8 +122,9 @@ export default function AdminDataPlansPage() {
     plan_name: '',
     data_size: '',
     validity: '30 Days',
-    base_price: '',
+    display_price: '',
     agent_price: '',
+    api_price: '',
     user_price: '',
     provider: 'amigo',
     provider_plan_id: '',
@@ -153,8 +155,9 @@ export default function AdminDataPlansPage() {
         plan_name: '',
         data_size: '',
         validity: '30 Days',
-        base_price: '',
+        display_price: '',
         agent_price: '',
+        api_price: '',
         user_price: '',
         provider: 'amigo',
         provider_plan_id: '',
@@ -190,8 +193,9 @@ export default function AdminDataPlansPage() {
     setCostPriceInput(String(plan.base_price || ''));
     setDataSizeInput(plan.data_size || '');
     setValidityInput(plan.validity || '');
-    setDisplayPriceInput(plan.display_price !== null ? String(plan.display_price) : '');
+    setDisplayPriceInput(plan.display_price !== null && plan.display_price !== undefined ? String(plan.display_price) : '');
     setAgentPriceInput(plan.agent_price !== null && plan.agent_price !== undefined ? String(plan.agent_price) : '');
+    setApiPriceInput(plan.api_price !== null && plan.api_price !== undefined ? String(plan.api_price) : '');
     setPromoActiveInput(plan.promo_active ?? false);
     setPromoOldPriceInput(plan.promo_old_price !== null ? String(plan.promo_old_price) : '');
     setPromoLabelInput(plan.promo_label || '');
@@ -228,6 +232,16 @@ export default function AdminDataPlansPage() {
         payload.agent_price = parseFloat(agentVal);
         if (isNaN(payload.agent_price) || payload.agent_price < 0) {
           throw new Error('Invalid Agent price value');
+        }
+      }
+
+      const apiVal = apiPriceInput.trim();
+      if (apiVal === '') {
+        payload.clear_api_price = true;
+      } else {
+        payload.api_price = parseFloat(apiVal);
+        if (isNaN(payload.api_price) || payload.api_price < 0) {
+          throw new Error('Invalid API price value');
         }
       }
 
@@ -396,6 +410,23 @@ export default function AdminDataPlansPage() {
                   <>
                     <span className="font-medium text-muted-foreground">—</span>
                     <span className="text-[10px] text-muted-foreground tracking-wider uppercase">Margin</span>
+                  </>
+                )}
+              </div>
+            );
+          }},
+          { key: 'api_price', label: 'API Price', render: (row) => {
+            return (
+              <div className="flex flex-col">
+                {row.api_price !== null && row.api_price !== undefined ? (
+                  <>
+                    <span className="font-medium text-blue-500">₦{formatMoney(row.api_price)}</span>
+                    <span className="text-[10px] text-blue-500 font-medium tracking-wider uppercase">Explicit</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-muted-foreground">—</span>
+                    <span className="text-[10px] text-muted-foreground tracking-wider uppercase">Fallback</span>
                   </>
                 )}
               </div>
@@ -579,6 +610,19 @@ export default function AdminDataPlansPage() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Explicit price for Agents/Resellers.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">API User Price (₦)</label>
+                  <Input
+                    type="number"
+                    placeholder="Fallback to Agent price if empty"
+                    value={apiPriceInput}
+                    onChange={(e) => setApiPriceInput(e.target.value)}
+                    disabled={isSavingPlan}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Explicit price for Developers.
                   </p>
                 </div>
               </div>
@@ -842,6 +886,15 @@ export default function AdminDataPlansPage() {
                       step="0.01"
                       value={newPlan.agent_price}
                       onChange={(e) => setNewPlan({...newPlan, agent_price: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">API User Price (₦)</label>
+                    <Input 
+                      type="number"
+                      step="0.01"
+                      value={newPlan.api_price}
+                      onChange={(e) => setNewPlan({...newPlan, api_price: e.target.value})}
                     />
                   </div>
                 </div>

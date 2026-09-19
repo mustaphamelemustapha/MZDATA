@@ -76,6 +76,21 @@ def get_price_for_user(db: Session, plan: DataPlan, user_or_role) -> Decimal:
 
     pricing_role = pricing_role_for_user(role)
     
+    if pricing_role == PricingRole.DEVELOPER:
+        api_price = getattr(plan, "api_price", None)
+        if api_price is not None:
+            try:
+                return Decimal(api_price)
+            except Exception:
+                pass
+        # Fallback to agent price if developer price is not set
+        agent_price = getattr(plan, "agent_price", None)
+        if agent_price is not None:
+            try:
+                return Decimal(agent_price)
+            except Exception:
+                pass
+                
     if pricing_role == PricingRole.RESELLER:
         agent_price = getattr(plan, "agent_price", None)
         if agent_price is not None:

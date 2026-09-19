@@ -159,6 +159,8 @@ class DataPlanUpdate(BaseModel):
     clear_display_price: bool = False
     agent_price: Optional[Decimal] = None
     clear_agent_price: bool = False
+    api_price: Optional[Decimal] = None
+    clear_api_price: bool = False
     provider: Optional[str] = None
     provider_plan_id: Optional[str] = None
     data_type: Optional[str] = None
@@ -196,6 +198,7 @@ class AdminDataPlanOut(BaseModel):
     base_price: float
     display_price: Optional[float] = None
     agent_price: Optional[float] = None
+    api_price: Optional[float] = None
     is_active: bool
     provider: Optional[str] = None
     provider_plan_id: Optional[str] = None

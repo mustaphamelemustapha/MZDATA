@@ -262,8 +262,11 @@ def list_data_plans(user: User = Depends(get_current_user), db: Session = Depend
             # User role specific price
             display = getattr(plan, "display_price", None)
             agent_price = getattr(plan, "agent_price", None)
+            api_price = getattr(plan, "api_price", None)
             
-            if pricing_role == PricingRole.RESELLER and agent_price is not None:
+            if pricing_role == PricingRole.DEVELOPER and api_price is not None:
+                price = Decimal(str(api_price))
+            elif pricing_role in (PricingRole.DEVELOPER, PricingRole.RESELLER) and agent_price is not None:
                 price = Decimal(str(agent_price))
             elif display is not None:
                 price = Decimal(str(display))
