@@ -271,6 +271,9 @@ export default function DashboardPage() {
                 <div className="axis-label">Your Public API Key</div>
                 <div className="mt-2 text-sm font-mono tracking-tight text-foreground break-all">{profile.api_public_key}</div>
                 <div className="mt-2 text-sm text-muted-foreground">Do not share this key with anyone. It gives full access to your API pricing.</div>
+                <Button className="mt-4 w-full sm:w-auto" variant="secondary" onClick={() => router.push('/api-docs')}>
+                  View API Documentation
+                </Button>
               </div>
             </CardContent>
           </Card>
