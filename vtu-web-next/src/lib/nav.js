@@ -26,6 +26,7 @@ export const appNav = [
   { label: 'Exam PINs', href: '/exam-pins', icon: GraduationCap },
   { label: 'Wallet', href: '/wallet', icon: CircleDollarSign },
   { label: 'Referrals', href: '/referrals', icon: Gift },
+  { label: 'API Documentation', href: '/api-docs', icon: Code2 },
   { label: 'Notifications', href: '/notifications', icon: Bell },
   { label: 'History', href: '/history', icon: Clock3 },
   { label: 'Profile', href: '/profile', icon: UserCircle2 },

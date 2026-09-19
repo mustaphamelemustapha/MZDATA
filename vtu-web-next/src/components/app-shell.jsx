@@ -8,6 +8,7 @@ import {
   Bell,
   CircleDollarSign,
   Clock3,
+  Code2,
   GraduationCap,
   Gauge,
   Headphones,
@@ -47,6 +48,7 @@ const mobilePrimaryMenu = [
   { label: 'Education', href: '/exam-pins', icon: GraduationCap },
   { label: 'Wallet', href: '/wallet', icon: CircleDollarSign },
   { label: 'Referrals', href: '/referrals', icon: Users },
+  { label: 'API Documentation', href: '/api-docs', icon: Code2 },
   { label: 'Transaction history', href: '/history', icon: Clock3 },
 ];
 

@@ -260,13 +260,17 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {String(profile?.role).toLowerCase() === 'developer' && profile?.api_public_key && (
-          <Card className="col-span-full">
-            <CardHeader>
-              <CardTitle>Developer API Access</CardTitle>
-              <CardDescription>Use this key to authenticate your API requests.</CardDescription>
-            </CardHeader>
-            <CardContent>
+        <Card className="col-span-full">
+          <CardHeader>
+            <CardTitle>Developer API Access</CardTitle>
+            <CardDescription>
+              {String(profile?.role).toLowerCase() === 'developer' 
+                ? 'Use this key to authenticate your API requests.'
+                : 'Connect your website to our platform and automate your VTU business.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {String(profile?.role).toLowerCase() === 'developer' && profile?.api_public_key ? (
               <div className="rounded-3xl border border-border bg-secondary p-4">
                 <div className="axis-label">Your Public API Key</div>
                 <div className="mt-2 text-sm font-mono tracking-tight text-foreground break-all">{profile.api_public_key}</div>
@@ -275,9 +279,23 @@ export default function DashboardPage() {
                   View API Documentation
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            ) : (
+              <div className="rounded-3xl border border-border bg-secondary p-4 flex flex-col items-start gap-4">
+                <div className="text-sm text-muted-foreground">
+                  You are currently on a standard user account. Upgrade to a Developer account to generate API keys, access developer pricing, and integrate our services into your own applications.
+                </div>
+                <div className="flex flex-wrap gap-3 w-full sm:w-auto">
+                  <Button onClick={() => router.push('/profile')} className="w-full sm:w-auto">
+                    Upgrade to Developer
+                  </Button>
+                  <Button variant="secondary" onClick={() => router.push('/api-docs')} className="w-full sm:w-auto">
+                    Read API Documentation
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">
