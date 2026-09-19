@@ -42,8 +42,8 @@ security_bearer = HTTPBearer(auto_error=False)
 
 # --- API Key Helpers ---
 def generate_key_pair() -> tuple[str, str, str]:
-    pub = f"mele_pub_{secrets.token_hex(16)}"
-    sec_plain = f"mele_live_{secrets.token_hex(24)}"
+    pub = f"mz_pub_{secrets.token_hex(16)}"
+    sec_plain = f"mz_live_{secrets.token_hex(24)}"
     sec_hash = hashlib.sha256(sec_plain.encode("utf-8")).hexdigest()
     return pub, sec_plain, sec_hash
 
@@ -75,13 +75,13 @@ def get_developer_user(
         )
         
     token = token.strip()
-    is_test_mode = token.startswith("mele_test_")
+    is_test_mode = token.startswith("mz_test_")
     lookup_token = token
     if is_test_mode:
         # Swap prefix to look up the hash of the user's primary live token
-        lookup_token = "mele_live_" + token[len("mele_test_"):]
+        lookup_token = "mz_live_" + token[len("mz_test_"):]
         
-    if not (token.startswith("MELE_SEC_") or token.startswith("mele_live_") or token.startswith("mele_test_") or token.startswith("mele_pub_")):
+    if not (token.startswith("MZ_SEC_") or token.startswith("mz_live_") or token.startswith("mz_test_") or token.startswith("mz_pub_")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key format.",
