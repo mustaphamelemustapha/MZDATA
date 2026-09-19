@@ -143,6 +143,7 @@ def ensure_tables():
         _ensure_data_plan_promo_columns()
         _ensure_data_plan_fallback_columns()
         _ensure_data_plan_data_type_column()
+        _ensure_data_plan_api_price_column()
         _ensure_data_plan_text_lengths()
         _ensure_transaction_provider_columns()
         _ensure_campaign_activated_at_column()
@@ -171,6 +172,7 @@ def ensure_tables():
     _ensure_data_plan_promo_columns()
     _ensure_data_plan_fallback_columns()
     _ensure_data_plan_data_type_column()
+    _ensure_data_plan_api_price_column()
     _ensure_data_plan_text_lengths()
     _ensure_transaction_provider_columns()
     _ensure_campaign_is_agent_only_column()
@@ -371,9 +373,23 @@ def _ensure_data_plan_data_type_column() -> None:
                 conn.execute(text(statement))
             if "data_type" not in cols:
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_plans_data_type ON data_plans (data_type)"))
-        logging.getLogger(__name__).info("Added data_plans data_type column.")
+        logging.getLogger(__name__).info("Ensured data_plans.data_type column.")
     except Exception as exc:
-        logging.getLogger(__name__).warning("Could not ensure data_plans data_type column: %s", exc)
+        logging.getLogger(__name__).warning("Could not ensure data_plans.data_type column: %s", exc)
+
+
+def _ensure_data_plan_api_price_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("data_plans"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("data_plans")}
+        with engine.begin() as conn:
+            if "api_price" not in cols:
+                conn.execute(text("ALTER TABLE data_plans ADD COLUMN api_price NUMERIC(12, 2) NULL"))
+        logging.getLogger(__name__).info("Ensured data_plans.api_price column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure data_plans.api_price column: %s", exc)
 
 
 def _ensure_data_plan_text_lengths() -> None:
