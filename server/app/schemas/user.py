@@ -14,6 +14,9 @@ class UserOut(BaseModel):
     is_verified: bool
     referral_code: str | None = None
     agent_upgrade_seen: bool = False
+    is_developer: bool = False
+    developer_status: str | None = None
+    api_public_key: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

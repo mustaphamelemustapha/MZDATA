@@ -259,6 +259,22 @@ export default function DashboardPage() {
             {referralLink ? <div className="rounded-2xl border border-border bg-card p-3 text-xs text-muted-foreground break-all">{referralLink}</div> : null}
           </CardContent>
         </Card>
+
+        {String(profile?.role).toLowerCase() === 'developer' && profile?.api_public_key && (
+          <Card className="col-span-full">
+            <CardHeader>
+              <CardTitle>Developer API Access</CardTitle>
+              <CardDescription>Use this key to authenticate your API requests.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-3xl border border-border bg-secondary p-4">
+                <div className="axis-label">Your Public API Key</div>
+                <div className="mt-2 text-sm font-mono tracking-tight text-foreground break-all">{profile.api_public_key}</div>
+                <div className="mt-2 text-sm text-muted-foreground">Do not share this key with anyone. It gives full access to your API pricing.</div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">

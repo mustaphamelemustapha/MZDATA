@@ -1048,6 +1048,7 @@ def get_user_details(
             "referral_code": getattr(user, "referral_code", None),
             "referred_by_id": getattr(user, "referred_by_id", None),
             "developer_status": getattr(user, "developer_status", "none"),
+            "api_public_key": getattr(user, "api_public_key", None),
         },
         "wallet": {
             "balance": wallet.balance if wallet else 0,
