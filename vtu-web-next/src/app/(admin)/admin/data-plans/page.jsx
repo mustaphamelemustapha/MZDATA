@@ -122,10 +122,10 @@ export default function AdminDataPlansPage() {
     plan_name: '',
     data_size: '',
     validity: '30 Days',
+    base_price: '',
     display_price: '',
     agent_price: '',
     api_price: '',
-    user_price: '',
     provider: 'amigo',
     provider_plan_id: '',
     fallback_provider: 'none',
@@ -145,6 +145,16 @@ export default function AdminDataPlansPage() {
       if (payload.data_type === '') {
         delete payload.data_type;
       }
+
+      // Convert prices to floats or null
+      payload.base_price = parseFloat(payload.base_price) || 0;
+      payload.display_price = payload.display_price !== '' ? parseFloat(payload.display_price) : null;
+      payload.agent_price = payload.agent_price !== '' ? parseFloat(payload.agent_price) : null;
+      payload.api_price = payload.api_price !== '' ? parseFloat(payload.api_price) : null;
+
+      if (payload.display_price !== null && isNaN(payload.display_price)) throw new Error('Invalid User Price');
+      if (payload.agent_price !== null && isNaN(payload.agent_price)) throw new Error('Invalid Agent Price');
+      if (payload.api_price !== null && isNaN(payload.api_price)) throw new Error('Invalid API Price');
       const { adminCreateDataPlan } = await import('@/lib/api');
       await adminCreateDataPlan(payload);
       setIsAddModalOpen(false);
@@ -155,10 +165,10 @@ export default function AdminDataPlansPage() {
         plan_name: '',
         data_size: '',
         validity: '30 Days',
+        base_price: '',
         display_price: '',
         agent_price: '',
         api_price: '',
-        user_price: '',
         provider: 'amigo',
         provider_plan_id: '',
         fallback_provider: 'none',
@@ -875,8 +885,8 @@ export default function AdminDataPlansPage() {
                     <Input 
                       type="number"
                       step="0.01"
-                      value={newPlan.user_price}
-                      onChange={(e) => setNewPlan({...newPlan, user_price: e.target.value})}
+                      value={newPlan.display_price}
+                      onChange={(e) => setNewPlan({...newPlan, display_price: e.target.value})}
                     />
                   </div>
                   <div className="space-y-2">
