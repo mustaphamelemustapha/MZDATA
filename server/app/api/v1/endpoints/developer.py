@@ -366,7 +366,7 @@ def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, 
     if not plan:
         raise HTTPException(status_code=404, detail="Active data plan not found.")
 
-    price = get_price_for_user(db, plan, user.role)
+    price = get_price_for_user(db, plan, user)
     wallet = get_or_create_wallet(db, user.id)
     if wallet.balance < price:
         raise HTTPException(status_code=400, detail="Insufficient wallet balance.")

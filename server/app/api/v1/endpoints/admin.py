@@ -13,7 +13,7 @@ from app.core.database import get_db
 from app.core.config import get_settings
 from app.dependencies import require_admin
 from app.services.monitoring import check_provider_balances
-from app.models import User, UserRole, Wallet, WalletLedger, Transaction, ServiceTransaction, TransactionStatus, TransactionType, PricingRule, PricingRole, MarginType, ApiLog, DataPlan, TransactionDispute, DisputeStatus, AdminAuditLog, ServiceToggle, Referral
+from app.models import User, UserRole, Wallet, WalletLedger, Transaction, ServiceTransaction, TransactionStatus, TransactionType, PricingRule, PricingRole, MarginType, ApiLog, DataPlan, TransactionDispute, DisputeStatus, AdminAuditLog, ServiceToggle, Referral, UserPricingOverride
 from app.schemas.admin import (
     FundUserWalletRequest,
     PricingRuleUpdate,
@@ -36,10 +36,15 @@ from app.schemas.admin import (
     AdminAmbassadorsResponse,
     PayCommissionRequest,
     UpdateReferralCodeRequest,
+    UpgradeApiUserResponse,
+    UserPricingOverrideCreate,
+    UserPricingOverrideOut,
 )
 from app.services.wallet import get_or_create_wallet, credit_wallet, debit_wallet
 from app.services.pricing import build_service_pricing_key, parse_pricing_key
 from app.api.v1.endpoints.data import _invalidate_plans_cache
+from app.api.v1.endpoints.developer import generate_key_pair
+import secrets
 
 router = APIRouter()
 settings = get_settings()
@@ -2611,3 +2616,85 @@ def pay_ambassador_commission(
         
     db.commit()
     return {"status": "success", "message": f"Paid {amount} commission to Ambassador."}
+
+
+@router.post("/users/{user_id}/upgrade-developer", response_model=UpgradeApiUserResponse)
+def upgrade_user_to_developer(
+    user_id: int,
+    admin=Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    user.role = UserRole.DEVELOPER
+    user.is_developer = True
+    user.developer_status = "approved"
+    
+    sec_plain = None
+    if not user.api_public_key or not user.api_secret_key_hash:
+        pub, sec_plain, sec_hash = generate_key_pair()
+        user.api_public_key = pub
+        user.api_secret_key_hash = sec_hash
+        
+    db.commit()
+    db.refresh(user)
+    
+    return {
+        "user_id": user.id,
+        "is_developer": user.is_developer,
+        "developer_status": user.developer_status,
+        "role": user.role.value,
+        "api_public_key": user.api_public_key,
+        "api_secret_key": sec_plain
+    }
+
+
+@router.post("/users/{user_id}/pricing-overrides", response_model=UserPricingOverrideOut)
+def set_user_pricing_override(
+    user_id: int,
+    payload: UserPricingOverrideCreate,
+    admin=Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    plan = db.query(DataPlan).filter(DataPlan.id == payload.data_plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Data plan not found")
+        
+    override = db.query(UserPricingOverride).filter(
+        UserPricingOverride.user_id == user_id,
+        UserPricingOverride.data_plan_id == payload.data_plan_id
+    ).first()
+    
+    if override:
+        override.custom_price = payload.custom_price
+    else:
+        override = UserPricingOverride(
+            user_id=user_id,
+            data_plan_id=payload.data_plan_id,
+            custom_price=payload.custom_price
+        )
+        db.add(override)
+        
+    db.commit()
+    db.refresh(override)
+    return override
+
+
+@router.get("/users/{user_id}/pricing-overrides", response_model=list[UserPricingOverrideOut])
+def get_user_pricing_overrides(
+    user_id: int,
+    admin=Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    overrides = db.query(UserPricingOverride).filter(UserPricingOverride.user_id == user_id).all()
+    return overrides

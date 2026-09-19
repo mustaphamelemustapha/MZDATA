@@ -53,3 +53,4 @@ __all__ = [
     "FinancialCategory",
     "EntryType",
 ]
+from app.models.user_pricing_override import UserPricingOverride

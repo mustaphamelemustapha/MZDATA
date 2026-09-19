@@ -7,6 +7,7 @@ from app.models.base import TimestampMixin
 class PricingRole(str, enum.Enum):
     USER = "user"
     RESELLER = "reseller"
+    DEVELOPER = "developer"
 
 
 class MarginType(str, enum.Enum):

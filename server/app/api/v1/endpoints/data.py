@@ -405,7 +405,7 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
 
     enforce_purchase_limits(db, user_id=user.id, amount=Decimal(str(plan.base_price)), tx_type="data")
     
-    price = get_price_for_user(db, plan, user.role)
+    price = get_price_for_user(db, plan, user)
     if _is_mtn_1gb_promo_plan(plan):
         promo = _mtn_1gb_promo_snapshot(db)
         if promo["active"] and not _user_has_used_mtn_1gb_promo(db, user.id):

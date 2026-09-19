@@ -1,6 +1,6 @@
 from decimal import Decimal
 from sqlalchemy.orm import Session
-from app.models import PricingRule, PricingRole, DataPlan, UserRole
+from app.models import PricingRule, PricingRole, DataPlan, UserRole, UserPricingOverride
 
 
 SERVICE_KEY_PREFIX = "svc"
@@ -9,6 +9,8 @@ SERVICE_KEY_PREFIX = "svc"
 def pricing_role_for_user(user_role: UserRole) -> PricingRole:
     # Only explicit resellers get reseller pricing.
     # Admins should see the same pricing as normal users (simplifies operations).
+    if user_role == UserRole.DEVELOPER:
+        return PricingRole.DEVELOPER
     return PricingRole.RESELLER if user_role == UserRole.AGENT else PricingRole.USER
 
 
@@ -49,7 +51,29 @@ def apply_margin(base_price: Decimal, margin: Decimal, margin_type: str) -> Deci
     return base + m
 
 
-def get_price_for_user(db: Session, plan: DataPlan, role: UserRole) -> Decimal:
+def get_price_for_user(db: Session, plan: DataPlan, user_or_role) -> Decimal:
+    # Handle passing either a User object or a UserRole
+    # (import locally to avoid circular imports if needed, though we can just check type)
+    try:
+        from app.models import User
+        if isinstance(user_or_role, User):
+            role = user_or_role.role
+            user_id = user_or_role.id
+        else:
+            role = user_or_role
+            user_id = None
+    except ImportError:
+        role = user_or_role
+        user_id = None
+
+    if user_id:
+        override = db.query(UserPricingOverride).filter(
+            UserPricingOverride.user_id == user_id,
+            UserPricingOverride.data_plan_id == plan.id
+        ).first()
+        if override:
+            return Decimal(override.custom_price)
+
     pricing_role = pricing_role_for_user(role)
     
     if pricing_role == PricingRole.RESELLER:
