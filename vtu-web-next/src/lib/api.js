@@ -472,3 +472,18 @@ export async function adminGetReferrals(params = {}) {
 export async function adminGetAuditLogs(params = {}) {
   return apiFetch(`/admin/audit-logs${toQuery(params)}`);
 }
+
+export async function adminUpgradeDeveloper(userId) {
+  return fetchApi(`/admin/users/${userId}/upgrade-developer`, { method: 'POST' });
+}
+
+export async function adminSetPricingOverride(userId, payload) {
+  return fetchApi(`/admin/users/${userId}/pricing-overrides`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminGetPricingOverrides(userId) {
+  return fetchApi(`/admin/users/${userId}/pricing-overrides`, { method: 'GET' });
+}

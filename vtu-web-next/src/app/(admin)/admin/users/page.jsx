@@ -40,6 +40,10 @@ export default function AdminUsersPage() {
   const [selectedDetails, setSelectedDetails] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [dataPlans, setDataPlans] = useState([]);
+  const [pricingOverrides, setPricingOverrides] = useState([]);
+  const [overrideForm, setOverrideForm] = useState({ data_plan_id: '', custom_price: '' });
+  const [overrideBusy, setOverrideBusy] = useState(false);
 
   const activeRequestRef = useRef(0);
 
@@ -98,10 +102,27 @@ export default function AdminUsersPage() {
     try {
       const details = await adminGetUserDetails(user.id);
       setSelectedDetails(details);
+      
+      const { adminGetPricingOverrides, adminGetDataPlans } = await import('@/lib/api');
+      try {
+        const overrides = await adminGetPricingOverrides(user.id);
+        setPricingOverrides(overrides || []);
+      } catch (err) {
+        console.error("Failed to load pricing overrides", err);
+      }
+      
+      if (!dataPlans.length) {
+        try {
+          const plans = await adminGetDataPlans();
+          setDataPlans(plans?.items || []);
+        } catch (err) {
+          console.error("Failed to load data plans", err);
+        }
+      }
     } catch {
       setSelectedDetails({ user, wallet: { balance: 0 }, recent_transactions: [] });
     }
-  }, []);
+  }, [dataPlans.length]);
 
   const runAction = useCallback(async () => {
     if (!confirmAction) return;
@@ -122,6 +143,9 @@ export default function AdminUsersPage() {
       } else if (confirmAction.type === 'suspend_developer') {
         const { adminSuspendDeveloper } = await import('@/lib/api');
         await adminSuspendDeveloper(confirmAction.user.id);
+      } else if (confirmAction.type === 'upgrade_developer') {
+        const { adminUpgradeDeveloper } = await import('@/lib/api');
+        await adminUpgradeDeveloper(confirmAction.user.id);
       } else {
         await adminActivateUser(confirmAction.user.id);
       }
@@ -135,6 +159,27 @@ export default function AdminUsersPage() {
       setBusy(false);
     }
   }, [confirmAction, loadUsers, selectedUser?.id]);
+
+  const handleSaveOverride = async (e) => {
+    e.preventDefault();
+    if (!overrideForm.data_plan_id || !overrideForm.custom_price || !selectedUser) return;
+    
+    setOverrideBusy(true);
+    try {
+      const { adminSetPricingOverride, adminGetPricingOverrides } = await import('@/lib/api');
+      await adminSetPricingOverride(selectedUser.id, {
+        data_plan_id: parseInt(overrideForm.data_plan_id, 10),
+        custom_price: parseFloat(overrideForm.custom_price)
+      });
+      const overrides = await adminGetPricingOverrides(selectedUser.id);
+      setPricingOverrides(overrides || []);
+      setOverrideForm({ data_plan_id: '', custom_price: '' });
+    } catch (err) {
+      console.error("Failed to save pricing override", err);
+    } finally {
+      setOverrideBusy(false);
+    }
+  };
 
   const columns = useMemo(() => [
     { key: 'full_name', label: 'Name' },
@@ -287,7 +332,7 @@ export default function AdminUsersPage() {
                 <div className="text-right space-y-2">
                   <div><StatusBadge status={selectedUser.is_active ? 'active' : 'suspended'} /></div>
                   <div className="pt-2 flex flex-col gap-2 items-end">
-                    {String(selectedDetails?.user?.role || selectedUser?.role).toLowerCase() !== 'reseller' ? (
+                    {String(selectedDetails?.user?.role || selectedUser?.role).toLowerCase() !== 'reseller' && String(selectedDetails?.user?.role || selectedUser?.role).toLowerCase() !== 'developer' ? (
                       <Button
                         variant="default"
                         size="sm"
@@ -305,6 +350,16 @@ export default function AdminUsersPage() {
                         Downgrade to User
                       </Button>
                     )}
+                    {String(selectedDetails?.user?.role || selectedUser?.role).toLowerCase() !== 'developer' && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="bg-blue-600 hover:bg-blue-700 text-white mt-1"
+                        onClick={() => setConfirmAction({ type: 'upgrade_developer', user: selectedUser })}
+                      >
+                        Upgrade to Developer
+                      </Button>
+                    )}
 
                     <div className="mt-2 pt-2 border-t border-border w-full flex items-center justify-end gap-2">
                       <div className="text-right">
@@ -312,6 +367,11 @@ export default function AdminUsersPage() {
                         <span className="font-bold text-foreground uppercase text-[9px] tracking-wider leading-none">
                           {selectedDetails?.user?.developer_status || selectedUser?.developer_status || 'none'}
                         </span>
+                        {selectedDetails?.user?.api_public_key && (
+                          <span className="text-[9px] text-muted-foreground block mt-1">
+                            Key: {selectedDetails.user.api_public_key}
+                          </span>
+                        )}
                       </div>
                       {(selectedDetails?.user?.developer_status || selectedUser?.developer_status) === 'applied' && (
                         <Button
@@ -371,6 +431,73 @@ export default function AdminUsersPage() {
                     <div className="rounded-xl border bg-card p-4 shadow-sm">
                       <div className="text-xs font-medium text-muted-foreground">Total Referred</div>
                       <div className="mt-1 text-2xl font-semibold text-foreground">{(selectedDetails?.referred_users || []).length}</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 mt-4">
+                    <h4 className="font-semibold text-sm">Custom Pricing Overrides</h4>
+                    <div className="rounded-xl border bg-card p-4 shadow-sm">
+                      <form onSubmit={handleSaveOverride} className="flex gap-2 items-end mb-4">
+                        <div className="flex-1">
+                          <label className="text-[10px] font-medium text-muted-foreground block mb-1">Data Plan</label>
+                          <select 
+                            className="w-full text-sm rounded-md border border-input bg-background px-3 h-8"
+                            value={overrideForm.data_plan_id}
+                            onChange={e => setOverrideForm(prev => ({...prev, data_plan_id: e.target.value}))}
+                            required
+                          >
+                            <option value="">Select a plan</option>
+                            {dataPlans.map(plan => (
+                              <option key={plan.id} value={plan.id}>
+                                {plan.network} - {plan.plan_name} ({plan.data_size})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="w-32">
+                          <label className="text-[10px] font-medium text-muted-foreground block mb-1">Custom Price (₦)</label>
+                          <input 
+                            type="number" 
+                            step="0.01"
+                            className="w-full text-sm rounded-md border border-input bg-background px-3 h-8"
+                            value={overrideForm.custom_price}
+                            onChange={e => setOverrideForm(prev => ({...prev, custom_price: e.target.value}))}
+                            placeholder="e.g. 145"
+                            required
+                          />
+                        </div>
+                        <Button type="submit" size="sm" className="h-8" disabled={overrideBusy || !overrideForm.data_plan_id || !overrideForm.custom_price}>
+                          {overrideBusy ? 'Saving...' : 'Save'}
+                        </Button>
+                      </form>
+
+                      {pricingOverrides.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm text-left border-collapse">
+                            <thead>
+                              <tr className="border-b">
+                                <th className="py-2 px-2 font-medium text-muted-foreground">Plan ID</th>
+                                <th className="py-2 px-2 font-medium text-muted-foreground">Plan</th>
+                                <th className="py-2 px-2 font-medium text-muted-foreground">Custom Price</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pricingOverrides.map(override => {
+                                const p = dataPlans.find(d => d.id === override.data_plan_id);
+                                return (
+                                  <tr key={override.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
+                                    <td className="py-2 px-2 text-muted-foreground">#{override.data_plan_id}</td>
+                                    <td className="py-2 px-2 font-medium">{p ? `${p.network} - ${p.plan_name}` : 'Unknown Plan'}</td>
+                                    <td className="py-2 px-2 text-emerald-600 font-semibold">₦{formatMoney(override.custom_price)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground py-2">No custom pricing overrides set for this user.</div>
+                      )}
                     </div>
                   </div>
 
@@ -438,6 +565,7 @@ export default function AdminUsersPage() {
           confirmAction?.type === 'delete' ? 'Permanently Delete' : 
           confirmAction?.type === 'approve_developer' ? 'Approve Developer API' :
           confirmAction?.type === 'suspend_developer' ? 'Suspend Developer API' :
+          confirmAction?.type === 'upgrade_developer' ? 'Upgrade to Developer' :
           'Activate'
         } user account`}
         description={
@@ -447,6 +575,8 @@ export default function AdminUsersPage() {
             ? `You are about to approve developer API key access for ${confirmAction?.user?.email}. They will receive reseller privileges.`
             : confirmAction?.type === 'suspend_developer'
             ? `You are about to suspend developer API access for ${confirmAction?.user?.email}. This will immediately revoke their active integration keys.`
+            : confirmAction?.type === 'upgrade_developer'
+            ? `You are about to upgrade ${confirmAction?.user?.email} to a Developer. This will generate API keys and change their role.`
             : `You are about to ${confirmAction?.type || 'update'} ${confirmAction?.user?.email || 'this account'}. This action is logged for audit.`
         }
         confirmLabel={
@@ -458,6 +588,8 @@ export default function AdminUsersPage() {
             ? 'Approve API'
             : confirmAction?.type === 'suspend_developer'
             ? 'Suspend API'
+            : confirmAction?.type === 'upgrade_developer'
+            ? 'Upgrade to Developer'
             : 'Activate user'
         }
         variant={confirmAction?.type === 'delete' || confirmAction?.type === 'suspend_developer' ? 'destructive' : 'default'}
