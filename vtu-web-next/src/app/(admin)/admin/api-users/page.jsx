@@ -145,6 +145,7 @@ export default function AdminApiUsersPage() {
       } else if (confirmAction.type === 'upgrade_developer') {
         const { adminUpgradeDeveloper } = await import('@/lib/api');
         await adminUpgradeDeveloper(confirmAction.user.id);
+        alert('Successfully upgraded user to Developer!');
       } else {
         await adminActivateUser(confirmAction.user.id);
       }
