@@ -18,6 +18,7 @@ const TYPE_FILTERS = ['', 'data', 'airtime', 'electricity', 'cable', 'exam', 'de
 const ADMIN_PAGE_SIZE = 200;
 
 export default function AdminTransactionsPage() {
+  const detailsRef = useRef(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [totalRows, setTotalRows] = useState(0);
@@ -144,6 +145,9 @@ export default function AdminTransactionsPage() {
               setSelectedDetailsError(err?.message || 'Unable to load provider details.');
             } finally {
               setSelectedDetailsLoading(false);
+              setTimeout(() => {
+                detailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }, 50);
             }
           }}
         >
@@ -291,7 +295,7 @@ export default function AdminTransactionsPage() {
       <AdminTable columns={columns} rows={rows} empty={loading ? 'Loading transactions...' : 'No transactions for this filter.'} />
 
       {selected ? (
-        <div className="rounded-3xl border border-border bg-card p-4">
+        <div ref={detailsRef} className="rounded-3xl border border-border bg-card p-4">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-foreground">Transaction details</h3>
             <Button
