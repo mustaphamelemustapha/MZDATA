@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -12,6 +13,7 @@ import logging
 import time
 from urllib.parse import urlparse
 from app.core.database import Base, engine, SessionLocal
+from app.core.exceptions import DeveloperAPIException
 from app.core.logging import configure_logging
 from app.middlewares.rate_limit import limiter
 from app.models import User, UserRole
@@ -42,6 +44,27 @@ async def sqlalchemy_timeout_handler(request, exc):
     return JSONResponse(
         status_code=503,
         content={"detail": "Service is busy. Please retry in a moment."},
+    )
+
+@app.exception_handler(DeveloperAPIException)
+async def developer_api_exception_handler(request: Request, exc: DeveloperAPIException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"status": False, "message": exc.message}
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/v1/developer"):
+        return JSONResponse(
+            status_code=400,
+            content={"status": False, "message": "Invalid request payload or missing required fields."}
+        )
+    # Default for non-developer routes
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()}
     )
 
 configured_origins = parse_cors_origins(settings.cors_origins or "")

@@ -120,7 +120,7 @@ export default function ApiDocsPage() {
                 <CodeBlock code={`{
   "network": "mtn",
   "phone_number": "09095263835",
-  "plan_id": 500,
+  "plan_id": "500",
   "reference": "REF_123456789"
 }`} />
               </div>
@@ -146,7 +146,7 @@ export default function ApiDocsPage() {
                       </TableRow>
                       <TableRow>
                         <TableCell className="font-medium text-foreground">plan_id</TableCell>
-                        <TableCell className="text-muted-foreground">The data plan ID</TableCell>
+                        <TableCell className="text-muted-foreground">The data plan ID (Integer or String)</TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell className="font-medium text-foreground">reference</TableCell>
@@ -160,10 +160,15 @@ export default function ApiDocsPage() {
               <div className="space-y-2">
                 <h4 className="text-sm font-medium">Sample Response</h4>
                 <CodeBlock code={`{
-  "status": "pending",
-  "reference": "REF_123456789",
-  "amount": 500.0,
-  "message": "Data purchase initiated successfully."
+  "status": true,
+  "message": "Data purchase initiated successfully.",
+  "data": {
+    "status": "pending",
+    "reference": "REF_123456789",
+    "amount": 500.0,
+    "network": "mtn",
+    "phone_number": "09095263835"
+  }
 }`} />
               </div>
             </div>

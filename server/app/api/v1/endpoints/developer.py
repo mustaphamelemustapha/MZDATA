@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.core.database import get_db
+from app.core.exceptions import DeveloperAPIException
 from app.models import User, UserRole, Transaction, TransactionStatus, TransactionType, DataPlan, ApiLog
 from app.models.service_transaction import ServiceTransaction
 from app.schemas.developer import (
@@ -69,9 +70,9 @@ def get_developer_user(
         token = credentials.credentials.strip()
         
     if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid authentication credentials. Pass X-API-Key or Authorization header.",
+        raise DeveloperAPIException(
+            message="Invalid or missing API key.",
+            status_code=status.HTTP_401_UNAUTHORIZED
         )
         
     token = token.strip()
@@ -82,9 +83,9 @@ def get_developer_user(
         lookup_token = "mz_live_" + token[len("mz_test_"):]
         
     if not (token.startswith("MZ_SEC_") or token.startswith("mz_live_") or token.startswith("mz_test_") or token.startswith("mz_pub_")):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key format.",
+        raise DeveloperAPIException(
+            message="Invalid or missing API key.",
+            status_code=status.HTTP_401_UNAUTHORIZED
         )
         
     token_hash = hashlib.sha256(lookup_token.encode("utf-8")).hexdigest()
@@ -95,9 +96,9 @@ def get_developer_user(
     ).first()
     
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication failed. Invalid developer API key or account suspended.",
+        raise DeveloperAPIException(
+            message="Invalid or missing API key.",
+            status_code=status.HTTP_401_UNAUTHORIZED
         )
     if not user.is_active:
         raise HTTPException(
@@ -350,33 +351,43 @@ def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, 
     existing = db.query(Transaction).filter(Transaction.user_id == user.id, Transaction.reference == client_ref).first()
     if existing:
         return {
-            "status": existing.status,
-            "reference": existing.reference,
-            "amount": existing.amount,
-            "message": "Duplicate request detected. Transaction already processed."
+            "status": True,
+            "message": "Duplicate request detected. Transaction already processed.",
+            "data": {
+                "status": existing.status.value if hasattr(existing.status, 'value') else existing.status,
+                "reference": payload.reference.strip(),
+                "amount": float(existing.amount),
+                "network": existing.network,
+                "phone_number": existing.recipient_phone
+            }
         }
 
     # 2. Plan lookup
+    try:
+        plan_id_int = int(payload.plan_id)
+    except (ValueError, TypeError):
+        raise DeveloperAPIException("Invalid plan ID", status_code=400)
+
     network_key = payload.network.strip().lower()
     plan = db.query(DataPlan).filter(
-        DataPlan.id == payload.plan_id,
+        DataPlan.id == plan_id_int,
         func.lower(DataPlan.network) == network_key,
         DataPlan.is_active == True
     ).first()
     if not plan:
-        raise HTTPException(status_code=404, detail="Active data plan not found.")
+        raise DeveloperAPIException("Active data plan not found or invalid network.", status_code=400)
 
     price = get_price_for_user(db, plan, user)
     wallet = get_or_create_wallet(db, user.id)
     if wallet.balance < price:
-        raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
+        raise DeveloperAPIException("Insufficient wallet balance.", status_code=400)
 
     # 3. Debit Wallet
     try:
         debit_wallet(db, wallet, price, client_ref, f"API Data: {plan.plan_name} ({payload.phone_number})")
     except Exception as e:
         logger.error(f"Developer wallet debit failed: {e}")
-        raise HTTPException(status_code=400, detail="Wallet debit failed.")
+        raise DeveloperAPIException("Wallet debit failed.", status_code=400)
 
     # 4. Save transaction
     tx = Transaction(
@@ -463,11 +474,17 @@ def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, 
     finally:
         db2.close()
 
+    is_failed = final_status == "failed"
     return {
-        "status": final_status,
-        "reference": payload.reference.strip(),
-        "amount": price,
-        "message": provider_res.get("error") if final_status == "failed" else "Transaction successful" if final_status == "success" else "Processing"
+        "status": not is_failed,
+        "message": provider_res.get("error") if is_failed else "Data purchase initiated successfully.",
+        "data": {
+            "status": final_status,
+            "reference": payload.reference.strip(),
+            "amount": float(price),
+            "network": network_key,
+            "phone_number": payload.phone_number.strip()
+        }
     }
 
 
