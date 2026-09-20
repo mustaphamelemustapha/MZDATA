@@ -570,6 +570,12 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
         transaction.status = TransactionStatus.SUCCESS if final_status == "success" else (TransactionStatus.FAILED if final_status == "failed" else TransactionStatus.PENDING)
         transaction.external_reference = provider_res.get("provider_reference")
         
+        # Save raw provider trace/payload into meta if available
+        if "raw" in provider_res:
+            current_meta = transaction.meta or {}
+            current_meta["provider_payload"] = provider_res.get("raw")
+            transaction.meta = current_meta
+
         if final_status == "failed":
             transaction.failure_reason = _safe_reason(provider_res.get("error"))
             credit_wallet(db2, wallet, price, reference, f"Refund: {plan_plan_name} purchase failed")
