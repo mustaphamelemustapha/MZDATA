@@ -797,7 +797,7 @@ def get_transaction_details(
             "created_at": tx.created_at,
             "meta": _sanitize_meta(raw_meta),
             "provider_payload": _sanitize_meta(provider_payload_for_display),
-            "provider_payload_pretty": json.dumps(_sanitize_meta(provider_payload_for_display), indent=2, ensure_ascii=False),
+            "provider_payload_pretty": json.dumps(_sanitize_meta(provider_payload_for_display), indent=2, ensure_ascii=False, default=str),
             "provider_trace": _sanitize_meta(provider_trace),
         }
 
@@ -827,7 +827,7 @@ def get_transaction_details(
                 "created_at": service_tx.created_at,
                 "meta": _sanitize_meta(raw_meta),
                 "provider_payload": _sanitize_meta(provider_payload),
-                "provider_payload_pretty": json.dumps(_sanitize_meta(provider_payload), indent=2, ensure_ascii=False)
+                "provider_payload_pretty": json.dumps(_sanitize_meta(provider_payload), indent=2, ensure_ascii=False, default=str)
                 if provider_payload is not None
                 else None,
             }

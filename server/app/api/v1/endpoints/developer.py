@@ -377,7 +377,12 @@ def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, 
     if not plan:
         raise DeveloperAPIException("Active data plan not found or invalid network.", status_code=400)
 
-    price = get_price_for_user(db, plan, user)
+    try:
+        price = get_price_for_user(db, plan, user)
+    except Exception as exc:
+        logger.error(f"Error calculating price for developer {user.id} plan {plan.id}: {exc}")
+        raise DeveloperAPIException("Error calculating price. Please contact support.", status_code=500)
+
     wallet = get_or_create_wallet(db, user.id)
     if wallet.balance < price:
         raise DeveloperAPIException("Insufficient wallet balance.", status_code=400)
@@ -425,6 +430,11 @@ def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, 
             net_id = sme_network_map.get(network_key, 2)
             provider_res = sme.purchase_network_data(net_id, phone, plan.provider_plan_id or plan.plan_code, client_ref)
 
+        elif provider_name == "meledata":
+            from app.providers.meledata_provider import MeleDataProvider
+            mele = MeleDataProvider()
+            provider_res = mele.purchase_network_data(network_key, phone, plan.provider_plan_id or plan.plan_code, client_ref)
+
         elif provider_name == "clubkonnect" or (not provider_name and network_key == "9mobile"):
             bills = get_bills_provider()
             res = bills.purchase_data(network_key, phone, plan.provider_plan_id or plan.plan_code, amount=float(price), request_id=client_ref)
@@ -434,6 +444,8 @@ def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, 
                 provider_res = {"status": "pending", "provider_reference": res.external_reference}
             else:
                 provider_res = {"status": "failed", "error": res.message}
+        else:
+            provider_res = {"status": "failed", "error": f"No provider configured for network: {network_key}"}
     except Exception as exc:
         logger.error("Developer purchase exception: %s", exc)
         provider_res = {"status": "pending", "error": str(exc)}

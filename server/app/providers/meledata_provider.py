@@ -108,18 +108,13 @@ class MeleDataProvider:
     def purchase_network_data(self, network: str, phone: str, plan_id: str, client_request_id: str) -> Dict[str, Any]:
         res = self.purchase_data(network=network, plan_id=plan_id, phone=phone, reference=client_request_id)
         
-        # Determine status.
-        # Format: {"status": true, "message": "Transaction successful", "data": {"status": "success", ...}}
-        # On error: {"status": false, "message": "Provider error...", "data": {"status": "failed", ...}} (if auto-refunded)
-        # Or simple {"status": false, "message": "Wallet balance is below..."}
-        
         top_level_status = res.get("status")
         nested_data = res.get("data", {})
         nested_status = nested_data.get("status", "")
         
         if top_level_status is True and nested_status == "success":
-            return {"status": True, "msg": "successful", "raw": res}
+            return {"status": "success", "provider_reference": nested_data.get("reference", ""), "raw": res}
         elif nested_status == "failed" or top_level_status is False:
-            return {"status": False, "msg": res.get("message", "failed"), "raw": res}
+            return {"status": "failed", "error": res.get("message", "failed"), "raw": res}
         else:
-            return {"status": False, "msg": "pending or unknown", "raw": res}
+            return {"status": "pending", "error": res.get("message", "pending or unknown"), "raw": res}
