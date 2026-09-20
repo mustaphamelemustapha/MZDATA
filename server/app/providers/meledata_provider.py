@@ -115,6 +115,8 @@ class MeleDataProvider:
         if top_level_status is True and nested_status == "success":
             return {"status": "success", "provider_reference": nested_data.get("reference", ""), "raw": res}
         elif nested_status == "failed" or top_level_status is False:
-            return {"status": "failed", "error": res.get("message", "failed"), "raw": res}
+            err_msg = res.get("message") or res.get("msg") or "failed"
+            return {"status": "failed", "error": err_msg, "raw": res}
         else:
-            return {"status": "pending", "error": res.get("message", "pending or unknown"), "raw": res}
+            err_msg = res.get("message") or res.get("msg") or "pending or unknown"
+            return {"status": "pending", "error": err_msg, "raw": res}
