@@ -16,7 +16,7 @@ from app.core.database import Base, engine, SessionLocal
 from app.core.exceptions import DeveloperAPIException
 from app.core.logging import configure_logging
 from app.middlewares.rate_limit import limiter
-from app.models import User, UserRole
+from app.models import User, UserRole, UserPricingOverride
 from app.services.pending_reconcile import (
     start_pending_reconcile_worker,
     stop_pending_reconcile_worker,
@@ -177,6 +177,7 @@ def ensure_tables():
         _ensure_user_developer_columns()
         _ensure_user_webhook_columns()
         _ensure_user_profile_image_url_column()
+        _ensure_user_pricing_overrides_table()
         return
 
     # Optional local fallback for fresh environments.
@@ -204,6 +205,7 @@ def ensure_tables():
     _ensure_user_developer_columns()
     _ensure_user_webhook_columns()
     _ensure_user_profile_image_url_column()
+    _ensure_user_pricing_overrides_table()
     _ensure_referral_ambassador_columns()
 
 
@@ -413,6 +415,16 @@ def _ensure_data_plan_api_price_column() -> None:
         logging.getLogger(__name__).info("Ensured data_plans.api_price column.")
     except Exception as exc:
         logging.getLogger(__name__).warning("Could not ensure data_plans.api_price column: %s", exc)
+
+
+def _ensure_user_pricing_overrides_table() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("user_pricing_overrides"):
+            UserPricingOverride.__table__.create(engine, checkfirst=True)
+            logging.getLogger(__name__).info("Ensured user_pricing_overrides table exists.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure user_pricing_overrides table: %s", exc)
 
 
 def _ensure_data_plan_text_lengths() -> None:
