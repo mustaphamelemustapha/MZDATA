@@ -14,7 +14,8 @@ class MeleDataProvider:
 
     def _get_headers(self):
         return {
-            "X-API-Key": self.api_key,
+            "X-API-Key": self.api_key or "",
+            "Authorization": f"Bearer {self.api_key or ''}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
