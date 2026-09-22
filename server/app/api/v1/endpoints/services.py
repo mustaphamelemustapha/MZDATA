@@ -253,9 +253,10 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
     fcm_token = user.fcm_token
     db.close()
 
-    provider = get_bills_provider()
     try:
-        result = provider.purchase_airtime(tx.provider or "", tx.customer or "", float(base_amount))
+        from app.providers.meledata_provider import MeleDataProvider
+        provider = MeleDataProvider()
+        result = provider.purchase_airtime(tx.provider or "", tx.customer or "", float(base_amount), reference=reference)
     except Exception as exc:
         from app.core.database import SessionLocal
         db2 = SessionLocal()

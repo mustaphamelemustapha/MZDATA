@@ -154,6 +154,42 @@ def reconcile_pending_data_once(limit: int = 50) -> dict[str, int]:
 
             processed += 1
             age = _tx_age_seconds(tx)
+            
+            # Identify the provider
+            provider_impl = None
+            if tx.provider == "smeplug":
+                from app.providers.smeplug_provider import SMEPlugProvider
+                provider_impl = SMEPlugProvider()
+            elif tx.provider == "meledata":
+                from app.providers.meledata_provider import MeleDataProvider
+                provider_impl = MeleDataProvider()
+
+            if provider_impl and hasattr(provider_impl, "query_transaction"):
+                try:
+                    result = provider_impl.query_transaction(tx.reference)
+                    res_status = result.get("status")
+                    if res_status == "success":
+                        tx.status = TransactionStatus.SUCCESS
+                        tx.failure_reason = None
+                        if result.get("raw"):
+                            tx_meta = getattr(tx, "meta", {}) or {}
+                            tx_meta["reconcile_payload"] = result["raw"]
+                            if hasattr(Transaction, "meta"):
+                                tx.meta = tx_meta
+                        db.commit()
+                        logger.info("Reconciled pending data tx %s -> SUCCESS", tx.reference)
+                        dispatch_developer_webhook(tx, tx.user)
+                        moved_success += 1
+                        continue
+                    elif res_status == "failed":
+                        _finalize_refund(db, tx, result.get("error") or "Provider confirmed failure during reconciliation")
+                        moved_refunded += 1
+                        logger.info("Reconciled pending data tx %s -> FAILED", tx.reference)
+                        continue
+                except Exception as e:
+                    logger.error("Error querying provider for tx %s: %s", tx.reference, e)
+
+            # If still pending or no provider
             if age >= max(30, int(settings.pending_reconcile_auto_success_seconds)):
                 _finalize_refund(
                     db,

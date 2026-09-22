@@ -112,11 +112,68 @@ class MeleDataProvider:
         nested_data = res.get("data", {})
         nested_status = nested_data.get("status", "")
         
-        if top_level_status is True and nested_status == "success":
+        if top_level_status in (True, "true", "success") and nested_status in ("success", "delivered", "successful"):
             return {"status": "success", "provider_reference": nested_data.get("reference", ""), "raw": res}
-        elif nested_status == "failed" or top_level_status is False:
-            err_msg = res.get("message") or res.get("msg") or "failed"
+        elif nested_status in ("failed", "error") or top_level_status in (False, "false", "failed") or res.get("error"):
+            err_msg = res.get("message") or res.get("msg") or res.get("error") or "failed"
             return {"status": "failed", "error": err_msg, "raw": res}
         else:
+            # If we genuinely don't know, keep it pending
             err_msg = res.get("message") or res.get("msg") or "pending or unknown"
             return {"status": "pending", "error": err_msg, "raw": res}
+
+    def query_transaction(self, reference: str) -> Dict[str, Any]:
+        """Check status of an existing data transaction."""
+        url = f"{self.base_url}/data/status/?ref={reference}"
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.get(url, headers=self._get_headers())
+                data = self._json_or_none(response) or {}
+                
+                if data.get("success"):
+                    tx_status = str(data.get("data", {}).get("status", "")).lower()
+                    if tx_status in ("delivered", "success", "successful"):
+                        return {"status": "success", "raw": data}
+                    elif tx_status in ("failed", "error"):
+                        return {"status": "failed", "error": data.get("data", {}).get("message"), "raw": data}
+                    else:
+                        return {"status": "pending", "raw": data}
+                else:
+                    return {"status": "pending", "error": data.get("message"), "raw": data}
+        except Exception as e:
+            logger.error(f"MeleData query_transaction error: {e}")
+            return {"status": "pending", "error": str(e)}
+
+    def purchase_airtime(self, network: str, phone: str, amount: float, reference: str = "") -> Dict[str, Any]:
+        """Purchase airtime via MELE DATA API."""
+        url = f"{self.base_url}/airtime/purchase"
+        payload = {
+            "network": str(network).upper(),
+            "phone_number": str(phone),
+            "amount": float(amount),
+            "reference": str(reference)
+        }
+        
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.post(url, json=payload, headers=self._get_headers())
+                logger.info("MeleData POST /airtime/purchase network=%s phone=%s amount=%s status=%d", 
+                            network, phone, amount, response.status_code)
+                
+                res = self._json_or_none(response) or {}
+                
+                top_level_status = res.get("status")
+                nested_data = res.get("data", {})
+                nested_status = nested_data.get("status", "")
+                
+                if top_level_status in (True, "true", "success") and nested_status in ("success", "delivered", "successful"):
+                    return {"status": "success", "provider_reference": nested_data.get("reference", ""), "raw": res}
+                elif nested_status in ("failed", "error") or top_level_status in (False, "false", "failed") or res.get("error"):
+                    err_msg = res.get("message") or res.get("msg") or res.get("error") or "failed"
+                    return {"status": "failed", "error": err_msg, "raw": res}
+                else:
+                    err_msg = res.get("message") or res.get("msg") or "pending or unknown"
+                    return {"status": "pending", "error": err_msg, "raw": res}
+        except Exception as e:
+            logger.error(f"MeleData purchase_airtime error: {e}")
+            return {"status": "pending", "error": str(e), "raw": {}}

@@ -572,9 +572,13 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
         
         # Save raw provider trace/payload into meta if available
         if "raw" in provider_res:
-            current_meta = transaction.meta or {}
-            current_meta["provider_payload"] = provider_res.get("raw")
-            transaction.meta = current_meta
+            try:
+                current_meta = getattr(transaction, "meta", {}) or {}
+                current_meta["provider_payload"] = provider_res.get("raw")
+                if hasattr(Transaction, "meta"):
+                    transaction.meta = current_meta
+            except Exception as e:
+                logger.error(f"Could not save provider payload to meta: {e}")
 
         if final_status == "failed":
             transaction.failure_reason = _safe_reason(provider_res.get("error"))
