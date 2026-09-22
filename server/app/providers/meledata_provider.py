@@ -81,11 +81,15 @@ class MeleDataProvider:
     def purchase_data(self, network: str, plan_id: str, phone: str, reference: str) -> dict:
         url = f"{self.base_url}/data/purchase"
         
-        # MELE DATA uses "MTN", "GLO", "AIRTEL", "9MOBILE" strings for network.
-        # It expects plan_id as an integer but we can send what we have.
+        # MELE DATA expects plan_id as an integer.
+        # If MZDATA passes a composite string like 'meledata:mtn:173', we extract the 173.
+        clean_plan_id = str(plan_id)
+        if ":" in clean_plan_id:
+            clean_plan_id = clean_plan_id.split(":")[-1]
+            
         payload = {
             "network": str(network).upper(),
-            "plan_id": int(plan_id) if str(plan_id).isdigit() else str(plan_id),
+            "plan_id": int(clean_plan_id) if clean_plan_id.isdigit() else clean_plan_id,
             "phone_number": str(phone),
             "reference": str(reference)
         }
@@ -112,14 +116,25 @@ class MeleDataProvider:
         nested_data = res.get("data", {})
         nested_status = nested_data.get("status", "")
         
+        # Catch 422 validation errors or explicitly missing statuses
+        if res.get("detail") and not top_level_status:
+            # This is a FastAPI standard 422 validation error from MeleData
+            err_msg = str(res.get("detail"))
+            return {"status": "failed", "error": err_msg, "raw": res}
+
         if top_level_status in (True, "true", "success") and nested_status in ("success", "delivered", "successful"):
             return {"status": "success", "provider_reference": nested_data.get("reference", ""), "raw": res}
         elif nested_status in ("failed", "error") or top_level_status in (False, "false", "failed") or res.get("error"):
             err_msg = res.get("message") or res.get("msg") or res.get("error") or "failed"
             return {"status": "failed", "error": err_msg, "raw": res}
         else:
-            # If we genuinely don't know, keep it pending
-            err_msg = res.get("message") or res.get("msg") or "pending or unknown"
+            # If we genuinely don't know, keep it pending, BUT if it was a 400+ error, we should probably fail it
+            err_msg = res.get("message") or res.get("msg") or res.get("detail") or "pending or unknown"
+            
+            # If the response doesn't look like a success payload AND it's completely unparseable,
+            # we should still err on the side of caution and leave it pending so it auto-refunds later
+            # However, if it's explicitly an error message without a 'status' boolean, we can check.
+            # But let's rely on pending_reconcile timeout for safety.
             return {"status": "pending", "error": err_msg, "raw": res}
 
     def query_transaction(self, reference: str) -> Dict[str, Any]:
