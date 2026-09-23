@@ -458,10 +458,12 @@ def get_bank_transfer_accounts(user: User = Depends(get_current_user), db: Sessi
                 data = resp.get("data", resp) if isinstance(resp, dict) else {}
                 if isinstance(data, list) and len(data) > 0:
                     data = data[0]
+                    
+                account_data = data.get("account", data) if isinstance(data, dict) else data
 
-                acc_num = data.get("accountNumber") or data.get("account_number")
-                acc_name = data.get("accountName") or data.get("account_name")
-                bank_name = data.get("bankName") or data.get("bank_name") or target_bank.capitalize()
+                acc_num = account_data.get("accountNumber") or account_data.get("account_number")
+                acc_name = account_data.get("accountName") or account_data.get("account_name")
+                bank_name = account_data.get("bankName") or account_data.get("bank_name") or target_bank.capitalize()
                 
                 if acc_num:
                     db_acc = VirtualAccount(
