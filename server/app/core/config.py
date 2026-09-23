@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     billstack_api_key: str = ""
     billstack_webhook_secret: Optional[str] = None
     billstack_enabled: bool = False
-    billstack_preferred_bank: str = "PALMPAY"
+    billstack_preferred_bank: str = "9PSB"
 
     # Aspify settings
     aspify_base_url: str = "https://api-v1.aspfiy.com"

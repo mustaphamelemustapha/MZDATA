@@ -526,10 +526,10 @@ def get_bank_transfer_accounts(user: User = Depends(get_current_user), db: Sessi
                     "account_name": db_acc.account_name,
                 })
 
-    # Sort accounts: Palmpay first, then Moniepoint/Monnify, then others
+    # Sort accounts: Palmpay/Paga/9PSB first, then Moniepoint/Monnify, then others
     def sort_key(acc):
         bank_name = str(acc.get("bank_name", "")).lower()
-        if "palmpay" in bank_name or "paga" in bank_name:
+        if "palmpay" in bank_name or "paga" in bank_name or "9psb" in bank_name:
             return 0
         if "moniepoint" in bank_name or "monnify" in bank_name:
             return 1
@@ -790,10 +790,10 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
     if not all_accounts and messages:
         raise HTTPException(status_code=502, detail=" | ".join(messages))
 
-    # Sort accounts: Palmpay first, then Moniepoint/Monnify, then others
+    # Sort accounts: Palmpay/Paga/9PSB first, then Moniepoint/Monnify, then others
     def sort_key(acc):
         bank_name = str(acc.get("bank_name", "")).lower()
-        if "palmpay" in bank_name or "paga" in bank_name:
+        if "palmpay" in bank_name or "paga" in bank_name or "9psb" in bank_name:
             return 0
         if "moniepoint" in bank_name or "monnify" in bank_name:
             return 1
