@@ -6,8 +6,10 @@ from app.core.config import get_settings
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-def generate_aspify_virtual_account(*, email: str, reference: str, phone: str, first_name: str, last_name: str, webhook_url: str = "") -> dict:
-    url = f"{settings.aspify_base_url.rstrip('/')}/reserve-paga/"
+def generate_aspify_virtual_account(*, email: str, reference: str, phone: str, first_name: str, last_name: str, bank: str = "palmpay", webhook_url: str = "") -> dict:
+    # bank should be "palmpay" or "paga"
+    endpoint = f"reserve-{bank.lower()}"
+    url = f"{settings.aspify_base_url.rstrip('/')}/{endpoint}/"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {settings.aspify_secret_key}",
@@ -21,7 +23,7 @@ def generate_aspify_virtual_account(*, email: str, reference: str, phone: str, f
         "webhookUrl": webhook_url,
         "phone": phone or "00000000000",
     }
-    logger.info("Generating Aspify Paga account for %s. Ref: %s", email, reference)
+    logger.info("Generating Aspify %s account for %s. Ref: %s", bank.capitalize(), email, reference)
     with httpx.Client(timeout=30) as client:
         resp = client.post(url, json=payload, headers=headers)
         if resp.status_code >= 400:
