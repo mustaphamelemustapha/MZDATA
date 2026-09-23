@@ -1,13 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw, X, Upload } from 'lucide-react';
 import { 
   adminGetBroadcasts, 
   adminGetReports, 
   adminUpdateReport, 
   adminCreateBroadcast, 
-  adminUpdateBroadcast 
+  adminUpdateBroadcast,
+  adminSendPushOnly,
+  adminUploadBroadcastImage
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { startCase } from '@/lib/admin-utils';
@@ -40,6 +42,15 @@ export default function AdminSupportPage() {
   const [newStartsAt, setNewStartsAt] = useState('');
   const [newEndsAt, setNewEndsAt] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Push Notification Modal State
+  const [showPushModal, setShowPushModal] = useState(false);
+  const [pushTitle, setPushTitle] = useState('');
+  const [pushMessage, setPushMessage] = useState('');
+  const [pushImageUrl, setPushImageUrl] = useState('');
+  const [isSendingPush, setIsSendingPush] = useState(false);
+  const [isUploadingPushImage, setIsUploadingPushImage] = useState(false);
+  const pushFileInputRef = useRef(null);
 
   const activeRequestRef = useRef(0);
 
@@ -123,6 +134,50 @@ export default function AdminSupportPage() {
     }
   };
 
+  const handleUploadPushImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingPushImage(true);
+    try {
+      const res = await adminUploadBroadcastImage(file);
+      if (res?.image_url) {
+        setPushImageUrl(res.image_url);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to upload image');
+    } finally {
+      setIsUploadingPushImage(false);
+      if (pushFileInputRef.current) {
+        pushFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleSendPushOnly = async (e) => {
+    e.preventDefault();
+    if (!pushTitle.trim() || !pushMessage.trim()) {
+      alert('Title and Message are required.');
+      return;
+    }
+    setIsSendingPush(true);
+    try {
+      await adminSendPushOnly({
+        title: pushTitle.trim(),
+        message: pushMessage.trim(),
+        image_url: pushImageUrl || null,
+      });
+      setPushTitle('');
+      setPushMessage('');
+      setPushImageUrl('');
+      setShowPushModal(false);
+      alert('Push notification sent successfully!');
+    } catch (err) {
+      alert(err.message || 'Failed to send push notification');
+    } finally {
+      setIsSendingPush(false);
+    }
+  };
+
   const handleToggleBroadcastStatus = async (item) => {
     setBusyId(item.id);
     try {
@@ -183,9 +238,14 @@ export default function AdminSupportPage() {
             <CardTitle>Broadcast announcements</CardTitle>
             <CardDescription>Messages sent to users from admin notification controls.</CardDescription>
           </div>
-          <Button onClick={() => setShowCreateModal(true)}>
-            + New Announcement
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setShowPushModal(true)}>
+              Send Push Only
+            </Button>
+            <Button onClick={() => setShowCreateModal(true)}>
+              + New Announcement
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {broadcasts.length === 0 ? (
@@ -323,6 +383,91 @@ export default function AdminSupportPage() {
                 </Button>
                 <Button type="submit" disabled={isSaving}>
                   {isSaving ? 'Creating...' : 'Create Announcement'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Send Push Only Modal */}
+      {showPushModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-lg shadow-2xl">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 pb-4">
+              <div>
+                <CardTitle className="text-lg">Send Standalone Push Notification</CardTitle>
+                <CardDescription>Send an immediate push alert without saving to history.</CardDescription>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => setShowPushModal(false)} disabled={isSendingPush}>
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <form onSubmit={handleSendPushOnly}>
+              <CardContent className="pt-6 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Title</label>
+                  <Input
+                    required
+                    minLength={2}
+                    maxLength={120}
+                    placeholder="E.g., Special Promo!"
+                    value={pushTitle}
+                    onChange={(e) => setPushTitle(e.target.value)}
+                    disabled={isSendingPush}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Message</label>
+                  <textarea
+                    required
+                    minLength={6}
+                    maxLength={2000}
+                    placeholder="Enter the push notification message..."
+                    className="w-full min-h-[100px] rounded-2xl border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={pushMessage}
+                    onChange={(e) => setPushMessage(e.target.value)}
+                    disabled={isSendingPush}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Image (Optional)</label>
+                  <div className="flex items-center gap-4">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={() => pushFileInputRef.current?.click()}
+                      disabled={isSendingPush || isUploadingPushImage}
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      {isUploadingPushImage ? 'Uploading...' : 'Upload Image'}
+                    </Button>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      ref={pushFileInputRef}
+                      onChange={handleUploadPushImage}
+                    />
+                    {pushImageUrl && (
+                      <div className="text-sm text-green-500 font-medium truncate max-w-[200px]">
+                        Image uploaded
+                      </div>
+                    )}
+                  </div>
+                  {pushImageUrl && (
+                    <img src={pushImageUrl} alt="Preview" className="mt-2 h-32 w-auto object-contain rounded-xl border border-border" />
+                  )}
+                </div>
+              </CardContent>
+              <div className="flex justify-end gap-2 p-6 border-t border-border/50 bg-secondary/20">
+                <Button type="button" variant="secondary" onClick={() => setShowPushModal(false)} disabled={isSendingPush}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isSendingPush || isUploadingPushImage}>
+                  {isSendingPush ? 'Sending...' : 'Send Push'}
                 </Button>
               </div>
             </form>

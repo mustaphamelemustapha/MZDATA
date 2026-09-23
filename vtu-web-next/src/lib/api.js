@@ -192,7 +192,9 @@ export async function apiFetch(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   const token = getToken();
   if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
-  if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  if (options.body && !headers['Content-Type'] && !(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
   let res;
   try {
     res = await fetch(`${base}${path}`, {
@@ -486,4 +488,20 @@ export async function adminSetPricingOverride(userId, payload) {
 
 export async function adminGetPricingOverrides(userId) {
   return apiFetch(`/admin/users/${userId}/pricing-overrides`, { method: 'GET' });
+}
+
+export async function adminSendPushOnly(payload) {
+  return apiFetch('/notifications/broadcast/admin/push-only', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function adminUploadBroadcastImage(file) {
+  const formData = new FormData();
+  formData.append('image', file);
+  return apiFetch('/notifications/broadcast/admin/upload-image', {
+    method: 'POST',
+    body: formData,
+  });
 }

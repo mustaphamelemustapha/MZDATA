@@ -1,10 +1,16 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Request
 from sqlalchemy import and_, inspect, or_
 from sqlalchemy.orm import Session
+import cloudinary.uploader
+import uuid
+import os
+import shutil
+import logging
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.dependencies import get_current_user, require_admin
 from app.models import (
     AnnouncementLevel,
@@ -15,7 +21,11 @@ from app.schemas.notifications import (
     BroadcastAnnouncementCreate,
     BroadcastAnnouncementOut,
     BroadcastAnnouncementUpdate,
+    PushNotificationSend,
 )
+
+settings = get_settings()
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -207,3 +217,62 @@ def admin_update_broadcast(
     db.commit()
     db.refresh(row)
     return _to_out(row)
+
+@router.post("/broadcast/admin/push-only")
+def admin_send_push_only(
+    payload: PushNotificationSend,
+    admin: User = Depends(require_admin),
+):
+    _ = admin
+    try:
+        from app.services.push_notification import PushNotificationService
+        success = PushNotificationService.send_broadcast(
+            title=payload.title.strip(),
+            body=payload.message.strip(),
+            data={"type": "announcement_push_only"},
+            image_url=payload.image_url.strip() if payload.image_url else None
+        )
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to send push notification")
+    except Exception as push_exc:
+        logger.warning("Failed to send push notification: %s", push_exc)
+        raise HTTPException(status_code=500, detail="Error occurred while sending push notification")
+        
+    return {"status": "success", "message": "Push notification sent successfully"}
+
+@router.post("/broadcast/admin/upload-image")
+def admin_upload_broadcast_image(
+    request: Request,
+    image: UploadFile = File(...),
+    admin: User = Depends(require_admin),
+):
+    _ = admin
+    if not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File provided is not an image.")
+
+    extension = image.filename.split(".")[-1] if "." in image.filename else "jpg"
+    
+    if settings.cloudinary_url:
+        try:
+            result = cloudinary.uploader.upload(
+                image.file,
+                folder="vtu_broadcasts",
+                public_id=f"broadcast_{uuid.uuid4().hex[:8]}",
+                overwrite=True,
+                resource_type="image"
+            )
+            image_url = result.get("secure_url")
+        except Exception as e:
+            logger.error(f"Cloudinary upload failed: {e}")
+            raise HTTPException(status_code=500, detail="Failed to upload image to cloud storage.")
+    else:
+        filename = f"broadcast_{uuid.uuid4().hex}.{extension}"
+        file_path = os.path.join("uploads", "profile_images", filename) # reusing the existing uploads dir
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+
+        host_url = str(request.base_url).rstrip("/")
+        image_url = f"{host_url}/static/profile_images/{filename}"
+
+    return {"image_url": image_url}
