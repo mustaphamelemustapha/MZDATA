@@ -456,7 +456,7 @@ def get_bank_transfer_accounts(user: User = Depends(get_current_user), db: Sessi
 
             acc_num = data.get("accountNumber") or data.get("account_number")
             acc_name = data.get("accountName") or data.get("account_name")
-            bank_name = data.get("bankName") or data.get("bank_name") or "Palmpay"
+            bank_name = data.get("bankName") or data.get("bank_name") or "Paga"
             
             if acc_num:
                 db_acc = VirtualAccount(
@@ -521,7 +521,7 @@ def get_bank_transfer_accounts(user: User = Depends(get_current_user), db: Sessi
     # Sort accounts: Palmpay first, then Moniepoint/Monnify, then others
     def sort_key(acc):
         bank_name = str(acc.get("bank_name", "")).lower()
-        if "palmpay" in bank_name:
+        if "palmpay" in bank_name or "paga" in bank_name:
             return 0
         if "moniepoint" in bank_name or "monnify" in bank_name:
             return 1
@@ -785,7 +785,7 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
     # Sort accounts: Palmpay first, then Moniepoint/Monnify, then others
     def sort_key(acc):
         bank_name = str(acc.get("bank_name", "")).lower()
-        if "palmpay" in bank_name:
+        if "palmpay" in bank_name or "paga" in bank_name:
             return 0
         if "moniepoint" in bank_name or "monnify" in bank_name:
             return 1
