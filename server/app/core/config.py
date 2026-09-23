@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     billstack_enabled: bool = False
     billstack_preferred_bank: str = "PALMPAY"
 
+    # Aspify settings
+    aspify_base_url: str = "https://api-v1.aspfiy.com"
+    aspify_secret_key: str = ""
+
     pending_reconcile_enabled: bool = True
     pending_reconcile_interval_seconds: int = 25
     pending_reconcile_batch_size: int = 30

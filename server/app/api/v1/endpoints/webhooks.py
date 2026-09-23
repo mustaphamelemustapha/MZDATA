@@ -12,6 +12,7 @@ from app.models import Transaction, TransactionStatus, TransactionType, User, Wa
 from app.services.wallet import get_or_create_wallet, credit_wallet
 from app.services.monnify import verify_monnify_signature
 from app.services.billstack import verify_billstack_signature
+from app.services.aspify import verify_aspify_signature
 from app.services.outbound_webhooks import dispatch_developer_webhook
 from app.core.config import get_settings
 from app.api.v1.endpoints.wallet import _maybe_reward_first_deposit, _safe_ref, _resolve_paystack_transfer_user
@@ -766,3 +767,96 @@ def boltnet_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
             
     return {"status": "ok"}
 
+
+@router.post("/aspify")
+def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
+    signature = request.headers.get("x-wiaxy-signature")
+    if not signature:
+        logger.error("Aspify Webhook missing x-wiaxy-signature")
+        raise HTTPException(status_code=401, detail="Missing signature")
+
+    if not verify_aspify_signature(signature):
+        logger.error("Aspify Webhook invalid signature: %s", signature)
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    try:
+        payload = json.loads(raw_body)
+    except Exception as e:
+        logger.error("Aspify Webhook invalid JSON: %s", e)
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    event = payload.get("event")
+    data = payload.get("data", {})
+
+    if event == "PAYMENT_NOTIFIFICATION" and data.get("type") == "RESERVED_ACCOUNT_TRANSACTION":
+        merchant_ref = data.get("merchant_reference")
+        amount = data.get("amount")
+        aspify_ref = data.get("aspfiy_ref")
+        
+        if not merchant_ref or not amount:
+            return {"status": "ignored", "reason": "missing merchant_reference or amount"}
+
+        # Find VirtualAccount matching this merchant reference
+        v_acc = db.query(VirtualAccount).filter(VirtualAccount.customer_reference == merchant_ref).first()
+        if not v_acc:
+            return {"status": "ignored", "reason": "account not found"}
+
+        user = v_acc.user
+        if not user:
+            return {"status": "ignored", "reason": "user not found"}
+
+        # Deduplicate using aspfiy_ref or a combined string
+        ext_ref = str(aspify_ref)
+        if ext_ref and db.query(Transaction).filter(Transaction.external_reference == ext_ref).first():
+            return {"status": "ignored", "reason": "duplicate transaction"}
+
+        amt = Decimal(str(amount))
+        tx_ref = _safe_ref("TRF", ext_ref or secrets.token_hex(8))
+
+        tx = Transaction(
+            user_id=user.id,
+            reference=tx_ref,
+            amount=amt,
+            status=TransactionStatus.SUCCESS,
+            tx_type=TransactionType.WALLET_FUND,
+            external_reference=ext_ref,
+        )
+        try:
+            db.add(tx)
+            
+            payer = data.get("payer", {})
+            sender_name = f"{payer.get('first_name', '')} {payer.get('last_name', '')}".strip() or None
+            
+            wallet = get_or_create_wallet(db, user.id)
+            desc = f"Wallet funding via Aspify from {sender_name}" if sender_name else "Wallet funding via Aspify"
+            credit_wallet(db, wallet, amt, tx_ref, desc, sender_name=sender_name)
+            db.commit()
+
+            _maybe_reward_first_deposit(
+                db,
+                user=user,
+                reference=tx_ref,
+                amount=amt,
+                status=TransactionStatus.SUCCESS,
+            )
+            
+            if user.fcm_token:
+                PushNotificationService.send_push_notification(
+                    token=user.fcm_token,
+                    title="Wallet Funded",
+                    body=f"Your wallet has been funded with ₦{amt:,.2f}.",
+                    data={"transaction_id": tx.id, "type": "wallet_fund"}
+                )
+                
+            logger.info("Aspify Webhook: Credited user %s with NGN %s", user.email, amt)
+            return {"status": "success"}
+
+        except IntegrityError:
+            db.rollback()
+            return {"status": "ignored", "reason": "duplicate transaction (integrity error)"}
+        except Exception as exc:
+            db.rollback()
+            logger.error("Aspify Webhook error: %s", exc)
+            raise HTTPException(status_code=500, detail="Internal server error")
+            
+    return {"status": "ignored", "reason": "unhandled event"}

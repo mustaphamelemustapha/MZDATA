@@ -422,6 +422,102 @@ def get_bank_transfer_accounts(user: User = Depends(get_current_user), db: Sessi
                         "account_name": db_acc.account_name,
                     })
 
+    # 4. Fetch/Create Aspify Reserved Account
+    db_aspify = db.query(VirtualAccount).filter(
+        VirtualAccount.user_id == user.id,
+        VirtualAccount.provider == VirtualAccountProvider.ASPIFY
+    ).all()
+
+    if not db_aspify and settings.aspify_secret_key:
+        try:
+            from app.services.aspify import generate_aspify_virtual_account
+            
+            first = (user.full_name or "").strip().split(" ")[0] or "Mele"
+            last = " ".join((user.full_name or "").strip().split(" ")[1:]) or first
+            aspify_ref = f"{account_reference}_aspify_{secrets.token_hex(4)}"
+            
+            # Use base url for webhook if available
+            webhook_url = f"https://api.mzdata.org/api/v1/webhooks/aspify" 
+            
+            resp = generate_aspify_virtual_account(
+                email=user.email,
+                reference=aspify_ref,
+                phone=user.phone_number or "00000000000",
+                first_name=first,
+                last_name=last,
+                webhook_url=webhook_url
+            )
+            
+            # The Aspify response schema is undocumented but standard assumption is it returns account_number, account_name, etc.
+            # E.g. {"account_number": "123", "account_name": "Mele", "bank_name": "Palmpay"} or wrapped in {"data": {...}}
+            data = resp.get("data", resp) if isinstance(resp, dict) else {}
+            if isinstance(data, list) and len(data) > 0:
+                data = data[0]
+
+            acc_num = data.get("accountNumber") or data.get("account_number")
+            acc_name = data.get("accountName") or data.get("account_name")
+            bank_name = data.get("bankName") or data.get("bank_name") or "Palmpay"
+            
+            if acc_num:
+                db_acc = VirtualAccount(
+                    user_id=user.id,
+                    provider=VirtualAccountProvider.ASPIFY,
+                    account_number=acc_num,
+                    account_name=acc_name or user.full_name or "Aspify Account",
+                    bank_name=bank_name,
+                    bank_code="000",
+                    customer_reference=aspify_ref,
+                    reservation_reference=aspify_ref,
+                    status=VirtualAccountStatus.ACTIVE,
+                )
+                db.add(db_acc)
+                db.commit()
+                
+                all_accounts.append({
+                    "bank_name": bank_name,
+                    "account_number": acc_num,
+                    "account_name": acc_name or user.full_name or "Aspify Account",
+                })
+            else:
+                logger.warning("Aspify returned success but no account number: %s", resp)
+                db.add(VirtualAccount(
+                    user_id=user.id,
+                    provider=VirtualAccountProvider.ASPIFY,
+                    account_number="",
+                    account_name="Failed",
+                    bank_name="Aspify",
+                    bank_code="000",
+                    customer_reference=f"failed_{secrets.token_hex(4)}",
+                    reservation_reference=f"failed_{secrets.token_hex(4)}",
+                    status=VirtualAccountStatus.INACTIVE,
+                ))
+                db.commit()
+                messages.append("Aspify account generation pending or unavailable.")
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Auto-generate Aspify account failed: %s", exc)
+            messages.append(f"Aspify: {exc}")
+            db.add(VirtualAccount(
+                user_id=user.id,
+                provider=VirtualAccountProvider.ASPIFY,
+                account_number="",
+                account_name="Failed",
+                bank_name="Aspify",
+                bank_code="000",
+                customer_reference=f"failed_{secrets.token_hex(4)}",
+                reservation_reference=f"failed_{secrets.token_hex(4)}",
+                status=VirtualAccountStatus.INACTIVE,
+            ))
+            db.commit()
+    else:
+        for db_acc in db_aspify:
+            if db_acc.status == VirtualAccountStatus.ACTIVE and db_acc.account_number:
+                all_accounts.append({
+                    "bank_name": db_acc.bank_name,
+                    "account_number": db_acc.account_number,
+                    "account_name": db_acc.account_name,
+                })
+
     # Sort accounts: Palmpay first, then Moniepoint/Monnify, then others
     def sort_key(acc):
         bank_name = str(acc.get("bank_name", "")).lower()
