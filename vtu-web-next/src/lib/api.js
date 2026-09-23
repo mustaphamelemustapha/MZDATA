@@ -503,5 +503,6 @@ export async function adminUploadBroadcastImage(file) {
   return apiFetch('/notifications/broadcast/admin/upload-image', {
     method: 'POST',
     body: formData,
+    timeoutMs: 120000,
   });
 }

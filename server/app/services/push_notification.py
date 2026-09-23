@@ -107,7 +107,7 @@ class PushNotificationService:
             return False
 
     @classmethod
-    def send_broadcast(cls, title: str, body: str, data: dict = None) -> bool:
+    def send_broadcast(cls, title: str, body: str, data: dict = None, image_url: str = None) -> bool:
         cls._initialize()
         if not cls._initialized:
             return False
@@ -132,8 +132,12 @@ class PushNotificationService:
                 )
             )
 
+            notification = messaging.Notification(title=title, body=body)
+            if image_url:
+                notification.image = image_url
+
             message = messaging.Message(
-                notification=messaging.Notification(title=title, body=body),
+                notification=notification,
                 data=data or {},
                 topic="vtu_all_users",
                 android=android_config,
