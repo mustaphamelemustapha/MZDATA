@@ -428,6 +428,15 @@ def get_bank_transfer_accounts(user: User = Depends(get_current_user), db: Sessi
         VirtualAccount.provider == VirtualAccountProvider.ASPIFY
     ).all()
 
+    # Always add existing active Aspify accounts
+    for db_acc in db_aspify:
+        if db_acc.status == VirtualAccountStatus.ACTIVE and db_acc.account_number:
+            all_accounts.append({
+                "bank_name": db_acc.bank_name,
+                "account_number": db_acc.account_number,
+                "account_name": db_acc.account_name,
+            })
+
     if settings.aspify_secret_key:
         active_aspify_banks = [acc.bank_name.lower() for acc in db_aspify if acc.status == VirtualAccountStatus.ACTIVE]
         failed_aspify_banks = [acc.bank_name.lower() for acc in db_aspify if acc.status == VirtualAccountStatus.INACTIVE]
@@ -517,14 +526,6 @@ def get_bank_transfer_accounts(user: User = Depends(get_current_user), db: Sessi
                     status=VirtualAccountStatus.INACTIVE,
                 ))
                 db.commit()
-    else:
-        for db_acc in db_aspify:
-            if db_acc.status == VirtualAccountStatus.ACTIVE and db_acc.account_number:
-                all_accounts.append({
-                    "bank_name": db_acc.bank_name,
-                    "account_number": db_acc.account_number,
-                    "account_name": db_acc.account_name,
-                })
 
     # Sort accounts: Palmpay/Paga/9PSB first, then Moniepoint/Monnify, then others
     def sort_key(acc):
