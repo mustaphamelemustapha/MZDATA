@@ -651,7 +651,7 @@ export default function AdminDataPlansPage() {
                       <option value="amigo">Amigo</option>
                       <option value="smeplug">SMEPlug</option>
                       <option value="clubkonnect">ClubKonnect</option>
-                      <option value="autosync">Autosync</option><option value="brendysubs">Brendysubs</option>
+                      <option value="autosync">Autosync</option><option value="brendysubs">Brendysubs</option><option value="wallettopup">Wallettopup</option>
                       <option value="boltnet">Boltnet</option>
                       <option value="meledata">Mele Data</option>
                     </select>
@@ -768,7 +768,7 @@ export default function AdminDataPlansPage() {
                       <option value="amigo">Amigo</option>
                       <option value="smeplug">SMEPlug</option>
                       <option value="clubkonnect">ClubKonnect</option>
-                      <option value="autosync">Autosync</option><option value="brendysubs">Brendysubs</option>
+                      <option value="autosync">Autosync</option><option value="brendysubs">Brendysubs</option><option value="wallettopup">Wallettopup</option>
                       <option value="boltnet">Boltnet</option>
                       <option value="meledata">Mele Data</option>
                     </select>
@@ -846,7 +846,7 @@ export default function AdminDataPlansPage() {
                       <option value="amigo">Amigo</option>
                       <option value="smeplug">SMEPlug</option>
                       <option value="clubkonnect">ClubKonnect</option>
-                      <option value="autosync">Autosync</option><option value="brendysubs">Brendysubs</option>
+                      <option value="autosync">Autosync</option><option value="brendysubs">Brendysubs</option><option value="wallettopup">Wallettopup</option>
                       <option value="boltnet">Boltnet</option>
                       <option value="meledata">Mele Data</option>
                     </select>
