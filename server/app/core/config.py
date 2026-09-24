@@ -139,6 +139,10 @@ class Settings(BaseSettings):
     meledata_base_url: AnyHttpUrl = "https://meledata.ng/api/v1/developer"
     meledata_api_key: str = ""
 
+    # Brendysubs API
+    brendysubs_base_url: AnyHttpUrl = "https://brendysubs.com.ng/api"
+    brendysubs_api_key: str = ""
+
     # Fraud / abuse guardrails for purchases
     fraud_guard_enabled: bool = True
     fraud_single_tx_limit_ngn: Decimal = Decimal("50000")

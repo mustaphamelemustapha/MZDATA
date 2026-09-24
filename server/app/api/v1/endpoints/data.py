@@ -23,6 +23,7 @@ from app.providers.smeplug_provider import SMEPlugProvider
 from app.providers.autosync_provider import AutosyncProvider
 from app.providers.boltnet_provider import BoltnetProvider
 from app.providers.meledata_provider import MeleDataProvider
+from app.providers.brendysubs_provider import BrendysubsProvider
 from app.services.bills import get_bills_provider
 from app.services.fraud import enforce_purchase_limits
 from app.services.wallet import get_or_create_wallet, debit_wallet, credit_wallet
@@ -511,6 +512,16 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
                     client_request_id=reference
                 )
                 tx_provider = "meledata"
+
+            elif p_name == "brendysubs":
+                brendy = BrendysubsProvider()
+                p_res = brendy.purchase_network_data(
+                    network=network_key,
+                    phone=phone,
+                    plan_id=p_plan_id or plan_plan_code,
+                    client_request_id=reference
+                )
+                tx_provider = "brendysubs"
 
 
             elif p_name == "clubkonnect" or (not p_name and network_key == "9mobile"):
