@@ -1283,7 +1283,29 @@ class _DataScreenState extends State<DataScreen> {
                         child: Center(child: MeleDataLoader(size: 80.0)),
                       )
                     else if (_error != null)
-                      const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()))
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.error_outline, color: Colors.red.withValues(alpha: 0.8), size: 48),
+                              const SizedBox(height: 16),
+                              Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.red.shade300 : Colors.red.shade700, fontSize: 14)),
+                              const SizedBox(height: 24),
+                              ElevatedButton.icon(
+                                onPressed: () => _loadPlans(forceRefresh: true),
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Retry'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  foregroundColor: Colors.white,
+                                ),
+                              )
+                            ]
+                          )
+                        )
+                      )
                     else if (_selectedCategory == null)
                       Padding(
                         padding: const EdgeInsets.only(top: 32, bottom: 40),
