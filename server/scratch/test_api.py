@@ -1,16 +1,16 @@
-from fastapi.testclient import TestClient
-from app.main import app
-from app.dependencies import require_admin
-import json
+from app.core.database import SessionLocal
+from app.models import User
+from app.api.v1.endpoints.data import list_data_plans
+from fastapi import BackgroundTasks
 
-def override_require_admin():
-    from app.models import User
-    admin_user = User(id=1, email="admin@example.com", is_admin=True)
-    return admin_user
+class DummyBackgroundTasks(BackgroundTasks):
+    def add_task(self, func, *args, **kwargs):
+        pass
 
-app.dependency_overrides[require_admin] = override_require_admin
-
-client = TestClient(app)
-response = client.get("/api/v1/admin/transactions?tx_type=wallet_fund")
-print("STATUS:", response.status_code)
-print("BODY:", json.dumps(response.json(), indent=2))
+db = SessionLocal()
+user = db.query(User).first()
+if user:
+    plans = list_data_plans(DummyBackgroundTasks(), user, db)
+    print(f"Success! Plans count: {len(plans)}")
+else:
+    print("No user")
