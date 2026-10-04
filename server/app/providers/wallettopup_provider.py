@@ -80,7 +80,14 @@ class WallettopupProvider:
                 status_value = str(res_data.get("Status") or res_data.get("status") or "").lower()
                 provider_reference = str(res_data.get("ident") or res_data.get("id") or "")
                 
-                if status_value == "successful" or status_value == "success":
+                if status_value == "successful" or status_value == "success" or response.status_code in (200, 201):
+                    if status_value == "failed":
+                        return {
+                            "status": "failed",
+                            "provider_reference": provider_reference,
+                            "error": "Provider failed transaction",
+                            "raw": res_data
+                        }
                     return {
                         "status": "success",
                         "provider_reference": provider_reference,

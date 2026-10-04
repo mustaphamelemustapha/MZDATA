@@ -7,7 +7,7 @@ import time
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -193,8 +193,45 @@ def _upsert_plan_from_provider(db: Session, item: dict) -> bool:
 
 # --- ENDPOINTS ---
 
+def _background_sync_plans(db: Session, breakdown: dict):
+    # 1. AIRTEL -> SMEPlug Sync (If low)
+    if breakdown.get("airtel", 0) < 5:
+        logger.info("Airtel plans low. Syncing from SMEPlug (Background)...")
+        try:
+            sme = SMEPlugProvider()
+            items = sme.get_airtel_plans()
+            if items:
+                touched = 0
+                for item in items:
+                    item["provider"] = "smeplug"
+                    touched += 1 if _upsert_plan_from_provider(db, item) else 0
+                if touched:
+                    db.commit()
+                    logger.info("SMEPlug sync finished (Airtel). Touched %d plans.", touched)
+        except Exception as exc:
+            logger.warning("SMEPlug Airtel sync failed: %s", exc)
+
+    # 2. 9MOBILE -> ClubKonnect/Bills Sync (If low)
+    if breakdown.get("9mobile", 0) < 5:
+        logger.info("9mobile plans low. Syncing from Bills Provider (Background)...")
+        try:
+            provider = get_bills_provider()
+            if hasattr(provider, "fetch_data_variations"):
+                items = provider.fetch_data_variations("9mobile")
+                if items:
+                    touched = 0
+                    for item in items:
+                        item["network"] = "9mobile"
+                        item["provider"] = str(getattr(provider, "name", "clubkonnect")).lower()
+                        touched += 1 if _upsert_plan_from_provider(db, item) else 0
+                    if touched:
+                        db.commit()
+                        logger.info("9mobile sync finished. Touched %d plans.", touched)
+        except Exception as exc:
+            logger.warning("9mobile sync failed: %s", exc)
+
 @router.get("/plans", response_model=list[DataPlanOut])
-def list_data_plans(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_data_plans(background_tasks: BackgroundTasks, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     all_count = db.query(DataPlan).count()
     plans = db.query(DataPlan).filter(DataPlan.is_active == True).all()
     
@@ -211,48 +248,20 @@ def list_data_plans(user: User = Depends(get_current_user), db: Session = Depend
         user.email, all_count, len(plans), breakdown
     )
 
-    # 1. AIRTEL -> SMEPlug Sync (If low)
-    if breakdown.get("airtel", 0) < 5:
-        logger.info("Airtel plans low. Syncing from SMEPlug...")
-        try:
-            sme = SMEPlugProvider()
-            items = sme.get_airtel_plans()
-            if items:
-                touched = 0
-                for item in items:
-                    item["provider"] = "smeplug"
-                    touched += 1 if _upsert_plan_from_provider(db, item) else 0
-                if touched:
-                    db.commit()
-                    plans = db.query(DataPlan).filter(DataPlan.is_active == True).all()
-                    logger.info("SMEPlug sync finished (Airtel). Touched %d plans.", touched)
-        except Exception as exc:
-            logger.warning("SMEPlug Airtel sync failed: %s", exc)
-
-    # 2. 9MOBILE -> ClubKonnect/Bills Sync (If low)
-    if breakdown.get("9mobile", 0) < 5:
-        logger.info("9mobile plans low. Syncing from Bills Provider...")
-        try:
-            provider = get_bills_provider()
-            if hasattr(provider, "fetch_data_variations"):
-                items = provider.fetch_data_variations("9mobile")
-                if items:
-                    touched = 0
-                    for item in items:
-                        item["network"] = "9mobile"
-                        item["provider"] = str(getattr(provider, "name", "clubkonnect")).lower()
-                        touched += 1 if _upsert_plan_from_provider(db, item) else 0
-                    if touched:
-                        db.commit()
-                        plans = db.query(DataPlan).filter(DataPlan.is_active == True).all()
-                        logger.info("9mobile sync finished. Touched %d plans.", touched)
-        except Exception as exc:
-            logger.warning("9mobile sync failed: %s", exc)
+    if breakdown.get("airtel", 0) < 5 or breakdown.get("9mobile", 0) < 5:
+        # Create a new session for the background task to avoid concurrency issues with the main request
+        from app.core.database import SessionLocal
+        bg_db = SessionLocal()
+        
+        def bg_task():
+            try:
+                _background_sync_plans(bg_db, breakdown)
+            finally:
+                bg_db.close()
+                
+        background_tasks.add_task(bg_task)
 
 
-    promo_snapshot = _mtn_1gb_promo_snapshot(db)
-    user_promo_used = _user_has_used_mtn_1gb_promo(db, user.id)
-    
     # PERFORMANCE OPTIMIZATION: Fetch pricing rules once to avoid N+1 query timeout
     from app.models import PricingRule, PricingRole, UserRole
     pricing_role = PricingRole.RESELLER if user.role == UserRole.AGENT else PricingRole.USER

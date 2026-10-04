@@ -13,6 +13,7 @@ import '../services/dashboard_snapshot_cache.dart';
 import '../services/notifications_service.dart';
 import '../services/transactions_service.dart';
 import '../services/wallet_service.dart';
+import '../services/data_service.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
 import '../theme/axis_tokens.dart';
@@ -50,7 +51,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const _hideBalanceKey = 'wallet_hide_balance';
   static const _homeServiceAspectRatio = 1.12;
   Future<Map<String, dynamic>>? _walletFuture;
@@ -89,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     super.dispose();
   }
@@ -96,6 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadBalancePreference();
     _loadDismissedAnnouncements();
     _startRefreshTimer();
@@ -108,6 +111,15 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (mounted) {
+        context.read<SessionController>().refreshBalance();
+      }
+    }
   }
 
   Future<void> _loadDismissedAnnouncements() async {
@@ -483,6 +495,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _accountsFuture = service.getBankAccounts();
     _transactionsFuture = txService.getTransactions();
     _notificationsFuture = _loadNotifications(token);
+    
+    // Silently preload data plans in the background to ensure instant loading when user navigates to Data Screen
+    DataService(token: token).getPlans(forceRefresh: false).catchError((_) => []);
+    
     _walletFuture!.then((data) {
       if (!mounted || dashboardKey != _activeDashboardKey) return;
       setState(() {
