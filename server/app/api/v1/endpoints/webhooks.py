@@ -42,7 +42,7 @@ def paystack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), 
     data = payload.get("data", {})
 
     reference = data.get("reference")
-    transaction = db.query(Transaction).filter(Transaction.reference == reference).first()
+    transaction = db.query(Transaction).filter(Transaction.reference == reference).with_for_update().first()
 
     if event == "charge.success" and transaction:
         if transaction.status != TransactionStatus.SUCCESS:
@@ -170,7 +170,7 @@ def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
         return {"status": "ignored"}
 
     # Find transaction using customer_reference
-    transaction = db.query(Transaction).filter(Transaction.reference == customer_reference).first()
+    transaction = db.query(Transaction).filter(Transaction.reference == customer_reference).with_for_update().first()
     if not transaction:
         logger.warning("SMEPlug Webhook: Transaction not found for ref %s", customer_reference)
         return {"status": "ignored"}
@@ -238,7 +238,7 @@ def monnify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
     data = payload.get("eventData", {}) or payload.get("data", {})
 
     reference = data.get("paymentReference") or data.get("transactionReference")
-    transaction = db.query(Transaction).filter(Transaction.reference == reference).first()
+    transaction = db.query(Transaction).filter(Transaction.reference == reference).with_for_update().first()
     payment_status = (data.get("paymentStatus") or data.get("status") or "").upper()
 
     if payment_status in {"PAID", "SUCCESSFUL", "SUCCESS"} or (event_type and "SUCCESS" in event_type):
@@ -642,7 +642,7 @@ def autosync_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), 
         logger.warning("Autosync Webhook: Invalid hash for ref %s", reference)
         return "error"
         
-    transaction = db.query(Transaction).filter(Transaction.reference == reference).first()
+    transaction = db.query(Transaction).filter(Transaction.reference == reference).with_for_update().first()
     if not transaction:
         logger.warning("Autosync Webhook: Transaction not found for ref %s", reference)
         return "error"

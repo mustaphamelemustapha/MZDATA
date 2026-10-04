@@ -590,9 +590,23 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        transaction = db2.query(Transaction).get(tx_id)
+        transaction = db2.query(Transaction).with_for_update().get(tx_id)
+        if not transaction:
+            return provider_res
+            
         user = db2.query(User).get(user_id)
         wallet = get_or_create_wallet(db2, user_id)
+        
+        # Check if transaction was already processed by a webhook or pending reconcile
+        if transaction.status in {TransactionStatus.SUCCESS, TransactionStatus.REFUNDED}:
+            logger.info(f"Transaction {tx_id} was already processed asynchronously. Current status: {transaction.status}")
+            db2.commit()
+            return {
+                "status": "success" if transaction.status == TransactionStatus.SUCCESS else "failed",
+                "message": "Transaction already processed",
+                "reference": reference,
+                "amount": float(price)
+            }
         
         transaction.provider = transaction_provider
         transaction.provider_plan_id = plan_provider_plan_id

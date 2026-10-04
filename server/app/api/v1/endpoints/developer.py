@@ -456,7 +456,12 @@ def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, 
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(Transaction).get(tx_id)
+        tx = db2.query(Transaction).with_for_update().get(tx_id)
+        if not tx:
+            return {"status": "failed", "message": "Transaction not found"}
+        if tx.status in {TransactionStatus.SUCCESS, TransactionStatus.REFUNDED, "success", "refunded"}:
+            db2.commit()
+            return {"status": "success" if tx.status in {TransactionStatus.SUCCESS, "success"} else "failed", "message": "Transaction already processed asynchronously", "reference": reference}
         user = db2.query(User).get(user_id)
         wallet = get_or_create_wallet(db2, user_id)
 
@@ -585,7 +590,12 @@ def developer_buy_airtime(request: Request, payload: DeveloperAirtimePurchaseReq
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(ServiceTransaction).get(tx_id)
+        tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
+        if not tx:
+            return {"status": "failed", "message": "Transaction not found"}
+        if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
+            db2.commit()
+            return {"status": "success" if tx.status in {TransactionStatus.SUCCESS.value, "success"} else "failed", "message": "Transaction already processed asynchronously", "reference": reference}
         user = db2.query(User).get(user_id)
         wallet = get_or_create_wallet(db2, user_id)
 

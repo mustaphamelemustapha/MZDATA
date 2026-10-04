@@ -261,7 +261,12 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
         from app.core.database import SessionLocal
         db2 = SessionLocal()
         try:
-            tx = db2.query(ServiceTransaction).get(tx_id)
+            tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
+            if not tx:
+                raise HTTPException(status_code=404, detail="Transaction not found")
+            if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
+                db2.commit()
+                return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
             wallet = get_or_create_wallet(db2, user_id)
             if _is_transport_error(exc):
                 logger.warning("Airtime provider confirmation delayed ref=%s error=%s", reference, exc)
@@ -279,7 +284,12 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(ServiceTransaction).get(tx_id)
+        tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
+        if not tx:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
+            db2.commit()
+            return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
         wallet = get_or_create_wallet(db2, user_id)
         
         provider_status = _provider_status(result)
@@ -405,7 +415,12 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
         from app.core.database import SessionLocal
         db2 = SessionLocal()
         try:
-            tx = db2.query(ServiceTransaction).get(tx_id)
+            tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
+            if not tx:
+                raise HTTPException(status_code=404, detail="Transaction not found")
+            if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
+                db2.commit()
+                return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
             wallet = get_or_create_wallet(db2, user_id)
             if _is_transport_error(exc):
                 logger.warning("Cable provider confirmation delayed ref=%s error=%s", reference, exc)
@@ -423,7 +438,12 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(ServiceTransaction).get(tx_id)
+        tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
+        if not tx:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
+            db2.commit()
+            return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
         wallet = get_or_create_wallet(db2, user_id)
 
         provider_status = _provider_status(result)
@@ -617,7 +637,12 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
         from app.core.database import SessionLocal
         db2 = SessionLocal()
         try:
-            tx = db2.query(ServiceTransaction).get(tx_id)
+            tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
+            if not tx:
+                raise HTTPException(status_code=404, detail="Transaction not found")
+            if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
+                db2.commit()
+                return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
             wallet = get_or_create_wallet(db2, user_id)
             if _is_transport_error(exc):
                 logger.warning("Electricity provider confirmation delayed ref=%s error=%s", reference, exc)
@@ -635,7 +660,12 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(ServiceTransaction).get(tx_id)
+        tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
+        if not tx:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
+            db2.commit()
+            return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
         wallet = get_or_create_wallet(db2, user_id)
 
         provider_status = _provider_status(result)
@@ -868,7 +898,12 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
         from app.core.database import SessionLocal
         db2 = SessionLocal()
         try:
-            tx = db2.query(ServiceTransaction).get(tx_id)
+            tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
+            if not tx:
+                raise HTTPException(status_code=404, detail="Transaction not found")
+            if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
+                db2.commit()
+                return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
             wallet = get_or_create_wallet(db2, user_id)
             if _is_transport_error(exc):
                 logger.warning("Exam provider confirmation delayed ref=%s error=%s", reference, exc)
@@ -886,7 +921,12 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(ServiceTransaction).get(tx_id)
+        tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
+        if not tx:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
+            db2.commit()
+            return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
         wallet = get_or_create_wallet(db2, user_id)
 
         provider_status = _provider_status(result)
