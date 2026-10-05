@@ -50,6 +50,12 @@ class ApiClient {
     return headers;
   }
 
+  Map<String, dynamic>? getSync(String path) {
+    final tokenSuffix = (token != null && token!.length > 10) ? token!.substring(token!.length - 10) : 'none';
+    final cacheKey = 'api_cache_${tokenSuffix}_$path';
+    return _memoryCache[cacheKey];
+  }
+
   Future<Map<String, dynamic>> get(String path, {bool forceRefresh = false}) async {
     final uri = Uri.parse('$baseUrl$path');
     final tokenSuffix = (token != null && token!.length > 10) ? token!.substring(token!.length - 10) : 'none';

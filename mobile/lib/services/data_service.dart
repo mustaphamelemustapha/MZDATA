@@ -17,6 +17,14 @@ class DataService {
     return await _fetchAndCache(forceRefresh: forceRefresh);
   }
 
+  List<dynamic>? getPlansSync() {
+    final data = _client.getSync('/data/plans');
+    if (data != null) {
+      return _extractList(data);
+    }
+    return null;
+  }
+
   Future<List<dynamic>> _fetchAndCache({bool forceRefresh = false}) async {
     try {
       final data = await _client.get('/data/plans', forceRefresh: forceRefresh);

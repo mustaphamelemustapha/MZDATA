@@ -132,7 +132,14 @@ class _DataScreenState extends State<DataScreen> {
     _phoneCtrl.addListener(_onPhoneChanged);
     _loadRecentNumbers();
     _loadPreferences();
-    _loadPlans(silent: false);
+    final cachedPlans = DataService(token: context.read<SessionController>().token ?? '').getPlansSync();
+    if (cachedPlans != null && cachedPlans.isNotEmpty) {
+      _plans = cachedPlans;
+      _loadingPlans = false;
+      _loadPlans(silent: true);
+    } else {
+      _loadPlans(silent: false);
+    }
   }
 
   @override
@@ -883,7 +890,16 @@ class _DataScreenState extends State<DataScreen> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _loadPlans(silent: true);
+      final cachedPlans = DataService(token: context.read<SessionController>().token ?? '').getPlansSync();
+      if (cachedPlans != null && cachedPlans.isNotEmpty) {
+        setState(() {
+          _plans = cachedPlans;
+          _loadingPlans = false;
+        });
+        _loadPlans(silent: true);
+      } else {
+        _loadPlans(silent: true);
+      }
     });
   }
 
