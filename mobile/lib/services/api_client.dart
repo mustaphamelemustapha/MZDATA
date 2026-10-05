@@ -16,6 +16,7 @@ class ApiClient {
   // Fast memory cache for 0ms loading
   static final Map<String, dynamic> _memoryCache = {};
   static final Map<String, DateTime> _cacheTimestamps = {};
+  static final Map<String, Future<Map<String, dynamic>>> _inFlightRequests = {};
 
   static Future<void> clearCache() async {
     _memoryCache.clear();
@@ -85,9 +86,21 @@ class ApiClient {
       }
     }
 
-    // 3. If no cache or forceRefresh, fetch normally and block
+    // 3. If no cache or forceRefresh, check if there's an in-flight request
+    if (_inFlightRequests.containsKey(cacheKey)) {
+      _log('API GET (In-Flight): $uri');
+      return await _inFlightRequests[cacheKey]!;
+    }
+
+    // 4. Otherwise, fetch normally and block
     _log('API GET (Network): $uri');
-    return await _fetchAndCache(uri, path, cacheKey);
+    final future = _fetchAndCache(uri, path, cacheKey);
+    _inFlightRequests[cacheKey] = future;
+    try {
+      return await future;
+    } finally {
+      _inFlightRequests.remove(cacheKey);
+    }
   }
 
   Future<Map<String, dynamic>> _fetchAndCache(Uri uri, String path, String cacheKey) async {

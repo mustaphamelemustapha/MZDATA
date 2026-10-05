@@ -1278,9 +1278,10 @@ class _DataScreenState extends State<DataScreen> {
                     const SizedBox(height: 24),
                     
                     if (_loadingPlans && _plans.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 40),
-                        child: Center(child: MeleDataLoader(size: 80.0)),
+                      const _PlanShimmerGrid(
+                        shrinkWrap: true,
+                        physics: NeverScrollableScrollPhysics(),
+                        padding: EdgeInsets.zero,
                       )
                     else if (_error != null)
                       Center(
@@ -3240,7 +3241,15 @@ class _GradientActionButton extends StatelessWidget {
 }
 
 class _PlanShimmerGrid extends StatelessWidget {
-  const _PlanShimmerGrid();
+  final bool shrinkWrap;
+  final ScrollPhysics? physics;
+  final EdgeInsetsGeometry padding;
+
+  const _PlanShimmerGrid({
+    this.shrinkWrap = false,
+    this.physics,
+    this.padding = const EdgeInsets.symmetric(horizontal: 20),
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3250,7 +3259,9 @@ class _PlanShimmerGrid extends StatelessWidget {
         ? const Color(0xFF283656)
         : const Color(0xFFE7EBF3);
     return GridView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      shrinkWrap: shrinkWrap,
+      physics: physics,
+      padding: padding,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         crossAxisSpacing: 10,
