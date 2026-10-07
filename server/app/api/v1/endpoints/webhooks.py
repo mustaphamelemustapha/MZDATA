@@ -203,7 +203,8 @@ def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
             wallet, 
             Decimal(transaction.amount), 
             transaction.reference, 
-            f"Refund for failed SMEPlug data purchase (Ref: {provider_reference})"
+            f"Refund for failed SMEPlug data purchase (Ref: {provider_reference})",
+            commit=False
         )
         transaction.status = TransactionStatus.REFUNDED
         db.commit()

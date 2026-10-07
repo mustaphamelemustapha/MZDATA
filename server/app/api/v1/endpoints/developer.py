@@ -472,7 +472,7 @@ def developer_buy_data(request: Request, payload: DeveloperDataPurchaseRequest, 
         
         if final_status == "failed":
             tx.failure_reason = str(provider_res.get("error"))[:255]
-            credit_wallet(db2, wallet, price, client_ref, f"Refund: {plan_name} API purchase failed")
+            credit_wallet(db2, wallet, price, client_ref, f"Refund: {plan_name} API purchase failed", commit=False)
             tx.status = TransactionStatus.REFUNDED
         db2.commit()
 
@@ -606,7 +606,7 @@ def developer_buy_airtime(request: Request, payload: DeveloperAirtimePurchaseReq
 
         if final_status == "failed":
             tx.failure_reason = str(provider_res.get("error"))[:255]
-            credit_wallet(db2, wallet, charge_amount, client_ref, "API Refund: Airtime purchase failed")
+            credit_wallet(db2, wallet, charge_amount, client_ref, "API Refund: Airtime purchase failed", commit=False)
             tx.status = TransactionStatus.REFUNDED.value
         db2.commit()
 

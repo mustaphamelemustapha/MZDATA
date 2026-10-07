@@ -628,7 +628,7 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
 
         if final_status == "failed":
             transaction.failure_reason = _safe_reason(provider_res.get("error"))
-            credit_wallet(db2, wallet, price, reference, f"Refund: {plan_plan_name} purchase failed")
+            credit_wallet(db2, wallet, price, reference, f"Refund: {plan_plan_name} purchase failed", commit=False)
             transaction.status = TransactionStatus.REFUNDED
 
         db2.commit()

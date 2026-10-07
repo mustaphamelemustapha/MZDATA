@@ -274,7 +274,7 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
                 return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE}
             logger.exception("Airtime purchase failed with non-transport provider error ref=%s", reference)
             tx.failure_reason = str(exc) or "Provider failed"
-            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase")
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase", commit=False)
             tx.status = TransactionStatus.REFUNDED.value
             db2.commit()
             raise HTTPException(status_code=502, detail=tx.failure_reason)
@@ -323,7 +323,7 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
         tx.failure_reason = result.message or "Provider failed"
         if result.meta:
             tx.meta = {**(tx.meta or {}), **result.meta}
-        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase")
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase", commit=False)
         tx.status = TransactionStatus.REFUNDED.value
         db2.commit()
         if fcm_token:
@@ -428,7 +428,7 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
                 return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE}
             logger.exception("Cable purchase failed with non-transport provider error ref=%s", reference)
             tx.failure_reason = str(exc) or "Provider failed"
-            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase")
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase", commit=False)
             tx.status = TransactionStatus.REFUNDED.value
             db2.commit()
             raise HTTPException(status_code=502, detail=tx.failure_reason)
@@ -477,7 +477,7 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
         tx.failure_reason = result.message or "Provider failed"
         if result.meta:
             tx.meta = {**(tx.meta or {}), **result.meta}
-        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase")
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase", commit=False)
         tx.status = TransactionStatus.REFUNDED.value
         db2.commit()
         if fcm_token:
@@ -650,7 +650,7 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
                 return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE, "token": (tx.meta or {}).get("token")}
             logger.exception("Electricity purchase failed with non-transport provider error ref=%s", reference)
             tx.failure_reason = str(exc) or "Provider failed"
-            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase")
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase", commit=False)
             tx.status = TransactionStatus.REFUNDED.value
             db2.commit()
             raise HTTPException(status_code=502, detail=tx.failure_reason)
@@ -703,7 +703,7 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
         tx.failure_reason = result.message or "Provider failed"
         if result.meta:
             tx.meta = {**(tx.meta or {}), **result.meta}
-        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase")
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase", commit=False)
         tx.status = TransactionStatus.REFUNDED.value
         db2.commit()
         if fcm_token:
@@ -911,7 +911,7 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
                 return {"reference": reference, "status": tx.status, "pins": (tx.meta or {}).get("pins", []), "message": _PENDING_CONFIRMATION_MESSAGE}
             logger.exception("Exam purchase failed with non-transport provider error ref=%s", reference)
             tx.failure_reason = str(exc) or "Provider failed"
-            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase")
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase", commit=False)
             tx.status = TransactionStatus.REFUNDED.value
             db2.commit()
             raise HTTPException(status_code=502, detail=tx.failure_reason)
@@ -964,7 +964,7 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
         tx.failure_reason = result.message or "Provider failed"
         if result.meta:
             tx.meta = {**(tx.meta or {}), **result.meta}
-        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase")
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase", commit=False)
         tx.status = TransactionStatus.REFUNDED.value
         db2.commit()
         if fcm_token:
