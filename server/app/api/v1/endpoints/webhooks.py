@@ -213,7 +213,7 @@ def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
         
         # Send push notification for refund
         if transaction.user and transaction.user.fcm_token:
-            PushNotificationService.send_push_notification(
+            PushNotificationService.send_to_token(
                 token=transaction.user.fcm_token,
                 title="Data Purchase Failed",
                 body=f"Your Airtel data purchase failed. Your wallet has been refunded ₦{transaction.amount}.",
@@ -689,7 +689,7 @@ def autosync_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), 
         dispatch_developer_webhook(transaction, transaction.user)
         
         if transaction.user and transaction.user.fcm_token:
-            PushNotificationService.send_push_notification(
+            PushNotificationService.send_to_token(
                 token=transaction.user.fcm_token,
                 title="Data Purchase Failed",
                 body=f"Your data purchase failed. Your wallet has been refunded ₦{transaction.amount}.",
@@ -759,7 +759,7 @@ def boltnet_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
         dispatch_developer_webhook(transaction, transaction.user)
         
         if transaction.user and transaction.user.fcm_token:
-            PushNotificationService.send_push_notification(
+            PushNotificationService.send_to_token(
                 token=transaction.user.fcm_token,
                 title="Purchase Failed",
                 body=f"Your purchase failed. Your wallet has been refunded ₦{transaction.amount}.",
@@ -842,7 +842,7 @@ def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db
             )
             
             if user.fcm_token:
-                PushNotificationService.send_push_notification(
+                PushNotificationService.send_to_token(
                     token=user.fcm_token,
                     title="Wallet Funded",
                     body=f"Your wallet has been funded with ₦{amt:,.2f}.",
