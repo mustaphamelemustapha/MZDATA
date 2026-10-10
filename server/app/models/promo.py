@@ -34,7 +34,7 @@ class UserPromo(Base, TimestampMixin):
     status = Column(String(20), default="READY", nullable=False) # READY, USED, EXPIRED
     used_at = Column(DateTime(timezone=True), nullable=True)
     
-    user = relationship("User", back_populates="promos")
+    user = relationship("User")
     promo_code = relationship("PromoCode", back_populates="user_promos")
 
 Index("ix_user_promos_user_status", UserPromo.user_id, UserPromo.status)
