@@ -714,10 +714,11 @@ def _ensure_referral_ambassador_columns() -> None:
 def _ensure_default_integrations() -> None:
     from app.models.integration import IntegrationProvider, PaymentGateway
     from app.models.promo import PromoCode
+    from app.models.system_settings import SystemSettings
     from app.core.database import engine, Base
     
     try:
-        Base.metadata.create_all(bind=engine, tables=[IntegrationProvider.__table__, PaymentGateway.__table__, PromoCode.__table__])
+        Base.metadata.create_all(bind=engine, tables=[IntegrationProvider.__table__, PaymentGateway.__table__, PromoCode.__table__, SystemSettings.__table__])
     except Exception as exc:
         logging.getLogger(__name__).warning("Could not auto-create integration tables: %s", exc)
 
