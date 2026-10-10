@@ -54,3 +54,6 @@ __all__ = [
     "EntryType",
 ]
 from app.models.user_pricing_override import UserPricingOverride
+
+from app.models.integration import IntegrationProvider, PaymentGateway, ProviderType
+from app.models.promo import PromoCode

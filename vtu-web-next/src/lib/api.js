@@ -506,3 +506,53 @@ export async function adminUploadBroadcastImage(file) {
     timeoutMs: 120000,
   });
 }
+
+
+// Added for Enhanced Admin Pages
+export async function adminGetProviderBalances() {
+  return apiFetch('/admin/provider-balances');
+}
+
+export async function adminGetFinanceOverview() {
+  return apiFetch('/admin/finance/overview');
+}
+
+export async function adminGetFinanceLedger(params = {}) {
+  return apiFetch(`/admin/finance/ledger${toQuery(params)}`);
+}
+
+export async function adminCreateFinanceLedgerEntry(payload) {
+  return apiFetch('/admin/finance/ledger', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function adminGetAmbassadors(params = {}) {
+  return apiFetch(`/admin/ambassadors${toQuery(params)}`);
+}
+
+export async function adminPayAmbassadorCommission(payload) {
+  return apiFetch('/admin/ambassadors/pay-commission', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function adminGetAgents(params = {}) {
+  return apiFetch(`/admin/agents${toQuery(params)}`);
+}
+
+export async function adminCreatePromo(payload) {
+  return apiFetch('/promos/admin/create', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function adminUpdateReferralCode(payload) {
+  return apiFetch('/admin/users/referral-code', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
