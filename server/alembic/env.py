@@ -20,7 +20,7 @@ if config.config_file_name is not None:
 
 settings = get_settings()
 resolved_db_url = _resolve_database_url(str(settings.database_url))
-config.set_main_option("sqlalchemy.url", resolved_db_url)
+config.set_main_option("sqlalchemy.url", resolved_db_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
