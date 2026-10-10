@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # Security
-    secret_key: str
+    secret_key: str = "changethis-secret-key-32-chars-min"
     access_token_expire_minutes: int = 144000
     refresh_token_expire_days: int = 7
     password_bcrypt_rounds: int = 12
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     pin_reset_token_minutes: int = 30
 
     # Database
-    database_url: str
+    database_url: str = "postgresql://postgres:postgres@localhost:5432/mzdata_db"
     db_pool_size: int = 5
     db_max_overflow: int = 5
     db_pool_timeout: int = 15
@@ -55,8 +55,8 @@ class Settings(BaseSettings):
     cloudinary_url: Optional[str] = None
 
     # Paystack
-    paystack_secret_key: str
-    paystack_webhook_secret: str
+    paystack_secret_key: str = "changethis-secret-key-32-chars-min"
+    paystack_webhook_secret: str = ""
     paystack_dedicated_enabled: bool = False
     paystack_dedicated_preferred_bank: str = "titan-paystack"
 
@@ -64,10 +64,10 @@ class Settings(BaseSettings):
     bank_transfer_provider: str = "monnify"
 
     # Monnify
-    monnify_api_key: str
-    monnify_secret_key: str
-    monnify_contract_code: str
-    monnify_base_url: AnyHttpUrl
+    monnify_api_key: str = ""
+    monnify_secret_key: str = "changethis-secret-key-32-chars-min"
+    monnify_contract_code: str = ""
+    monnify_base_url: str = "https://api.monnify.com"
     monnify_webhook_secret: Optional[str] = None
     monnify_currency: str = "NGN"
     monnify_payment_methods: str = "CARD,ACCOUNT_TRANSFER,USSD"
