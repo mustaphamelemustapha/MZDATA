@@ -334,22 +334,7 @@ function Hero() {
               <Button asChild variant="secondary" className="h-14 rounded-full border-border bg-card/50 backdrop-blur-md px-8 text-lg text-muted-foreground hover:bg-secondary transition-all hover:scale-105">
                 <Link href="/login">Log in</Link>
               </Button>
-              <a
-                href="https://play.google.com/store/apps/details?id=com.mmtech.mzdata&pcampaignid=web_share"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-14 items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
-              >
-                <div className="flex items-center gap-2.5 text-left">
-                  <svg className="h-6 w-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M5.002 3c-.116 0-.23.018-.342.049L13.882 12 4.66 20.951c.112.03.226.049.342.049.278 0 .546-.076.784-.216l12.44-7.108c.556-.317.9-.9.9-1.547 0-.647-.344-1.23-.9-1.547L5.786 3.216a1.564 1.564 0 0 0-.784-.216zm-1.042.825V20.18L13.06 12 3.96 3.825z" />
-                  </svg>
-                  <div>
-                    <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground leading-none">Get it on</div>
-                    <div className="text-sm font-bold text-foreground leading-tight mt-0.5">Google Play</div>
-                  </div>
-                </div>
-              </a>
+
             </motion.div>
 
             <motion.div
