@@ -31,6 +31,7 @@ import { clearAuth, apiFetch, getProfile, getToken, setProfile } from '@/lib/api
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { BrandLoader } from '@/components/brand-loader';
 
 function brandInitials(profile) {
   const name = String(profile?.full_name || profile?.email || 'MZDATA').trim();
@@ -176,11 +177,10 @@ export function AppShell({ children }) {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        <div className="rounded-3xl border border-border bg-card px-6 py-5 text-sm text-card-foreground shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
-          Loading MZDATA dashboard...
-        </div>
-      </div>
+      <BrandLoader
+        message="Loading MZ DATA"
+        subtitle="Synchronizing your account and wallet balance..."
+      />
     );
   }
 
