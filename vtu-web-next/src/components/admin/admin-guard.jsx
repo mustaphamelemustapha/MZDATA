@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Lock, ShieldAlert } from 'lucide-react';
 import { apiFetch, clearAuth, getProfile, getToken, setProfile } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { BrandLoader } from '@/components/brand-loader';
 
 function isAdminUser(profile) {
   const role = String(profile?.role || '').toLowerCase();
@@ -51,9 +52,10 @@ export function AdminGuard({ children, onProfile }) {
 
   if (state === 'loading') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <div className="rounded-3xl border border-border bg-card px-6 py-5 text-sm text-muted-foreground">Checking admin access...</div>
-      </div>
+      <BrandLoader
+        message="Verifying admin access"
+        subtitle="Checking administrative credentials and workspace permissions..."
+      />
     );
   }
 
