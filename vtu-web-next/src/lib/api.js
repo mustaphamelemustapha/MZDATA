@@ -394,6 +394,12 @@ export async function adminCleanLegacyDataPlans() {
   return apiFetch('/admin/data-plans/clean-legacy', { method: 'POST' });
 }
 
+export async function adminDeleteAutosyncedPlans(scope = 'autosynced') {
+  return apiFetch(`/admin/data-plans/delete-autosynced?scope=${encodeURIComponent(scope)}`, {
+    method: 'POST',
+  });
+}
+
 export async function adminAdjustWallet(payload) {
   return apiFetch('/admin/wallets/adjust', {
     method: 'POST',

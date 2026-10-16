@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Database, RefreshCw, X, Plus } from 'lucide-react';
-import { adminGetDataPlans, adminGetPricingRules, adminSyncDataPlans, adminUpdateDataPlan, adminDeleteDataPlan } from '@/lib/api';
+import { Database, RefreshCw, X, Plus, Trash2 } from 'lucide-react';
+import { adminGetDataPlans, adminGetPricingRules, adminSyncDataPlans, adminUpdateDataPlan, adminDeleteDataPlan, adminDeleteAutosyncedPlans, apiFetch } from '@/lib/api';
 import { filterAllowedAmigoPlans } from '@/lib/amigo-plan-policy';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,9 @@ function asList(value) {
 export default function AdminDataPlansPage() {
   const [plans, setPlans] = useState([]);
   const [pricing, setPricing] = useState([]);
+  const [integratedProviders, setIntegratedProviders] = useState([]);
+  const [fetchingProviderPlans, setFetchingProviderPlans] = useState(false);
+  const [availableProviderPlans, setAvailableProviderPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [toggling, setToggling] = useState(null);
@@ -53,12 +56,16 @@ export default function AdminDataPlansPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [plansRes, pricingRes] = await Promise.allSettled([
+      const [plansRes, pricingRes, providersRes] = await Promise.allSettled([
         adminGetDataPlans(),
         adminGetPricingRules(),
+        apiFetch('/admin/integrations/providers'),
       ]);
       if (plansRes.status === 'fulfilled') setPlans(asList(plansRes.value));
       if (pricingRes.status === 'fulfilled') setPricing(Array.isArray(pricingRes.value?.items) ? pricingRes.value.items : []);
+      if (providersRes.status === 'fulfilled' && Array.isArray(providersRes.value)) {
+        setIntegratedProviders(providersRes.value);
+      }
     } finally {
       setLoading(false);
     }
@@ -114,6 +121,76 @@ export default function AdminDataPlansPage() {
       setCleaning(false);
     }
   }, [load]);
+
+  const handleDeleteAutosynced = useCallback(async (scope = 'autosynced') => {
+    const isAll = scope === 'all';
+    const msg = isAll
+      ? "DANGER: This will permanently DELETE ALL data plans from the database. Are you sure you want to completely clear the entire catalog?"
+      : "This will permanently delete all auto-synced plans (including Talk More voice bundles, Amigo, ClubKonnect, Autosync, and legacy plans) from your database, keeping only your intentional data plans. Proceed?";
+    if (!window.confirm(msg)) return;
+    setCleaning(true);
+    try {
+      const res = await adminDeleteAutosyncedPlans(scope);
+      alert(res.message || `Successfully deleted ${res.deleted_count ?? 0} data plans!`);
+      await load();
+    } catch (err) {
+      alert(err.message || "Failed to delete auto-synced plans");
+    } finally {
+      setCleaning(false);
+    }
+  }, [load]);
+
+  const providerOptions = useMemo(() => {
+    const list = [...integratedProviders];
+    const defaults = [
+      { identifier: 'smeplug', name: 'SMEPlug' },
+      { identifier: 'amigo', name: 'Amigo' },
+      { identifier: 'clubkonnect', name: 'ClubKonnect' },
+      { identifier: 'autosync', name: 'Autosync' },
+      { identifier: 'mzdata', name: 'MZDATA' },
+      { identifier: 'boltnet', name: 'Boltnet' },
+      { identifier: 'brendysubs', name: 'Brendysubs' },
+      { identifier: 'wallettopup', name: 'Wallettopup' },
+      { identifier: 'meledata', name: 'Mele Data' },
+    ];
+    for (const d of defaults) {
+      if (!list.some(p => String(p?.identifier || '').toLowerCase() === d.identifier)) {
+        list.push(d);
+      }
+    }
+    return list;
+  }, [integratedProviders]);
+
+  const handlePullProviderPlans = async () => {
+    const prov = String(newPlan.provider || '').trim().toLowerCase();
+    if (!prov) return;
+    setFetchingProviderPlans(true);
+    setAvailableProviderPlans([]);
+    try {
+      const res = await apiFetch(`/admin/integrations/providers/${prov}/plans?network=${newPlan.network}`);
+      if (res?.plans && Array.isArray(res.plans) && res.plans.length > 0) {
+        setAvailableProviderPlans(res.plans);
+      } else {
+        alert(res?.message || `No live catalog returned from ${prov.toUpperCase()} for network ${newPlan.network.toUpperCase()}.`);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to fetch provider plans');
+    } finally {
+      setFetchingProviderPlans(false);
+    }
+  };
+
+  const handleSelectProviderPlan = (plan) => {
+    setNewPlan(prev => ({
+      ...prev,
+      plan_name: plan.plan_name || prev.plan_name,
+      plan_code: `${prev.provider}:${prev.network}:${plan.provider_plan_id}`,
+      provider_plan_id: String(plan.provider_plan_id || ''),
+      base_price: plan.price ? String(plan.price) : prev.base_price,
+      data_size: plan.data_size || prev.data_size,
+      validity: plan.validity || '30 Days'
+    }));
+  };
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newPlan, setNewPlan] = useState({
@@ -750,7 +827,10 @@ export default function AdminDataPlansPage() {
                     <select 
                       className="w-full axis-input p-2 rounded-md border border-border"
                       value={newPlan.network}
-                      onChange={(e) => setNewPlan({...newPlan, network: e.target.value})}
+                      onChange={(e) => {
+                        setNewPlan({...newPlan, network: e.target.value});
+                        setAvailableProviderPlans([]);
+                      }}
                     >
                       <option value="mtn">MTN</option>
                       <option value="airtel">AIRTEL</option>
@@ -759,20 +839,65 @@ export default function AdminDataPlansPage() {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Provider</label>
+                    <label className="text-sm font-medium">Provider API</label>
                     <select 
                       className="w-full axis-input p-2 rounded-md border border-border"
                       value={newPlan.provider}
-                      onChange={(e) => setNewPlan({...newPlan, provider: e.target.value})}
+                      onChange={(e) => {
+                        setNewPlan({...newPlan, provider: e.target.value});
+                        setAvailableProviderPlans([]);
+                      }}
                     >
-                      <option value="amigo">Amigo</option>
-                      <option value="smeplug">SMEPlug</option>
-                      <option value="clubkonnect">ClubKonnect</option>
-                      <option value="autosync">Autosync</option><option value="brendysubs">Brendysubs</option><option value="wallettopup">Wallettopup</option>
-                      <option value="boltnet">Boltnet</option>
-                      <option value="meledata">Mele Data</option>
+                      {providerOptions.map((p) => (
+                        <option key={p.id || p.identifier} value={p.identifier}>
+                          {p.name || p.identifier} ({p.identifier}){p.is_active ? ' — Active' : ''}
+                        </option>
+                      ))}
                     </select>
                   </div>
+                </div>
+
+                {/* Auto Discovery / Live Catalog Puller */}
+                <div className="space-y-2 p-3 rounded-xl bg-secondary/30 border border-border">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-medium text-foreground block">Pull Live Catalog</span>
+                      <span className="text-[11px] text-muted-foreground">Auto-populate plans from {String(newPlan.provider || '').toUpperCase()}</span>
+                    </div>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handlePullProviderPlans} 
+                      disabled={fetchingProviderPlans}
+                      className="h-8 gap-1.5 text-xs shrink-0"
+                    >
+                      <RefreshCw className={fetchingProviderPlans ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+                      {fetchingProviderPlans ? "Fetching..." : `Pull ${newPlan.network.toUpperCase()} Plans`}
+                    </Button>
+                  </div>
+
+                  {availableProviderPlans.length > 0 && (
+                    <div className="pt-2 space-y-1.5 border-t border-border/40">
+                      <label className="text-xs font-semibold text-primary block">Select a Live Plan to Autofill:</label>
+                      <select 
+                        className="w-full h-10 px-3 rounded-lg border border-primary/30 bg-background text-xs outline-none focus:ring-1 focus:ring-primary"
+                        onChange={(e) => {
+                          const selected = availableProviderPlans.find(p => String(p.provider_plan_id) === e.target.value);
+                          if (selected) handleSelectProviderPlan(selected);
+                        }}
+                        defaultValue=""
+                      >
+                        <option value="" disabled>-- Found {availableProviderPlans.length} live plans on {newPlan.provider.toUpperCase()} --</option>
+                        {availableProviderPlans.map((p, idx) => (
+                          <option key={p.provider_plan_id || idx} value={p.provider_plan_id}>
+                            {p.plan_name} — ₦{Number(p.price || 0).toLocaleString()} (Provider Plan ID: {p.provider_plan_id})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-muted-foreground">Picking a live plan automatically sets the display name, provider plan ID, system code, and wholesale cost.</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
