@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -23,7 +24,7 @@ void main() async {
     systemNavigationBarColor: Colors.transparent,
   ));
 
-  if (Platform.isAndroid || Platform.isIOS) {
+  if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
     try {
       await Firebase.initializeApp();
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);

@@ -239,31 +239,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               ),
                             );
                           },
-                          child: Column(
+                          child: SizedBox(
+                            width: double.infinity,
                             key: ValueKey<int>(_page),
-                            children: [
-                              Text(
-                                slideData[_page]['title'] as String,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: -0.5,
-                                  color: theme.colorScheme.onSurface,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  slideData[_page]['title'] as String,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.5,
+                                    color: theme.colorScheme.onSurface,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                slideData[_page]['body'] as String,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  height: 1.5,
-                                  fontWeight: FontWeight.w500,
-                                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                                const SizedBox(height: 12),
+                                Text(
+                                  slideData[_page]['body'] as String,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    height: 1.5,
+                                    fontWeight: FontWeight.w500,
+                                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),

@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -65,7 +65,7 @@ class _ShellScreenState extends State<ShellScreen> {
             FilledButton(
               onPressed: () async {
                 Navigator.pop(context);
-                final url = Platform.isIOS ? session.appStoreUrl : session.playStoreUrl;
+                final url = (defaultTargetPlatform == TargetPlatform.iOS) ? session.appStoreUrl : session.playStoreUrl;
                 final uri = Uri.parse(url);
                 if (await canLaunchUrl(uri)) {
                   await launchUrl(uri, mode: LaunchMode.externalApplication);

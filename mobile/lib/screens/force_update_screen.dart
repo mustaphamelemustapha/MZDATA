@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../widgets/primary_button.dart';
@@ -16,7 +16,7 @@ class ForceUpdateScreen extends StatelessWidget {
   });
 
   Future<void> _launchStore() async {
-    final url = Platform.isIOS ? appStoreUrl : playStoreUrl;
+    final url = (defaultTargetPlatform == TargetPlatform.iOS) ? appStoreUrl : playStoreUrl;
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
