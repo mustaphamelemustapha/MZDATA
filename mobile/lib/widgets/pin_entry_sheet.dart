@@ -79,6 +79,7 @@ class _PinPadScreenState extends State<_PinPadScreen> with SingleTickerProviderS
   );
 
   bool _showBiometricButton = false;
+  BiometricAvailability? _biometricAvailability;
 
   @override
   void initState() {
@@ -87,6 +88,11 @@ class _PinPadScreenState extends State<_PinPadScreen> with SingleTickerProviderS
   }
 
   Future<void> _checkBiometricAvailability() async {
+    final changed = await BiometricService.hasEnrolledBiometricsChanged();
+    if (changed) {
+      await BiometricService.deletePin();
+      return;
+    }
     final enabled = await BiometricService.isAppLockEnabled;
     final availability = await BiometricService.getAvailability();
     final savedPin = await BiometricService.getPin();
@@ -96,6 +102,7 @@ class _PinPadScreenState extends State<_PinPadScreen> with SingleTickerProviderS
         savedPin.length == widget.pinLength) {
       if (mounted) {
         setState(() {
+          _biometricAvailability = availability;
           _showBiometricButton = true;
         });
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -107,10 +114,11 @@ class _PinPadScreenState extends State<_PinPadScreen> with SingleTickerProviderS
 
   Future<void> _authenticateWithBiometrics() async {
     if (_submitting) return;
-    final success = await BiometricService.authenticate(
-      reason: 'Verify with biometrics to continue',
+    final label = _biometricAvailability?.label ?? 'biometrics';
+    final result = await BiometricService.authenticateWithDetails(
+      reason: 'Verify with $label to continue',
     );
-    if (success && mounted) {
+    if (result.success && mounted) {
       final savedPin = await BiometricService.getPin();
       if (savedPin != null && savedPin.length == widget.pinLength) {
         setState(() {
@@ -118,6 +126,10 @@ class _PinPadScreenState extends State<_PinPadScreen> with SingleTickerProviderS
         });
         await _confirm();
       }
+    } else if (result.errorMessage != null && !result.userCanceled && mounted) {
+      setState(() {
+        _error = result.errorMessage;
+      });
     }
   }
 
@@ -283,14 +295,14 @@ class _PinPadScreenState extends State<_PinPadScreen> with SingleTickerProviderS
         _showBiometricButton
             ? _keyButton(
                 child: Icon(
-                  Icons.fingerprint_rounded,
+                  _biometricAvailability?.icon ?? Icons.fingerprint_rounded,
                   size: 32,
                   color: isDark ? Colors.white70 : Colors.black54,
                 ),
                 onTap: _authenticateWithBiometrics,
                 enabled: !_submitting,
               )
-            : SizedBox(width: 76, height: 76),
+            : const SizedBox(width: 76, height: 76),
         _keyButton(child: Text('0', style: textStyle), onTap: () => _append('0')),
         _keyButton(
           child: Icon(
@@ -322,7 +334,7 @@ class _PinPadScreenState extends State<_PinPadScreen> with SingleTickerProviderS
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
-          'Authorize Payment',
+          widget.title.isNotEmpty ? widget.title : 'Enter PIN',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w700,

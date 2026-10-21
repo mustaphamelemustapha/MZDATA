@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -86,7 +88,7 @@ class _ReferralScreenState extends State<ReferralScreen> {
     final rawLink = (data['referral_link'] ?? '').toString().trim();
     final link = _getReferralLink(data);
     final text = StringBuffer()
-      ..writeln('MZDATA')
+      ..writeln(AppConfig.appName)
       ..writeln('Buy data, pay bills, and manage your wallet in one place.')
       ..writeln('Use my referral code: $code')
       ..writeln('');
@@ -97,15 +99,45 @@ class _ReferralScreenState extends State<ReferralScreen> {
     await SharePlus.instance.share(
       ShareParams(
         text: text.toString().trim(),
-        subject: 'Join me on MZDATA',
+        subject: 'Join me on ${AppConfig.appName}',
       ),
     );
   }
 
   String _getReferralLink(Map<String, dynamic> data) {
-    final code = (data['referral_code'] ?? '').toString().trim();
-    if (code.isEmpty) return '';
-    return 'https://mzdata.org/register?ref=$code';
+    // Ensure we don't double up the domain
+    String link = (data['referral_link'] ?? '').toString().trim();
+    
+    // Fix the "double meledata" bug: meledata.vercel.app -> kullomadata.com
+    if (link.contains('meledata.vercel.app') || link.contains('axisvtu.vercel.app')) {
+      link = link.replaceFirst('https://meledata.vercel.app', 'https://${AppConfig.supportDomain}');
+      link = link.replaceFirst('meledata.vercel.app', AppConfig.supportDomain);
+      link = link.replaceFirst('https://axisvtu.vercel.app', 'https://${AppConfig.supportDomain}');
+      link = link.replaceFirst('axisvtu.vercel.app', AppConfig.supportDomain);
+    } else if (link.contains('.vercel.app')) {
+      link = link.replaceAll('.vercel.app', AppConfig.supportDomain);
+    }
+
+    // Final check to ensure it's the correct production domain
+    if (!link.startsWith('https://${AppConfig.supportDomain}')) {
+      if (link.contains('/signup?')) {
+        final query = link.split('?').last;
+        link = 'https://${AppConfig.supportDomain}/signup?$query';
+      }
+    }
+    
+    // Absolute permanent fix for any doubling
+    if (link.contains('kullomadata.comkullomadata.com')) {
+      link = link.replaceAll('kullomadata.comkullomadata.com', AppConfig.supportDomain);
+    }
+    if (link.contains('kullomadata.com/meledata')) {
+      link = link.replaceFirst('kullomadata.com/meledata', AppConfig.supportDomain);
+    }
+    if (link.contains('kullomadata.com/axisvtu')) {
+      link = link.replaceFirst('kullomadata.com/axisvtu', AppConfig.supportDomain);
+    }
+    
+    return link;
   }
 
   String _money(dynamic value) {
@@ -552,7 +584,7 @@ class _ReferralScreenState extends State<ReferralScreen> {
             )
           else if (items.isEmpty)
             _EmptyHistory(
-              message: 'No referrals yet. Share your code to start earning once your friends join MZDATA.',
+              message: 'No referrals yet. Share your code to start earning once your friends join ${AppConfig.appName}.',
             )
           else
             ...items.whereType<Map>().map((raw) {

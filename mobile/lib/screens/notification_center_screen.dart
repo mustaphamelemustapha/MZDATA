@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -150,7 +152,70 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
     return (tx['tx_type'] ?? 'transaction').toString().trim().toLowerCase();
   }
 
-  bool _isCredit(Map<String, dynamic> tx) => _typeOf(tx) == 'wallet_fund' || _typeOf(tx) == 'admin_credit' || _typeOf(tx) == 'agent_reward';
+  bool _isCredit(Map<String, dynamic> tx) {
+    final type = _typeOf(tx);
+    final failure = (tx['failure_reason'] ?? '').toString().trim().toLowerCase();
+    final ref = (tx['reference'] ?? '').toString().trim().toUpperCase();
+
+    String ledger = '';
+    final meta = tx['meta'];
+    if (meta is Map) {
+      ledger = (meta['ledger_description'] ?? '').toString().trim().toLowerCase();
+    }
+
+    if (failure.contains('debit') || ledger.contains('debit')) {
+      return false;
+    }
+
+    const creditTypes = {
+      'wallet_fund',
+      'wallet_funding',
+      'fund',
+      'funding',
+      'topup',
+      'top_up',
+      'admin_credit',
+      'agent_reward',
+      'deposit',
+      'credit',
+      'refund',
+      'cashback',
+      'bonus',
+      'referral_bonus',
+      'transfer_in',
+      'receive',
+    };
+    if (creditTypes.contains(type)) {
+      return true;
+    }
+
+    if (failure.contains('credit') ||
+        failure.contains('fund') ||
+        failure.contains('deposit') ||
+        failure.contains('reward') ||
+        failure.contains('refund') ||
+        failure.contains('bonus') ||
+        ledger.contains('credit') ||
+        ledger.contains('fund') ||
+        ledger.contains('deposit') ||
+        ledger.contains('reward') ||
+        ledger.contains('refund') ||
+        ledger.contains('bonus')) {
+      return true;
+    }
+
+    if (ref.startsWith('FUND_') ||
+        ref.startsWith('DEP_') ||
+        ref.startsWith('TOP_') ||
+        ref.startsWith('CREDIT_') ||
+        ref.startsWith('MONNIFY_') ||
+        ref.startsWith('PAYSTACK_') ||
+        ref.startsWith('FLW_')) {
+      return true;
+    }
+
+    return false;
+  }
 
   double _amountOf(Map<String, dynamic> tx) {
     final value = tx['amount'];
@@ -159,6 +224,17 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   }
 
   String _titleFor(Map<String, dynamic> tx) {
+    if (_isCredit(tx)) {
+      final type = _typeOf(tx);
+      if (type == 'agent_reward') return 'Agent Reward';
+      if (type == 'admin_credit') return 'Admin Credit';
+      final failure = (tx['failure_reason'] ?? '').toString().trim().toLowerCase();
+      if (failure.contains('admin credit')) return 'Admin Credit';
+      if (failure.contains('reward')) return 'Agent Reward';
+      if (failure.contains('refund')) return 'Refund Credit';
+      if (failure.contains('bonus')) return 'Bonus Credit';
+      return 'Account Top-up';
+    }
     return switch (_typeOf(tx)) {
       'data' => 'Data Bundle',
       'wallet_fund' => 'Account Top-up',
@@ -316,7 +392,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   String _receiptSenderFor() {
     final user = context.read<SessionController>().user;
     final name = user?['full_name'];
-    return _firstText([name, 'MZDATA User'], fallback: 'MZDATA User');
+    return _firstText([name, '${AppConfig.appName} User'], fallback: '${AppConfig.appName} User');
   }
 
   String _receiptReferenceFor(Map<String, dynamic> tx) {
@@ -489,7 +565,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                                   child: Padding(
                                     padding: const EdgeInsets.all(6),
                                     child: Image.asset(
-                                      'assets/brand/meledata-icon.png',
+                                      AppConfig.logoAssetPath,
                                       fit: BoxFit.contain,
                                       errorBuilder: (c, e, s) => Icon(
                                         _iconFor(tx),
@@ -857,7 +933,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
     final size = MediaQuery.sizeOf(context);
     final compact = size.width < 360 || size.height < 760;
     final user = context.watch<SessionController>().user ?? {};
-    final name = (user['full_name'] ?? user['name'] ?? 'MZDATA User')
+    final name = (user['full_name'] ?? user['name'] ?? '${AppConfig.appName} User')
         .toString()
         .trim();
 

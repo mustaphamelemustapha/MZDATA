@@ -215,8 +215,9 @@ class _ElectricityAmountScreenState extends State<ElectricityAmountScreen> {
     required String token,
     required List<ReceiptField> fields,
   }) {
-    // Always refresh balance so failed or successful transactions appear immediately
-    context.read<SessionController>().refreshBalance();
+    if (status != 'failed') {
+      context.read<SessionController>().refreshBalance();
+    }
     final ok = status == 'success';
     final userName = context.read<SessionController>().user?['full_name'] ?? 'User';
     final amountText = _amountCtrl.text.replaceAll(',', '').trim();

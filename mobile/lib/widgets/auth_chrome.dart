@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 
 import 'theme_toggle_button.dart';
@@ -87,15 +89,20 @@ class AuthHeroBlock extends StatelessWidget {
                 width: compact ? logoSize * 0.8 : logoSize,
                 height: compact ? logoSize * 0.8 : logoSize,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(compact ? 24 : 32),
                   border: Border.all(
-                    color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
-                    width: 1,
+                    color: isDark
+                        ? const Color(0xFF4F46E5).withValues(alpha: 0.35)
+                        : const Color(0xFF2563EB).withValues(alpha: 0.15),
+                    width: 2,
                   ),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),),
+                    BoxShadow(
+                      color: (isDark ? const Color(0xFF4F46E5) : Colors.black)
+                          .withValues(alpha: isDark ? 0.3 : 0.1),
+                      blurRadius: compact ? 24 : 32,
+                      offset: Offset(0, compact ? 10 : 16),
+                    ),
                   ],
                 ),
                 child: Center(
@@ -108,7 +115,7 @@ class AuthHeroBlock extends StatelessWidget {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(compact ? 20 : 28),
                       child: Image.asset(
-                        'assets/brand/meledata-icon.png',
+                        AppConfig.logoAssetPath,
                         width: compact ? logoSize * 0.8 : logoSize,
                         height: compact ? logoSize * 0.8 : logoSize,
                         fit: BoxFit.cover,

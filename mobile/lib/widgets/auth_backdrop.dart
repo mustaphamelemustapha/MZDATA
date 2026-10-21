@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
@@ -101,7 +103,7 @@ class AuthBackdrop extends StatelessWidget {
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(24),
                                   child: Image.asset(
-                                    'assets/brand/meledata-icon.png',
+                                    AppConfig.logoAssetPath,
                                     width: 98,
                                     height: 98,
                                     fit: BoxFit.cover,
@@ -113,7 +115,7 @@ class AuthBackdrop extends StatelessWidget {
                         ),
                         const SizedBox(height: 18),
                         Text(
-                          'MZDATA',
+                          AppConfig.appName,
                           style: TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.w900,
@@ -235,10 +237,10 @@ class _BrandPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Image.asset('assets/brand/meledata-icon.png', width: 18, height: 18),
+          Image.asset(AppConfig.logoAssetPath, width: 18, height: 18),
           const SizedBox(width: 8),
           Text(
-            'MZDATA',
+            AppConfig.appName,
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,

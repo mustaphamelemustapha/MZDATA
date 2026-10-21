@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'dart:async';
 import '../utils/fast_route.dart';
 import 'package:flutter/material.dart';
@@ -18,7 +20,7 @@ import '../theme/axis_tokens.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/animated_balance_text.dart';
-import '../widgets/mele_data_loader.dart';
+import '../widgets/dynamic_brand_loader.dart';
 
 
 const double _walletInsightAspectRatio = 1.46;
@@ -136,25 +138,19 @@ class _WalletScreenState extends State<WalletScreen> {
     });
   }
 
-  void _reloadWallet(String token, String dashboardKey) {
+  void _reloadWallet(String token, String dashboardKey, {bool forceRefresh = false}) {
     final service = WalletService(token: token);
-    _walletFuture = service.getWallet();
-    _accountsFuture = service.getBankAccounts();
+    _walletFuture = service.getWallet(forceRefresh: forceRefresh);
+    _accountsFuture = service.getBankAccounts(forceRefresh: forceRefresh);
     _transactionsFuture = _loadRecentTransactions(token);
     _walletFuture!.then((data) {
       if (!mounted || dashboardKey != _activeDashboardKey) return;
-      setState(() {
-        _cachedWalletData = _asMap(data);
-      });
       unawaited(DashboardSnapshotCache.save(dashboardKey, wallet: data));
     }).catchError((e) {
       if (mounted) _handleAuthError(e);
     });
     _accountsFuture!.then((data) {
       if (!mounted || dashboardKey != _activeDashboardKey) return;
-      setState(() {
-        _cachedAccountsData = _asMap(data);
-      });
       unawaited(DashboardSnapshotCache.save(dashboardKey, accounts: data));
     }).catchError((e) {
       if (mounted) _handleAuthError(e);
@@ -192,16 +188,12 @@ class _WalletScreenState extends State<WalletScreen> {
   Future<void> _refresh() async {
     final token = (context.read<SessionController>().token ?? '').trim();
     if (token.isEmpty) return;
-    
-    // Clear cache to ensure pull-to-refresh gets fresh data
-    await ApiClient.clearCache();
-    
     final dashboardKey =
         DashboardSnapshotCache.identityFromUser(
           context.read<SessionController>().user,
         ) ??
         token;
-    setState(() => _reloadWallet(token, dashboardKey));
+    setState(() => _reloadWallet(token, dashboardKey, forceRefresh: true));
     try {
       await Future.wait([
         _walletFuture!,
@@ -259,7 +251,70 @@ class _WalletScreenState extends State<WalletScreen> {
     return 0;
   }
 
-  bool _isCredit(Map<String, dynamic> tx) => _typeOf(tx) == 'wallet_fund';
+  bool _isCredit(Map<String, dynamic> tx) {
+    final type = _typeOf(tx);
+    final failure = (tx['failure_reason'] ?? '').toString().trim().toLowerCase();
+    final ref = (tx['reference'] ?? '').toString().trim().toUpperCase();
+
+    String ledger = '';
+    final meta = tx['meta'];
+    if (meta is Map) {
+      ledger = (meta['ledger_description'] ?? '').toString().trim().toLowerCase();
+    }
+
+    if (failure.contains('debit') || ledger.contains('debit')) {
+      return false;
+    }
+
+    const creditTypes = {
+      'wallet_fund',
+      'wallet_funding',
+      'fund',
+      'funding',
+      'topup',
+      'top_up',
+      'admin_credit',
+      'agent_reward',
+      'deposit',
+      'credit',
+      'refund',
+      'cashback',
+      'bonus',
+      'referral_bonus',
+      'transfer_in',
+      'receive',
+    };
+    if (creditTypes.contains(type)) {
+      return true;
+    }
+
+    if (failure.contains('credit') ||
+        failure.contains('fund') ||
+        failure.contains('deposit') ||
+        failure.contains('reward') ||
+        failure.contains('refund') ||
+        failure.contains('bonus') ||
+        ledger.contains('credit') ||
+        ledger.contains('fund') ||
+        ledger.contains('deposit') ||
+        ledger.contains('reward') ||
+        ledger.contains('refund') ||
+        ledger.contains('bonus')) {
+      return true;
+    }
+
+    if (ref.startsWith('FUND_') ||
+        ref.startsWith('DEP_') ||
+        ref.startsWith('TOP_') ||
+        ref.startsWith('CREDIT_') ||
+        ref.startsWith('MONNIFY_') ||
+        ref.startsWith('PAYSTACK_') ||
+        ref.startsWith('FLW_')) {
+      return true;
+    }
+
+    return false;
+  }
 
   String _typeOf(Map<String, dynamic> tx) {
     return (tx['tx_type'] ?? 'transaction').toString().trim().toLowerCase();
@@ -270,9 +325,19 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   String _titleFor(Map<String, dynamic> tx) {
+    if (_isCredit(tx)) {
+      final type = _typeOf(tx);
+      if (type == 'agent_reward') return 'Agent Reward';
+      if (type == 'admin_credit') return 'Admin Credit';
+      final failure = (tx['failure_reason'] ?? '').toString().trim().toLowerCase();
+      if (failure.contains('admin credit')) return 'Admin Credit';
+      if (failure.contains('reward')) return 'Agent Reward';
+      if (failure.contains('refund')) return 'Refund Credit';
+      if (failure.contains('bonus')) return 'Bonus Credit';
+      return 'Wallet Funding';
+    }
     return switch (_typeOf(tx)) {
       'data' => 'Data Purchase',
-      'wallet_fund' => 'Wallet Funding',
       'airtime' => 'Airtime Purchase',
       'cable' => 'Cable Subscription',
       'electricity' => 'Electricity Payment',
@@ -474,7 +539,7 @@ class _WalletScreenState extends State<WalletScreen> {
       await SharePlus.instance.share(
         ShareParams(
           text: text,
-          subject: 'MZDATA funding account details',
+          subject: '${AppConfig.appName} funding account details',
         ),
       );
     } catch (_) {
@@ -492,7 +557,7 @@ class _WalletScreenState extends State<WalletScreen> {
     required String accountName,
   }) {
     return [
-      'Fund my MZDATA wallet:',
+      'Fund my ${AppConfig.appName} wallet:',
       '',
       'Bank: $bankName',
       'Account Number: $accountNumber',
@@ -508,7 +573,7 @@ class _WalletScreenState extends State<WalletScreen> {
     required String accountName,
   }) {
     return [
-      'Fund my MZDATA wallet',
+      'Fund my ${AppConfig.appName} wallet',
       'Bank: $bankName',
       'Account Number: $accountNumber',
       'Account Name: $accountName',
@@ -520,7 +585,7 @@ class _WalletScreenState extends State<WalletScreen> {
     final size = MediaQuery.sizeOf(context);
     final compact = size.width < 360 || size.height < 760;
     final user = context.watch<SessionController>().user ?? {};
-    final name = (user['full_name'] ?? user['name'] ?? 'MZDATA User')
+    final name = (user['full_name'] ?? user['name'] ?? '${AppConfig.appName} User')
         .toString()
         .trim();
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -819,10 +884,8 @@ class _WalletScreenState extends State<WalletScreen> {
                 });
 
                 if (accounts.isEmpty) {
-                  return _WalletAccountUnavailable(
-                    message: 'Wallet account unavailable',
-                    actionLabel: 'Refresh',
-                    onAction: () => _refresh(),
+                  return _WalletAccountActivationCard(
+                    onActivated: () => _refresh(),
                   );
                 }
 
@@ -850,7 +913,7 @@ class _WalletScreenState extends State<WalletScreen> {
                 // Format accountHolderName nicely
                 String rawName = (account['account_name'] ?? name).toString().trim();
                 final prefixPattern = RegExp(
-                  r'^(?:MMTECHGLOBE|MZDATA)(?:\s*[-\/:]\s*|\s+)?',
+                  r'^(?:MMTECHGLOBE|${AppConfig.appName})(?:\s*[-\/:]\s*|\s+)?',
                   caseSensitive: false,
                 );
                 String cleanName = rawName.replaceFirst(prefixPattern, '').trim();
@@ -916,7 +979,13 @@ class _WalletScreenState extends State<WalletScreen> {
                           ),
                         ],
                       ),
-                  ],
+                    ],
+                    if (!hasMonie) ...[
+                      const SizedBox(height: 16),
+                      _WalletAccountActivationCard(
+                        onActivated: () => _refresh(),
+                      ),
+                    ],
                   ],
                 );
               },
@@ -1492,7 +1561,8 @@ class _BankCard extends StatelessWidget {
     final isSterling = bankName.toLowerCase().contains('sterling');
     final isPaystack = bankName.toLowerCase().contains('paystack') || bankName.toLowerCase().contains('titan');
     final isPalmpay = bankName.toLowerCase().contains('palmpay');
-    final isBranded = isMoniepoint || isWema || isSterling || isPaystack || isPalmpay;
+    final is9PSB = bankName.toLowerCase().contains('9psb');
+    final isBranded = isMoniepoint || isWema || isSterling || isPaystack || isPalmpay || is9PSB;
     final useWhiteText = isBranded || isDark;
 
     final cardGradient = isMoniepoint
@@ -1822,17 +1892,7 @@ class _BankCard extends StatelessWidget {
   }
 
   String _formatAccountNumber(String value) {
-    final digits = value.replaceAll(RegExp(r'\s+'), '');
-    if (digits.isEmpty) return '';
-    if (digits.length == 10) {
-      return '${digits.substring(0, 4)} ${digits.substring(4, 7)} ${digits.substring(7)}';
-    }
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && i % 4 == 0) buffer.write(' ');
-      buffer.write(digits[i]);
-    }
-    return buffer.toString();
+    return value.replaceAll(RegExp(r'\s+'), '').trim();
   }
 }
 
@@ -2202,7 +2262,7 @@ class _WalletAccountActivationCardState extends State<_WalletAccountActivationCa
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'MZDATA does NOT store or keep your BVN or NIN. This identity verification is securely routed directly to our central CBN-licensed payment partner (Monnify) to automatically generate your personalized funding accounts.',
+                    '${AppConfig.appName} does NOT store or keep your BVN or NIN. This identity verification is securely routed directly to our central CBN-licensed payment partner (Monnify) to automatically generate your personalized funding accounts.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                       fontSize: 11,

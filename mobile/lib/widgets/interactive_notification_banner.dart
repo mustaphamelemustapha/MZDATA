@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -10,12 +12,14 @@ class InteractiveNotificationBanner extends StatefulWidget {
     required this.title,
     required this.message,
     required this.logoAsset,
+    this.imageUrl,
     required this.onDismiss,
   });
 
   final String title;
   final String message;
   final String logoAsset;
+  final String? imageUrl;
   final VoidCallback onDismiss;
 
   static void show(
@@ -23,8 +27,10 @@ class InteractiveNotificationBanner extends StatefulWidget {
     required String title,
     required String message,
     String? soundType,
-    String logoAsset = 'assets/brand/meledata-icon.png',
+    String? imageUrl,
+    String? logoAsset,
   }) {
+    final effectiveLogo = logoAsset ?? AppConfig.logoAssetPath;
     // Generate tactile feedback to simulate native notification arrival
     HapticFeedback.lightImpact();
     Future.delayed(const Duration(milliseconds: 80), () {
@@ -48,7 +54,8 @@ class InteractiveNotificationBanner extends StatefulWidget {
       builder: (context) => InteractiveNotificationBanner(
         title: title,
         message: message,
-        logoAsset: logoAsset,
+        logoAsset: effectiveLogo,
+        imageUrl: imageUrl,
         onDismiss: () {
           entry.remove();
         },
@@ -222,6 +229,20 @@ class _InteractiveNotificationBannerState extends State<InteractiveNotificationB
                                 height: 1.35,
                               ),
                             ),
+                            if (widget.imageUrl != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.network(
+                                    widget.imageUrl!,
+                                    height: 140,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),

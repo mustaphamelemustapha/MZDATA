@@ -1,9 +1,10 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../services/api_client.dart';
 import '../services/transactions_service.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
@@ -13,7 +14,14 @@ import '../widgets/glass_card.dart';
 import '../widgets/purchase_result_sheet.dart';
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  final bool isTab;
+  final VoidCallback? onBackToHome;
+
+  const HistoryScreen({
+    super.key,
+    this.isTab = true,
+    this.onBackToHome,
+  });
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -42,23 +50,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final session = context.watch<SessionController>();
     final token = (session.token ?? '').trim();
     final balanceTick = session.balanceRefreshTick;
-    
-    bool shouldReload = false;
-    
-    if (token.isNotEmpty && token != _activeToken) {
-      _activeToken = token;
-      shouldReload = true;
-    }
-    
+    bool tickChanged = false;
     if (_activeBalanceTick == null) {
       _activeBalanceTick = balanceTick;
     } else if (balanceTick != _activeBalanceTick) {
       _activeBalanceTick = balanceTick;
-      shouldReload = true;
+      tickChanged = true;
     }
-    
-    if (shouldReload) {
-      _reload();
+
+    if (token.isNotEmpty && (token != _activeToken || tickChanged)) {
+      _activeToken = token;
+      _reload(forceRefresh: tickChanged);
     }
   }
 
@@ -68,15 +70,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
     super.dispose();
   }
 
-  Future<void> _reload() async {
+  Future<void> _reload({bool forceRefresh = true}) async {
     final token = (context.read<SessionController>().token ?? '').trim();
     if (token.isEmpty) return;
-    
-    // Clear cache to ensure pull-to-refresh gets fresh data
-    await ApiClient.clearCache();
-    
     setState(() {
-      _txFuture = TransactionsService(token: token).getTransactions();
+      _txFuture = TransactionsService(token: token).getTransactions(forceRefresh: forceRefresh);
     });
     await _txFuture;
   }
@@ -95,7 +93,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final type = _typeOf(tx);
 
       if (_statusFilter != 'all' && status != _statusFilter) return false;
-      if (_typeFilter != 'all' && type != _typeFilter) return false;
+      if (_typeFilter != 'all') {
+        if (_typeFilter == 'wallet_fund') {
+          if (!_isCredit(tx)) return false;
+        } else if (type != _typeFilter) {
+          return false;
+        }
+      }
       if (!_matchesDateFilter(tx)) return false;
 
       if (query.isEmpty) return true;
@@ -137,7 +141,71 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return (tx['tx_type'] ?? 'transaction').toString().trim().toLowerCase();
   }
 
-  bool _isCredit(Map<String, dynamic> tx) => _typeOf(tx) == 'wallet_fund' || _typeOf(tx) == 'admin_credit' || _typeOf(tx) == 'agent_reward';
+  bool _isCredit(Map<String, dynamic> tx) {
+    final type = _typeOf(tx);
+    final failure = (tx['failure_reason'] ?? '').toString().trim().toLowerCase();
+    final ref = (tx['reference'] ?? '').toString().trim().toUpperCase();
+
+    String ledger = '';
+    final meta = tx['meta'];
+    if (meta is Map) {
+      ledger = (meta['ledger_description'] ?? '').toString().trim().toLowerCase();
+    }
+
+    // Explicit debits must never be counted as credit
+    if (failure.contains('debit') || ledger.contains('debit')) {
+      return false;
+    }
+
+    const creditTypes = {
+      'wallet_fund',
+      'wallet_funding',
+      'fund',
+      'funding',
+      'topup',
+      'top_up',
+      'admin_credit',
+      'agent_reward',
+      'deposit',
+      'credit',
+      'refund',
+      'cashback',
+      'bonus',
+      'referral_bonus',
+      'transfer_in',
+      'receive',
+    };
+    if (creditTypes.contains(type)) {
+      return true;
+    }
+
+    if (failure.contains('credit') ||
+        failure.contains('fund') ||
+        failure.contains('deposit') ||
+        failure.contains('reward') ||
+        failure.contains('refund') ||
+        failure.contains('bonus') ||
+        ledger.contains('credit') ||
+        ledger.contains('fund') ||
+        ledger.contains('deposit') ||
+        ledger.contains('reward') ||
+        ledger.contains('refund') ||
+        ledger.contains('bonus')) {
+      return true;
+    }
+
+    if (ref.startsWith('FUND_') ||
+        ref.startsWith('DEP_') ||
+        ref.startsWith('TOP_') ||
+        ref.startsWith('CREDIT_') ||
+        ref.startsWith('MONNIFY_') ||
+        ref.startsWith('PAYSTACK_') ||
+        ref.startsWith('FLW_')) {
+      return true;
+    }
+
+    return false;
+  }
 
   double _amountOf(Map<String, dynamic> tx) {
     final value = tx['amount'];
@@ -146,6 +214,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   String _titleFor(Map<String, dynamic> tx) {
+    if (_isCredit(tx)) {
+      final type = _typeOf(tx);
+      if (type == 'agent_reward') return 'Agent Reward';
+      if (type == 'admin_credit') return 'Admin Credit';
+      final failure = (tx['failure_reason'] ?? '').toString().trim().toLowerCase();
+      if (failure.contains('admin credit')) return 'Admin Credit';
+      if (failure.contains('reward')) return 'Agent Reward';
+      if (failure.contains('refund')) return 'Refund Credit';
+      if (failure.contains('bonus')) return 'Bonus Credit';
+      return 'Account Top-up';
+    }
     return switch (_typeOf(tx)) {
       'data' => 'Data Bundle',
       'wallet_fund' => 'Account Top-up',
@@ -439,6 +518,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   IconData _iconFor(Map<String, dynamic> tx) {
+    if (_isCredit(tx)) {
+      final type = _typeOf(tx);
+      if (type == 'agent_reward') return Icons.workspace_premium_rounded;
+      return Icons.account_balance_wallet_rounded;
+    }
     return switch (_typeOf(tx)) {
       'data' => Icons.wifi_rounded,
       'wallet_fund' => Icons.account_balance_wallet_rounded,
@@ -532,7 +616,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   String _receiptSenderFor() {
     final user = context.read<SessionController>().user;
     final name = user?['full_name'];
-    return _firstText([name, 'MZDATA User'], fallback: 'MZDATA User');
+    return _firstText([name, '${AppConfig.appName} User'], fallback: '${AppConfig.appName} User');
   }
 
   String _receiptReferenceFor(Map<String, dynamic> tx) {
@@ -714,7 +798,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   child: Padding(
                                     padding: const EdgeInsets.all(6),
                                     child: Image.asset(
-                                      'assets/brand/meledata-icon.png',
+                                      AppConfig.logoAssetPath,
                                       fit: BoxFit.contain,
                                       errorBuilder: (c, e, s) => Icon(
                                         _iconFor(tx),
@@ -979,11 +1063,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 children: [
                   Row(
                     children: [
-                      if (Navigator.canPop(context))
+                      if ((!widget.isTab && Navigator.canPop(context)) || (widget.isTab && widget.onBackToHome != null))
                         Padding(
                           padding: const EdgeInsets.only(right: 12),
                           child: InkWell(
-                            onTap: () => Navigator.pop(context),
+                            onTap: () {
+                              if (widget.isTab) {
+                                widget.onBackToHome?.call();
+                              } else if (Navigator.canPop(context)) {
+                                Navigator.pop(context);
+                              }
+                            },
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
                               padding: const EdgeInsets.all(8),
@@ -1061,11 +1151,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
             else
               Row(
                 children: [
-                  if (Navigator.canPop(context))
+                  if ((!widget.isTab && Navigator.canPop(context)) || (widget.isTab && widget.onBackToHome != null))
                     Padding(
                       padding: const EdgeInsets.only(right: 12),
                       child: InkWell(
-                        onTap: () => Navigator.pop(context),
+                        onTap: () {
+                          if (widget.isTab) {
+                            widget.onBackToHome?.call();
+                          } else if (Navigator.canPop(context)) {
+                            Navigator.pop(context);
+                          }
+                        },
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           padding: const EdgeInsets.all(8),
@@ -1851,88 +1947,103 @@ class _HistoryTxTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: statusColor, size: 20),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    amount,
-                    style: TextStyle(
-                      color: amountColor,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      letterSpacing: -0.5,
-                    ),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.05),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Icon(icon, color: statusColor, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      if (status == 'failed') ...[
-                        Icon(Icons.error_rounded, size: 12, color: Theme.of(context).colorScheme.error),
-                        const SizedBox(width: 4),
-                      ],
                       Text(
-                        date,
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
-                ],
-              ),
-            ],
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      amount,
+                      style: TextStyle(
+                        color: amountColor,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (status == 'failed') ...[
+                          Icon(Icons.error_rounded, size: 12, color: Theme.of(context).colorScheme.error),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          date,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

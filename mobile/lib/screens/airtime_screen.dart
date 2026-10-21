@@ -1,6 +1,9 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../models/promo.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,7 +42,8 @@ Color _getNetworkColor(String network, [BuildContext? context]) {
 }
 
 class AirtimeScreen extends StatefulWidget {
-  const AirtimeScreen({super.key});
+  final UserPromo? initialPromo;
+  const AirtimeScreen({super.key, this.initialPromo});
 
   @override
   State<AirtimeScreen> createState() => _AirtimeScreenState();
@@ -91,6 +95,7 @@ class _AirtimeScreenState extends State<AirtimeScreen> {
   bool _beneficiariesEnabled = true;
   bool _smartSuggestionEnabled = true;
   String? _error;
+  UserPromo? _appliedPromo;
   List<String> _networks = const ['mtn', 'glo', 'airtel', '9mobile'];
   List<String> _recentNumbers = [];
   List<String> _suggestions = [];
@@ -108,6 +113,10 @@ class _AirtimeScreenState extends State<AirtimeScreen> {
   @override
   void initState() {
     super.initState();
+    _appliedPromo = widget.initialPromo;
+    if (_appliedPromo != null && _appliedPromo!.promoCode.applicableNetwork != 'ALL') {
+      _network = _appliedPromo!.promoCode.applicableNetwork.toLowerCase();
+    }
     _phoneCtrl.addListener(_onPhoneChanged);
     _amountCtrl.addListener(_invalidateRequestId);
     _loadCatalog();
@@ -325,8 +334,8 @@ class _AirtimeScreenState extends State<AirtimeScreen> {
       });
       return;
     }
-    if (amount < 50) {
-      setState(() => _error = 'Minimum airtime amount is ₦50.');
+    if (amount < 100) {
+      setState(() => _error = 'Minimum airtime amount is ₦100.');
       return;
     }
 
@@ -350,6 +359,7 @@ class _AirtimeScreenState extends State<AirtimeScreen> {
         phoneNumber: phone,
         amount: amount,
         clientRequestId: _activeRequestId,
+        userPromoId: _appliedPromo?.id,
       );
       final status = _resolveResultStatus(res);
       if (!mounted) return;
@@ -439,8 +449,9 @@ class _AirtimeScreenState extends State<AirtimeScreen> {
     required String reference,
     required List<ReceiptField> fields,
   }) {
-    // Always refresh balance so failed or successful transactions appear immediately
-    context.read<SessionController>().refreshBalance();
+    if (status != 'failed') {
+      context.read<SessionController>().refreshBalance();
+    }
     final ok = status == 'success';
     final userName =
         context.read<SessionController>().user?['full_name'] ?? 'User';
@@ -456,7 +467,7 @@ class _AirtimeScreenState extends State<AirtimeScreen> {
         ok: ok,
         time: _formatDate(DateTime.now()),
         sender: userName,
-        provider: 'MZDATA',
+        provider: AppConfig.appName,
         type: 'Airtime',
         network: _network.toUpperCase(),
         phone: phone,
@@ -873,8 +884,8 @@ class _AirtimeAmountScreenState extends State<AirtimeAmountScreen> {
 
     final amountText = _amountCtrl.text.replaceAll(',', '').trim();
     final amount = double.tryParse(amountText) ?? 0;
-    if (amount < 50) {
-      setState(() => _error = 'Minimum airtime amount is ₦50.');
+    if (amount < 100) {
+      setState(() => _error = 'Minimum airtime amount is ₦100.');
       return;
     }
 
@@ -954,8 +965,8 @@ class _AirtimeAmountScreenState extends State<AirtimeAmountScreen> {
     final amountText = _amountCtrl.text.replaceAll(',', '').trim();
     final amount = double.tryParse(amountText) ?? 0;
     
-    if (amount < 50) {
-      setState(() => _error = 'Minimum airtime amount is ₦50.');
+    if (amount < 100) {
+      setState(() => _error = 'Minimum airtime amount is ₦100.');
       return;
     }
     
@@ -1001,8 +1012,9 @@ class _AirtimeAmountScreenState extends State<AirtimeAmountScreen> {
     required String subtitle,
     required List<ReceiptField> fields,
   }) {
-    // Always refresh balance so failed or successful transactions appear immediately
-    context.read<SessionController>().refreshBalance();
+    if (status != 'failed') {
+      context.read<SessionController>().refreshBalance();
+    }
     final ok = status == 'success';
     final userName = context.read<SessionController>().user?['full_name'] ?? 'User';
     final amountText = _amountCtrl.text.replaceAll(',', '').trim();
@@ -1013,7 +1025,7 @@ class _AirtimeAmountScreenState extends State<AirtimeAmountScreen> {
     final Map<String, String> details = {
       'Date & Time': DateTime.now().toString().substring(0, 16),
       'Sender': userName,
-      'Provider': 'MZDATA',
+      'Provider': AppConfig.appName,
       'Transaction Type': 'Airtime Recharge',
       'Network': widget.network.toUpperCase(),
       'Phone Number': widget.phone,
@@ -1189,7 +1201,7 @@ class _AirtimeAmountScreenState extends State<AirtimeAmountScreen> {
               
               // Allowed Limit
               Text(
-                'Allowed limit: ₦50 – ₦50,000',
+                'Allowed limit: ₦100 – ₦50,000',
                 style: TextStyle(
                   color: isDark ? Colors.white54 : Colors.grey,
                   fontSize: 13,
@@ -1529,7 +1541,7 @@ class _AirtimeAmountPickerState extends State<_AirtimeAmountPicker> {
           crossAxisSpacing: 10,
           childAspectRatio: 1.4,
           children: [
-            50, 100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000, 15000, 20000
+            100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000, 15000, 20000
           ].map((v) {
             final label = v >= 1000 ? '₦${(v/1000).toStringAsFixed(0)}K' : '₦$v';
             return _PresetButton(
@@ -2234,7 +2246,7 @@ class _ShareableReceipt extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(6),
                     child: Image.asset(
-                      'assets/brand/meledata-icon.png',
+                      AppConfig.logoAssetPath,
                       fit: BoxFit.contain,
                       errorBuilder: (c, e, s) => Icon(
                         ok ? Icons.local_florist : Icons.error_outline_rounded,
@@ -2246,8 +2258,8 @@ class _ShareableReceipt extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              const Text(
-                'MZDATA',
+              Text(
+                AppConfig.appName,
                 style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900),
               ),
               const Text(
@@ -2293,7 +2305,7 @@ class _ShareableReceipt extends StatelessWidget {
               const SizedBox(height: 24),
               _ReceiptTableItem(label: 'Time', value: time),
               _ReceiptTableItem(label: 'Sender Name', value: sender, bold: true),
-              _ReceiptTableItem(label: 'Provider', value: 'MZDATA', bold: true),
+              _ReceiptTableItem(label: 'Provider', value: AppConfig.appName, bold: true),
               _ReceiptTableItem(label: 'Type', value: type, bold: true),
               _ReceiptTableItem(label: 'Network', value: network, bold: true),
               _ReceiptTableItem(label: 'Receiver Phone', value: phone, bold: true),
@@ -2301,8 +2313,8 @@ class _ShareableReceipt extends StatelessWidget {
               const SizedBox(height: 24),
               const Divider(height: 1),
               const SizedBox(height: 24),
-              const Text(
-                'mzdata.org',
+              Text(
+                AppConfig.supportDomain,
                 style: TextStyle(color: Colors.grey, fontSize: 11),
               ),
             ],

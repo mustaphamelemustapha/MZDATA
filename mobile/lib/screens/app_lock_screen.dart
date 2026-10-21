@@ -1,8 +1,11 @@
+import '../config.dart';
+
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../state/session.dart';
-import '../widgets/auth_backdrop.dart';
+import '../widgets/concentric_circles_bg.dart';
 import '../services/api_client.dart';
 import '../services/biometric_service.dart';
 import '../services/transaction_pin_service.dart';
@@ -82,10 +85,22 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
 
     try {
       final success = await BiometricService.authenticate(
-        reason: 'Authenticate to unlock MZDATA',
+        reason: 'Authenticate to unlock ${AppConfig.appName}',
       );
       if (success && mounted) {
-        context.read<SessionController>().unlock();
+        final session = context.read<SessionController>();
+        if (session.isAuthenticated) {
+          session.unlock();
+        } else {
+          final ok = await session.loginWithBiometrics();
+          if (mounted) {
+            if (ok) {
+              session.unlock();
+            } else {
+              setState(() => _errorMessage = 'Session expired. Tap "Use Password" to log in again.');
+            }
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -130,8 +145,34 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
     final token = (session.token ?? '').trim();
 
     try {
+      // 1. Instant Local Verification
+      final cachedPin = await BiometricService.getPin();
+      if (cachedPin != null && cachedPin == _pinCode) {
+        if (session.isAuthenticated) {
+          if (mounted) session.unlock();
+          return;
+        }
+        final ok = await session.loginWithBiometrics();
+        if (mounted) {
+          if (ok) {
+            session.unlock();
+          } else {
+            setState(() {
+              _errorMessage = 'Session expired. Tap "Use Password" to log in again.';
+              _isVerifyingPin = false;
+              _pinCode = '';
+            });
+          }
+        }
+        return;
+      }
+
+      // 2. Fallback Network Verification
       final service = TransactionPinService(token: token);
       await service.verify(_pinCode);
+      
+      // If network verification succeeds, cache the correct PIN for future instant logins
+      await BiometricService.savePin(_pinCode);
       
       if (mounted) {
         session.unlock();
@@ -156,184 +197,204 @@ class _AppLockScreenState extends State<AppLockScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final session = context.watch<SessionController>();
-    final user = session.user ?? session.lastUser ?? {};
-    final profileImageUrl = user['profile_image_url'] as String?;
-    final name = (user['full_name'] ?? user['name'] ?? 'U').toString().trim();
-    final initials = name.isNotEmpty ? name.substring(0, 1).toUpperCase() : 'U';
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Column(
-            children: [
-              const SizedBox(height: 48),
-              
-              // Avatar / Logo
-              Center(
-                child: CircleAvatar(
-                  radius: 42,
-                  backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-                  backgroundImage: profileImageUrl != null && profileImageUrl.isNotEmpty
-                      ? NetworkImage(profileImageUrl)
-                      : const AssetImage('assets/brand/meledata-icon.png') as ImageProvider,
-                  child: profileImageUrl != null && profileImageUrl.isNotEmpty
-                      ? null
-                      : null,
+      body: ConcentricCirclesBg(
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        children: [
+                          const SizedBox(height: 60),
+                          
+                          // Logo matching Amigo's rounded square
+                          Center(
+                            child: Container(
+                              width: 72,
+                              height: 72,
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF131B2E) : Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: isDark ? [] : [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.04),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: Hero(
+                                  tag: 'axis-logo',
+                                  child: Image.asset(
+                                    AppConfig.logoAssetPath,
+                                    width: 44,
+                                    height: 44,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+
+                          // Main Lock Title
+                          Text(
+                            '${AppConfig.appName} is locked',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 22,
+                              color: isDark ? Colors.white : SlateColors.shade900,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          
+                          // Subtitle or Error Message
+                          if (_errorMessage != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.error.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                _errorMessage!,
+                                style: GoogleFonts.plusJakartaSans(
+                                  color: theme.colorScheme.error,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            )
+                          else
+                            Text(
+                              'Enter your PIN to unlock.',
+                              style: GoogleFonts.plusJakartaSans(
+                                color: isDark ? SlateColors.shade400 : SlateColors.shade500,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+
+                          const SizedBox(height: 32),
+
+                          // PIN Indicator Dots with Shake Animation
+                          AnimatedBuilder(
+                            animation: _shakeAnimation,
+                            builder: (context, child) {
+                              return Transform.translate(
+                                offset: Offset(_shakeAnimation.value, 0.0),
+                                child: child,
+                              );
+                            },
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: List.generate(4, (index) {
+                                final active = index < _pinCode.length;
+                                return AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  margin: const EdgeInsets.symmetric(horizontal: 10),
+                                  width: 14,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: active
+                                        ? (isDark ? Colors.white : SlateColors.shade900)
+                                        : (isDark ? Colors.white24 : SlateColors.shade200),
+                                  ),
+                                );
+                              }),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      // Keypad section
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 40),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                _KeypadButton(number: '1', onTap: () => _handleKeyPress('1')),
+                                _KeypadButton(number: '2', onTap: () => _handleKeyPress('2')),
+                                _KeypadButton(number: '3', onTap: () => _handleKeyPress('3')),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                _KeypadButton(number: '4', onTap: () => _handleKeyPress('4')),
+                                _KeypadButton(number: '5', onTap: () => _handleKeyPress('5')),
+                                _KeypadButton(number: '6', onTap: () => _handleKeyPress('6')),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                _KeypadButton(number: '7', onTap: () => _handleKeyPress('7')),
+                                _KeypadButton(number: '8', onTap: () => _handleKeyPress('8')),
+                                _KeypadButton(number: '9', onTap: () => _handleKeyPress('9')),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                // Biometric Action button
+                                _KeypadIconButton(
+                                  icon: Icons.face_retouching_natural_rounded,
+                                  color: const Color(0xFF3B82F6),
+                                  onTap: _hasBiometrics ? _triggerBiometrics : null,
+                                ),
+                                _KeypadButton(number: '0', onTap: () => _handleKeyPress('0')),
+                                // Delete / Backspace button
+                                _KeypadIconButton(
+                                  icon: Icons.backspace_outlined,
+                                  onTap: _handleBackspace,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Bottom Actions
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24),
+                        child: TextButton(
+                          onPressed: () {
+                            context.read<SessionController>().logout();
+                          },
+                          style: TextButton.styleFrom(
+                            foregroundColor: isDark ? Colors.white54 : SlateColors.shade500,
+                          ),
+                          child: Text(
+                            'Sign out instead',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-
-              // Title
-              Text(
-                'Enter Passcode',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 18,
-                  color: isDark ? Colors.white : SlateColors.shade900,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              
-              // Subtitle or Error Message
-              if (_errorMessage != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.error.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    _errorMessage!,
-                    style: TextStyle(
-                      color: theme.colorScheme.error,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                )
-              else
-                const SizedBox(height: 24),
-
-            // PIN Indicator Dots with Shake Animation
-            AnimatedBuilder(
-              animation: _shakeAnimation,
-              builder: (context, child) {
-                return Transform.translate(
-                  offset: Offset(_shakeAnimation.value, 0.0),
-                  child: child,
-                );
-              },
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (index) {
-                  final active = index < _pinCode.length;
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    margin: const EdgeInsets.symmetric(horizontal: 10),
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(4), // Square for brutalism
-                      color: active
-                          ? theme.colorScheme.primary
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: active ? theme.colorScheme.primary : theme.colorScheme.outline,
-                        width: 2,
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // Premium Custom Passcode Numeric Keypad
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _KeypadButton(number: '1', label: '', onTap: () => _handleKeyPress('1')),
-                      _KeypadButton(number: '2', label: 'A B C', onTap: () => _handleKeyPress('2')),
-                      _KeypadButton(number: '3', label: 'D E F', onTap: () => _handleKeyPress('3')),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _KeypadButton(number: '4', label: 'G H I', onTap: () => _handleKeyPress('4')),
-                      _KeypadButton(number: '5', label: 'J K L', onTap: () => _handleKeyPress('5')),
-                      _KeypadButton(number: '6', label: 'M N O', onTap: () => _handleKeyPress('6')),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _KeypadButton(number: '7', label: 'P Q R S', onTap: () => _handleKeyPress('7')),
-                      _KeypadButton(number: '8', label: 'T U V', onTap: () => _handleKeyPress('8')),
-                      _KeypadButton(number: '9', label: 'W X Y Z', onTap: () => _handleKeyPress('9')),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Biometric Action button
-                      _KeypadIconButton(
-                        icon: Icons.fingerprint_rounded,
-                        onTap: _hasBiometrics ? _triggerBiometrics : null,
-                      ),
-                      _KeypadButton(number: '0', label: '', onTap: () => _handleKeyPress('0')),
-                      // Delete / Backspace button
-                      _KeypadIconButton(
-                        icon: Icons.backspace_rounded,
-                        onTap: _handleBackspace,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Bottom Actions (Sign out)
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                child: Center(
-                  child: TextButton(
-                    onPressed: () {
-                      context.read<SessionController>().logout();
-                    },
-                    style: TextButton.styleFrom(
-                      foregroundColor: isDark ? Colors.white70 : SlateColors.shade500,
-                    ),
-                    child: const Text(
-                      'Sign out',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+              );
+            },
+          ),
         ),
-      ),
       ),
     );
   }
@@ -352,12 +413,10 @@ class _ShakeTween extends Tween<double> {
 class _KeypadButton extends StatelessWidget {
   const _KeypadButton({
     required this.number,
-    required this.label,
     required this.onTap,
   });
 
   final String number;
-  final String label;
   final VoidCallback onTap;
 
   @override
@@ -369,35 +428,28 @@ class _KeypadButton extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        width: 76,
-        height: 76,
-        decoration: const BoxDecoration(
+        width: 82,
+        height: 82,
+        decoration: BoxDecoration(
           shape: BoxShape.circle,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              number,
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w400,
-                color: isDark ? Colors.white : SlateColors.shade900,
-              ),
+          color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.white,
+          boxShadow: isDark ? [] : [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-            if (label.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white54 : SlateColors.shade500,
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ],
           ],
+        ),
+        child: Center(
+          child: Text(
+            number,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 32,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : SlateColors.shade900,
+            ),
+          ),
         ),
       ),
     );
@@ -408,10 +460,12 @@ class _KeypadButton extends StatelessWidget {
 class _KeypadIconButton extends StatelessWidget {
   const _KeypadIconButton({
     required this.icon,
+    this.color,
     this.onTap,
   });
 
   final IconData icon;
+  final Color? color;
   final VoidCallback? onTap;
 
   @override
@@ -420,23 +474,20 @@ class _KeypadIconButton extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
 
     if (onTap == null) {
-      return const SizedBox(width: 76, height: 76);
+      return const SizedBox(width: 82, height: 82);
     }
 
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 76,
-        height: 76,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-        ),
+      child: SizedBox(
+        width: 82,
+        height: 82,
         child: Center(
           child: Icon(
             icon,
-            size: 28,
-            color: isDark ? Colors.white : SlateColors.shade900,
+            size: 32,
+            color: color ?? (isDark ? Colors.white54 : SlateColors.shade600),
           ),
         ),
       ),

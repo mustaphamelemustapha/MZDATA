@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -508,7 +510,7 @@ class EpicShareableReceipt extends StatelessWidget {
                       Icon(Icons.bolt_rounded, color: primaryColor, size: 24),
                       const SizedBox(width: 8),
                       Text(
-                        'Powered by MZDATA',
+                        'Powered by ${AppConfig.appName}',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w800,

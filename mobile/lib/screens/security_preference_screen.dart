@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../state/session.dart';
@@ -123,7 +125,7 @@ class _SecurityPreferenceScreenState extends State<SecurityPreferenceScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 40),
                 child: Text(
-                  'Choose how you\'d like to protect your MZDATA account',
+                  'Choose how you\'d like to protect your ${AppConfig.appName} account',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: isDark ? SlateColors.shade400 : SlateColors.shade600,
@@ -229,7 +231,11 @@ class _SecurityPreferenceScreenState extends State<SecurityPreferenceScreen> {
                       final session = context.read<SessionController>();
                       await session.setSecurityPreference(_selected);
                       if (mounted) {
-                        Navigator.of(context).pushReplacementNamed(ShellScreen.route);
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.of(context).pop();
+                        } else {
+                          Navigator.of(context).pushNamedAndRemoveUntil(ShellScreen.route, (_) => false);
+                        }
                       }
                     },
                     style: ElevatedButton.styleFrom(

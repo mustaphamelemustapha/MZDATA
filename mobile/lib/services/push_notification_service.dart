@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
@@ -11,12 +10,14 @@ import '../config.dart';
 import '../state/session.dart';
 import '../widgets/interactive_notification_banner.dart';
 
+import 'package:flutter/foundation.dart';
+
 class PushNotificationService {
   static const _pushNotificationsKey = 'axis_profile_push_notifications_v1';
   static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   static Future<void> initialize(SessionController session) async {
-    // Support Android and iOS push notifications
+    // Web is handled via FCM Web or skipped; dart:io Platform crashes on web
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
       debugPrint("[PushNotification] Disabled for unsupported platforms.");
       return;
@@ -50,16 +51,31 @@ class PushNotificationService {
         sound: true,
       );
 
+      // On iOS, wait for APNs token to be registered before requesting FCM token
+      if (Platform.isIOS) {
+        String? apnsToken = await messaging.getAPNSToken();
+        int attempts = 0;
+        while (apnsToken == null && attempts < 10) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          apnsToken = await messaging.getAPNSToken();
+          attempts++;
+        }
+        debugPrint("[PushNotification] iOS APNs token status: ${apnsToken != null ? 'Retrieved' : 'Not available after 5s'}");
+      }
+
       // Get the token
       final fcmToken = await messaging.getToken();
       
       if (fcmToken != null && session.isAuthenticated) {
         await syncTokenWithBackend(fcmToken, session.token!);
         try {
-          await messaging.subscribeToTopic('vtu_all_users');
-          debugPrint("[PushNotification] Subscribed to broadcast topic: vtu_all_users");
+          // Unsubscribe from the old shared topic so we don't get MZDATA pushes
+          await messaging.unsubscribeFromTopic('all_users');
+          // Subscribe to the new ${AppConfig.appName} exclusive topic
+          await messaging.subscribeToTopic(AppConfig.topicName);
+          debugPrint("[PushNotification] Subscribed to broadcast topic: ${AppConfig.topicName}");
         } catch (topicExc) {
-          debugPrint("[PushNotification] Failed to subscribe to topic: $topicExc");
+          debugPrint("[PushNotification] Failed to manage topic subscriptions: $topicExc");
         }
       }
 
@@ -86,14 +102,16 @@ class PushNotificationService {
           debugPrint('Message also contained a notification: ${message.notification}');
           final context = navigatorKey.currentContext;
           if (context != null && context.mounted) {
-            final title = message.notification?.title ?? 'MZDATA';
+            final title = message.notification?.title ?? AppConfig.appName;
             final body = message.notification?.body ?? '';
             final soundType = message.data['sound_type'] as String?;
+            final imageUrl = message.notification?.android?.imageUrl ?? message.notification?.apple?.imageUrl;
             InteractiveNotificationBanner.show(
               context,
               title: title,
               message: body,
               soundType: soundType,
+              imageUrl: imageUrl,
             );
           }
         }

@@ -3,44 +3,51 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../config.dart';
 import 'axis_tokens.dart';
 
 class AppTheme {
-  static const _seed = Color(0xFFCCFF00); // Electric Lime
-  static const _secondary = Color(0xFFFFFFFF); // Pure White
-  static const _lightBg = Color(0xFFFFFFFF);
-  static const _darkBg = Color(0xFF0A0E17); // Premium Navy Dark
-  static const _darkSurface = Color(0xFF131B2A); // Elevated Navy
-  static const _lightSurfaceElevated = Color(0xFFF8FAFC);
-  static const _darkSurfaceSoft = Color(0xFF1E293B); // Input Fields
+  static const _lightBg = Color(0xFFF8FAFC);
+  static const _darkBg = Color(0xFF0F172A); // Slate 900
+  static const _darkSurface = Color(0xFF1E293B); // Slate 800
+  static const _lightSurfaceElevated = Colors.white;
+  static const _darkSurfaceSoft = Color(0xFF334155); // Slate 700
 
   static ThemeData light() => _build(Brightness.light);
 
   static ThemeData dark() => _build(Brightness.dark);
 
   static ThemeData _build(Brightness brightness) {
+    final brand = BrandConfig.current;
+    final seed = brand.primaryColor;
+    final secondary = brand.secondaryColor;
     final isDark = brightness == Brightness.dark;
+
+    final darkBg = const Color(0xFF0A0E17);
+    final darkSurface = const Color(0xFF131B2A);
+    final darkSurfaceSoft = const Color(0xFF1E293B);
+
     final scheme =
         ColorScheme.fromSeed(
-          seedColor: _seed,
+          seedColor: seed,
           brightness: brightness,
-          secondary: _secondary,
+          secondary: secondary,
         ).copyWith(
-          primary: _seed,
-          secondary: _secondary,
-          surface: isDark ? _darkBg : _lightBg,
-          onSurface: isDark ? Colors.white : Colors.black,
-          onSurfaceVariant: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+          primary: seed,
+          secondary: secondary,
+          surface: isDark ? darkBg : _lightBg,
+          onSurface: isDark ? const Color(0xFFE7EEF9) : const Color(0xFF0B1220),
+          onSurfaceVariant: isDark ? const Color(0xFFB8C4D6) : const Color(0xFF475569),
           outline: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
           outlineVariant: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-          onPrimary: Colors.black, // Black text on Electric Lime buttons
-          onSecondary: isDark ? Colors.black : Colors.white,
+          onPrimary: brand.onPrimaryColor,
+          onSecondary: isDark ? Colors.white : Colors.black,
           onError: Colors.white,
-          error: const Color(0xFFEF4444),
-          tertiary: const Color(0xFF8B5CF6),
+          error: const Color(0xFFE11D48),
+          tertiary: brand.accentColor,
           onTertiary: Colors.white,
           surfaceTint: Colors.transparent,
-          surfaceContainerHighest: isDark ? const Color(0xFF131B2A) : const Color(0xFFF8FAFC),
+          surfaceContainerHighest: isDark ? darkSurface : const Color(0xFFF8FAFC),
           shadow: Colors.black,
         );
 
@@ -136,20 +143,21 @@ class AppTheme {
 
     return ThemeData(
       useMaterial3: true,
+      brightness: brightness,
       colorScheme: scheme,
       fontFamily: GoogleFonts.outfit().fontFamily,
       visualDensity: VisualDensity.standard,
-      scaffoldBackgroundColor: isDark ? _darkBg : _lightBg,
+      scaffoldBackgroundColor: isDark ? darkBg : _lightBg,
       textTheme: textTheme,
-      shadowColor: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-      splashFactory: InkRipple.splashFactory, // Soft ripples for fintech
+      shadowColor: Colors.black.withValues(alpha: isDark ? 0.15 : 0.05),
+      splashFactory: InkRipple.splashFactory,
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
-          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.android: CupertinoPageTransitionsBuilder(),
           TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
           TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
-          TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
         },
       ),
       appBarTheme: AppBarTheme(
@@ -163,18 +171,19 @@ class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: isDark ? _darkSurface : Colors.white,
+        color: isDark ? darkSurface : Colors.white,
         surfaceTintColor: Colors.transparent,
-        elevation: 0,
+        elevation: isDark ? 0 : 2,
+        shadowColor: Colors.black.withOpacity(0.05),
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: scheme.outline, width: 1),
+          borderRadius: BorderRadius.circular(24),
+          side: isDark ? const BorderSide(color: Color(0xFF333333)) : BorderSide.none,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: isDark ? _darkSurfaceSoft : _lightSurfaceElevated,
+        fillColor: isDark ? darkSurfaceSoft : _lightSurfaceElevated,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 16,
@@ -186,39 +195,39 @@ class AppTheme {
           color: scheme.onSurface.withValues(alpha: isDark ? 0.76 : 0.64),
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: scheme.outline),
+          borderRadius: BorderRadius.circular(AxisRadii.lg),
+          borderSide: BorderSide(color: scheme.outline.withValues(alpha: isDark ? 0.9 : 0.95)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: scheme.outline),
+          borderRadius: BorderRadius.circular(AxisRadii.lg),
+          borderSide: BorderSide(color: scheme.outline.withValues(alpha: isDark ? 0.9 : 0.95)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: scheme.primary, width: 2),
+          borderRadius: BorderRadius.circular(AxisRadii.lg),
+          borderSide: BorderSide(color: scheme.primary.withValues(alpha: 0.92), width: 1.4),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: scheme.error),
+          borderRadius: BorderRadius.circular(AxisRadii.lg),
+          borderSide: BorderSide(color: scheme.error.withValues(alpha: 0.9)),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: scheme.error, width: 2),
+          borderRadius: BorderRadius.circular(AxisRadii.lg),
+          borderSide: BorderSide(color: scheme.error),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
-          minimumSize: const Size.fromHeight(56),
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          minimumSize: const Size.fromHeight(54),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(AxisRadii.lg),
           ),
           textStyle: textTheme.labelLarge?.copyWith(
             fontSize: 16,
-            letterSpacing: 0,
-            fontWeight: FontWeight.w800,
+            letterSpacing: 0.35,
+            fontWeight: FontWeight.w600,
           ),
-          animationDuration: AxisDurations.fast,
+          animationDuration: AxisDurations.normal,
           backgroundColor: scheme.primary,
           foregroundColor: scheme.onPrimary,
           elevation: 0,
@@ -274,7 +283,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
-            top: Radius.circular(24),
+            top: Radius.circular(32),
           ),
         ),
       ),
@@ -343,25 +352,25 @@ class AxisPalette extends ThemeExtension<AxisPalette> {
   const AxisPalette();
 
   static const gradient = LinearGradient(
-    colors: [Color(0xFFCCFF00), Color(0xFF00E5FF)],
+    colors: [Color(0xFF0B4FD2), Color(0xFF3B82F6)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const warmGradient = LinearGradient(
-    colors: [Color(0xFFFF3333), Color(0xFFFF8800)],
+    colors: [Color(0xFFF59E0B), Color(0xFFF97316)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const softBackgroundGradient = LinearGradient(
-    colors: [Color(0xFF000000), Color(0xFF0A0A0A), Color(0xFF000000)],
+    colors: [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F172A)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const lightWashGradient = LinearGradient(
-    colors: [Color(0xFFF5F5F5), Color(0xFFE5E5E5), Color(0xFFF5F5F5)],
+    colors: [Color(0xFFF5F9FF), Color(0xFFEAF2FF), Color(0xFFF7FBFF)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );

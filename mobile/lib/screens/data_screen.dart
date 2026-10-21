@@ -1,9 +1,12 @@
+import '../config.dart';
+
 import 'dart:ui' as ui;
 import '../utils/fast_route.dart';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../models/promo.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -23,7 +26,7 @@ import '../widgets/insufficient_funds_sheet.dart';
 import '../utils/balance_util.dart';
 import '../widgets/elite_phone_input.dart';
 import '../widgets/epic_purchase_summary.dart';
-import '../widgets/mele_data_loader.dart';
+import '../widgets/dynamic_brand_loader.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_native_contact_picker/flutter_native_contact_picker.dart';
 import 'package:flutter_native_contact_picker/model/contact.dart' as native_contact;
@@ -42,7 +45,8 @@ Color _globalGetNetworkColor(String network, [BuildContext? context]) {
 }
 
 class DataScreen extends StatefulWidget {
-  const DataScreen({super.key});
+  final UserPromo? initialPromo;
+  const DataScreen({super.key, this.initialPromo});
 
   @override
   State<DataScreen> createState() => _DataScreenState();
@@ -102,9 +106,12 @@ class _DataScreenState extends State<DataScreen> {
   String? _shakingPlanCode;
   String? _selectedCategory;
   String? _selectedPlanCode;
-  List<dynamic> _plans = [];
+  UserPromo? _appliedPromo;
+  List<dynamic> _plans = DataService.cachedPlans.isNotEmpty
+      ? List<dynamic>.from(DataService.cachedPlans)
+      : [];
 
-  bool _loadingPlans = true;
+  bool _loadingPlans = DataService.cachedPlans.isEmpty;
   bool _autoAdvancedToPlans = false;
   bool _refreshing = false;
   bool _submitting = false;
@@ -126,16 +133,64 @@ class _DataScreenState extends State<DataScreen> {
         text.contains('connection');
   }
 
+  String _normalizeNetwork(dynamic value) {
+    final raw = (value ?? '').toString().trim().toLowerCase();
+    if (raw.isEmpty) return '';
+    if (raw.contains('9mobile') || raw.contains('etisalat') || raw == '9') return '9mobile';
+    if (raw.contains('mtn')) return 'mtn';
+    if (raw.contains('airtel')) return 'airtel';
+    if (raw.contains('glo') || raw.contains('globacom')) return 'glo';
+    return raw;
+  }
+
+  void _autoSelectAvailableNetwork() {
+    if (_plans.isEmpty) return;
+    if (_networkPlans.isNotEmpty) return;
+    for (final net in ['mtn', 'airtel', 'glo', '9mobile']) {
+      final target = _normalizeNetwork(net);
+      final hasPlans = _plans.any((p) {
+        if (p == null || p is! Map) return false;
+        final rawNet = p['network'] ?? p['provider'] ?? p['plan_code'] ?? '';
+        return _normalizeNetwork(rawNet) == target;
+      });
+      if (hasPlans) {
+        _network = net;
+        break;
+      }
+    }
+  }
+
+  void _syncCategoryForNetwork(String network) {
+    _autoSelectAvailableNetwork();
+    final netPlans = _networkPlans;
+    final cats = netPlans.map((p) => _extractCategory(p)).toSet().toList();
+    if (cats.isNotEmpty) {
+      if (_selectedCategory != null && !cats.contains(_selectedCategory)) {
+        _selectedCategory = null;
+      }
+    } else {
+      _selectedCategory = null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _appliedPromo = widget.initialPromo;
+    if (_appliedPromo != null && _appliedPromo!.promoCode.applicableNetwork != 'ALL') {
+      _network = _appliedPromo!.promoCode.applicableNetwork.toLowerCase();
+    }
     _phoneCtrl.addListener(_onPhoneChanged);
     _loadRecentNumbers();
     _loadPreferences();
-    final cachedPlans = DataService(token: context.read<SessionController>().token ?? '').getPlansSync();
-    if (cachedPlans != null && cachedPlans.isNotEmpty) {
-      _plans = cachedPlans;
+
+    // Instant render from cache (0ms latency, zero spinner)
+    final cached = DataService.cachedPlans;
+    if (cached.isNotEmpty) {
+      _plans = List<dynamic>.from(cached);
       _loadingPlans = false;
+      _autoSelectAvailableNetwork();
+      _syncCategoryForNetwork(_network);
       _loadPlans(silent: true);
     } else {
       _loadPlans(silent: false);
@@ -163,8 +218,7 @@ class _DataScreenState extends State<DataScreen> {
       return _plansLoadFuture!;
     }
 
-    final token = context.read<SessionController>().token;
-    if (token == null || token.isEmpty) return;
+    final token = context.read<SessionController>().token ?? '';
     if (forceRefresh) {
       DataService.clearCache();
     }
@@ -177,7 +231,7 @@ class _DataScreenState extends State<DataScreen> {
           }
         } else {
           setState(() {
-            _loadingPlans = true;
+            _loadingPlans = _plans.isEmpty;
             _refreshing = forceRefresh;
             _error = null;
           });
@@ -192,6 +246,8 @@ class _DataScreenState extends State<DataScreen> {
         setState(() {
           _plans = data;
           _error = null;
+          _autoSelectAvailableNetwork();
+          _syncCategoryForNetwork(_network);
           final plans = _sortedNetworkPlans;
           final current = _selectedPlanCode;
           _selectedPlanCode =
@@ -201,7 +257,9 @@ class _DataScreenState extends State<DataScreen> {
         });
       } catch (e) {
         if (!mounted) return;
-        setState(() => _error = _friendlyPlanLoadError(e));
+        if (_plans.isEmpty) {
+          setState(() => _error = _friendlyPlanLoadError(e));
+        }
       } finally {
         if (mounted && (_loadingPlans || _refreshing)) {
           setState(() {
@@ -272,16 +330,13 @@ class _DataScreenState extends State<DataScreen> {
         _network = detected;
         _error = null;
         // Validate if existing selection is still valid for new network
-        final plans = _plans.where((p) => p['network']?.toString().toLowerCase() == detected).toList();
+        final plans = _networkPlans;
         final current = _selectedPlanCode;
         if (current != null && !plans.any((p) => p['plan_code']?.toString() == current)) {
           _selectedPlanCode = null;
         }
-        _refreshing = true;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _loadPlans(silent: true);
+        _refreshing = false;
+        _syncCategoryForNetwork(detected);
       });
     }
 
@@ -369,16 +424,16 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   List<dynamic> get _networkPlans {
-    if (_network == null) return [];
+    if (_network.isEmpty) return [];
+    final target = _normalizeNetwork(_network);
     return _plans.where((plan) {
       if (plan == null || plan is! Map) return false;
-      final net = (plan['network'] ?? '').toString().toLowerCase();
-      return net == _network;
+      final rawNet = plan['network'] ?? plan['provider'] ?? plan['plan_code'] ?? '';
+      return _normalizeNetwork(rawNet) == target;
     }).toList();
   }
 
   String _extractCategory(dynamic plan) {
-    print('DEBUG PLAN: ${plan['plan_name']} - DATA_TYPE: ${plan['data_type']}');
     if (plan['data_type'] != null && plan['data_type'].toString().trim().isNotEmpty) {
       return plan['data_type'].toString().trim().toUpperCase();
     }
@@ -410,8 +465,11 @@ class _DataScreenState extends State<DataScreen> {
       ).compareTo(_capacityToGb(_planCapacity(b)));
     });
     
-    if (_selectedCategory == null) return [];
-    return plans.where((p) => _extractCategory(p) == _selectedCategory).toList();
+    final activeCat = _selectedCategory;
+    if (activeCat != null) {
+      return plans.where((p) => _extractCategory(p) == activeCat).toList();
+    }
+    return [];
   }
 
   dynamic get _selectedPlan {
@@ -575,13 +633,8 @@ class _DataScreenState extends State<DataScreen> {
                   Expanded(
                     child: isLoading
                         ? const _PlanShimmerGrid()
-                        : _selectedCategory == null
-                            ? const Center(
-                                child: Text('Please select a data type category above to view plans.',
-                                    style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w600)),
-                              )
-                            : currentPlans.isEmpty
-                                ? _EmptyPlansState(onRetry: () => _loadPlans(forceRefresh: true))
+                        : currentPlans.isEmpty
+                            ? _EmptyPlansState(onRetry: () => _loadPlans(forceRefresh: true))
                             : GridView.builder(
                                 padding: const EdgeInsets.all(16),
                                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -772,6 +825,7 @@ class _DataScreenState extends State<DataScreen> {
         phoneNumber: normalizedPhone,
         ported: _ported,
         clientRequestId: _activeRequestId,
+        userPromoId: _appliedPromo?.id,
       );
       if (!mounted) return;
       await _saveRecentNumber(normalizedPhone);
@@ -792,7 +846,7 @@ class _DataScreenState extends State<DataScreen> {
         'message': uncertain
             ? 'Order submitted. Provider confirmation is delayed. Check History shortly.'
             : message,
-        'provider': 'MZDATA',
+        'provider': AppConfig.appName,
       });
     } finally {
       PurchaseLoadingOverlay.hide();
@@ -817,8 +871,9 @@ class _DataScreenState extends State<DataScreen> {
         statusRaw == 'order_onhold';
     final status = ok ? 'success' : (pending ? 'pending' : 'failed');
 
-    // Always refresh balance so failed or successful transactions appear immediately
-    context.read<SessionController>().refreshBalance();
+    if (status != 'failed') {
+      context.read<SessionController>().refreshBalance();
+    }
 
     final selected = _selectedPlan;
     final userName =
@@ -876,30 +931,15 @@ class _DataScreenState extends State<DataScreen> {
     setState(() {
       _invalidateRequestId();
       _network = value;
-      _selectedCategory = null;
       // Clear selection if it doesn't belong to the new network
-      final plans = _plans.where((p) => p != null && (p as Map)['network']?.toString().toLowerCase() == value).toList();
+      final plans = _networkPlans;
       final current = _selectedPlanCode;
       if (current != null && !plans.any((p) => p != null && (p as Map)['plan_code']?.toString() == current)) {
         _selectedPlanCode = null;
       }
       _error = null;
-      _plans = [];
-      _loadingPlans = true;
       _refreshing = false;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final cachedPlans = DataService(token: context.read<SessionController>().token ?? '').getPlansSync();
-      if (cachedPlans != null && cachedPlans.isNotEmpty) {
-        setState(() {
-          _plans = cachedPlans;
-          _loadingPlans = false;
-        });
-        _loadPlans(silent: true);
-      } else {
-        _loadPlans(silent: true);
-      }
+      _syncCategoryForNetwork(value);
     });
   }
 
@@ -1051,7 +1091,7 @@ class _DataScreenState extends State<DataScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                FastRoute(page: const HistoryScreen()),
+                FastRoute(page: const HistoryScreen(isTab: false)),
               );
             },
           )
@@ -1082,13 +1122,17 @@ class _DataScreenState extends State<DataScreen> {
                         width: 1,
                       ),
                       boxShadow: _network.isNotEmpty ? [
-                        BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 24,
-                          spreadRadius: 2,)
+                        BoxShadow(
+                          color: _getNetworkColor(_network).withValues(alpha: 0.1),
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        )
                       ] : [
-                        BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),)
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        )
                       ],
                     ),
                     child: Row(
@@ -1127,6 +1171,12 @@ class _DataScreenState extends State<DataScreen> {
                             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
                             decoration: const InputDecoration(
                               border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              errorBorder: InputBorder.none,
+                              focusedErrorBorder: InputBorder.none,
+                              disabledBorder: InputBorder.none,
+                              filled: false,
                               contentPadding: EdgeInsets.symmetric(horizontal: 16),
                             ),
                             onChanged: (v) => _onPhoneChanged(),
@@ -1153,30 +1203,37 @@ class _DataScreenState extends State<DataScreen> {
                   // Animated Recent Avatars (Restored functional feature)
                   if (_recentNumbers.isNotEmpty) ...[
                     SizedBox(
-                      height: 60,
+                      height: 44,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: _recentNumbers.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 16),
+                        separatorBuilder: (_, __) => const SizedBox(width: 10),
                         itemBuilder: (context, index) {
                           final number = _recentNumbers[index];
                           return GestureDetector(
                             onTap: () => _applySuggestedNumber(number),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                               decoration: BoxDecoration(
-                                color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1)),
+                                color: isDark ? const Color(0xFF1E293B) : const Color(0xFFEFF6FF),
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(
+                                  color: isDark ? Colors.white10 : const Color(0xFFDBEAFE),
+                                  width: 1,
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.history_rounded, size: 14, color: Theme.of(context).colorScheme.primary),
+                                  const Icon(Icons.history_rounded, size: 15, color: Color(0xFF2563EB)),
                                   const SizedBox(width: 6),
                                   Text(
                                     number,
-                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.primary),
+                                    style: const TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF2563EB),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1238,20 +1295,55 @@ class _DataScreenState extends State<DataScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   const SizedBox(height: 12),
-                                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2))),
-                                  const Padding(
-                                    padding: EdgeInsets.all(16),
-                                    child: Text('Data Type', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                  Container(
+                                    width: 40,
+                                    height: 4,
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.withValues(alpha: 0.3),
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
                                   ),
-                                  ...cats.map((cat) => ListTile(
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-                                    title: Text(cat, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                                    trailing: _selectedCategory == cat ? Icon(Icons.check_circle, color: _getNetworkColor(_network)) : null,
-                                    onTap: () {
-                                      Navigator.pop(sheetContext);
-                                      setState(() => _selectedCategory = cat);
-                                    },
-                                  )),
+                                  const SizedBox(height: 8),
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    child: Text(
+                                      'Data Type',
+                                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  const Divider(height: 1),
+                                  ...cats.map((cat) {
+                                    final isSelected = _selectedCategory == cat;
+                                    return InkWell(
+                                      onTap: () {
+                                        Navigator.pop(sheetContext);
+                                        setState(() {
+                                          _selectedCategory = cat;
+                                          _selectedPlanCode = null;
+                                        });
+                                      },
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              cat,
+                                              style: TextStyle(
+                                                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                                                fontSize: 16,
+                                                color: isSelected
+                                                    ? _getNetworkColor(_network)
+                                                    : (isDark ? Colors.white : Colors.black87),
+                                              ),
+                                            ),
+                                            if (isSelected)
+                                              Icon(Icons.check_circle_rounded, color: _getNetworkColor(_network), size: 20),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  }),
                                   const SizedBox(height: 16),
                                 ],
                               ),
@@ -1269,9 +1361,11 @@ class _DataScreenState extends State<DataScreen> {
                             width: 1,
                           ),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                              blurRadius: 24,
-                              offset: const Offset(0, 8),)
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.03),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            )
                           ],
                         ),
                         child: Row(
@@ -1293,62 +1387,70 @@ class _DataScreenState extends State<DataScreen> {
                     
                     const SizedBox(height: 24),
                     
-                    if (_loadingPlans && _plans.isEmpty)
-                      const _PlanShimmerGrid(
-                        shrinkWrap: true,
-                        physics: NeverScrollableScrollPhysics(),
-                        padding: EdgeInsets.zero,
-                      )
-                    else if (_error != null)
-                      Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
+                    if (_selectedCategory == null)
+                      _buildSelectCategoryEmptyState(isDark)
+                    else if (_loadingPlans && _plans.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 36),
+                        child: Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.error_outline, color: Colors.red.withValues(alpha: 0.8), size: 48),
-                              const SizedBox(height: 16),
-                              Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.red.shade300 : Colors.red.shade700, fontSize: 14)),
-                              const SizedBox(height: 24),
-                              ElevatedButton.icon(
-                                onPressed: () => _loadPlans(forceRefresh: true),
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Retry'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Theme.of(context).colorScheme.primary,
-                                  foregroundColor: Colors.white,
+                              SizedBox(
+                                width: 34,
+                                height: 34,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  valueColor: AlwaysStoppedAnimation<Color>(_getNetworkColor(_network)),
                                 ),
-                              )
-                            ]
-                          )
-                        )
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                'Loading data plans...',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: isDark ? Colors.white60 : Colors.black54,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       )
-                    else if (_selectedCategory == null)
+                    else if (_error != null && _sortedNetworkPlans.isEmpty)
                       Padding(
-                        padding: const EdgeInsets.only(top: 32, bottom: 40),
+                        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
                         child: Center(
                           child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
-                                padding: const EdgeInsets.all(24),
+                                padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: _getNetworkColor(_network).withValues(alpha: 0.1),
+                                  color: Colors.red.withValues(alpha: 0.1),
                                   shape: BoxShape.circle,
                                 ),
-                                child: Icon(Icons.data_usage_rounded, size: 48, color: _getNetworkColor(_network)),
+                                child: const Icon(Icons.cloud_off_rounded, color: Colors.red, size: 36),
                               ),
-                              const SizedBox(height: 20),
+                              const SizedBox(height: 14),
                               Text(
-                                'Select a Data Type',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
+                                _error ?? 'Unable to load plans',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: isDark ? Colors.white70 : Colors.black87,
+                                ),
                               ),
-                              const SizedBox(height: 8),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 32),
-                                child: Text(
-                                  'Please select a data category from the dropdown above to view available plans.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: isDark ? Colors.white60 : Colors.black54, fontSize: 13, height: 1.5),
+                              const SizedBox(height: 16),
+                              ElevatedButton.icon(
+                                onPressed: () => _loadPlans(forceRefresh: true),
+                                icon: const Icon(Icons.refresh_rounded, size: 18),
+                                label: const Text('Try Again'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _getNetworkColor(_network),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 ),
                               ),
                             ],
@@ -1378,7 +1480,7 @@ class _DataScreenState extends State<DataScreen> {
                               Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 32),
                                 child: Text(
-                                  'There are currently no active plans for $_selectedCategory on $_network.',
+                                  'There are currently no active plans for $_selectedCategory on ${_network.toUpperCase()}.',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(color: isDark ? Colors.white60 : Colors.black54, fontSize: 13, height: 1.5),
                                 ),
@@ -1394,8 +1496,8 @@ class _DataScreenState extends State<DataScreen> {
                         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 3,
                           crossAxisSpacing: 10,
-                          mainAxisSpacing: 10,
-                          childAspectRatio: 0.7,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: 0.82,
                         ),
                         itemCount: _sortedNetworkPlans.length,
                         itemBuilder: (context, index) {
@@ -1439,10 +1541,68 @@ class _DataScreenState extends State<DataScreen> {
 
         ],
       ),
-    ),);
+    ),
+  );
+}
+
+  Widget _buildSelectCategoryEmptyState(bool isDark) {
+    final netColor = _network.isNotEmpty ? _getNetworkColor(_network) : const Color(0xFFEAB308);
+    return Padding(
+      padding: const EdgeInsets.only(top: 48, bottom: 40),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 82,
+              height: 82,
+              decoration: BoxDecoration(
+                color: isDark 
+                    ? const Color(0xFFFEF08A).withValues(alpha: 0.14) 
+                    : const Color(0xFFFEF9C3),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: SizedBox(
+                  width: 38,
+                  height: 38,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 4,
+                    value: 0.72,
+                    valueColor: AlwaysStoppedAnimation<Color>(netColor),
+                    backgroundColor: Colors.transparent,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 22),
+            Text(
+              'Select a Data Type',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 36),
+              child: Text(
+                'Please select a data category from the dropdown above to view available plans.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.45,
+                  fontWeight: FontWeight.w500,
+                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
-
-
 }
 
 
@@ -1471,9 +1631,11 @@ class _EpicCheckoutButton extends StatelessWidget {
         color: isDark ? const Color(0xFF0F172A) : Colors.white,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 8),),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 40,
+            offset: const Offset(0, -10),
+          ),
         ],
       ),
       child: SafeArea(
@@ -1540,9 +1702,11 @@ class _PremiumSmallButton extends StatelessWidget {
           color: primary,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 24,
-              offset: const Offset(0, 8),),
+            BoxShadow(
+              color: primary.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
           ],
         ),
         child: Row(
@@ -1600,12 +1764,14 @@ class _PremiumCheckoutCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(32),
         border: Border.all(
           color: primary.withValues(alpha: 0.2),
-          width: 1,
+          width: 2,
         ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 8),),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
         ],
       ),
       child: Column(
@@ -1785,9 +1951,11 @@ class _RecentRecipientsSheet extends StatelessWidget {
           color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.10),
         ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 8),),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
         ],
       ),
       child: SafeArea(
@@ -1918,9 +2086,11 @@ class _TransactionHeroCard extends StatelessWidget {
           color: isDark ? const Color(0xFF2A3A52) : const Color(0xFFE2E8F0),
         ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 8),),
+          BoxShadow(
+            color: isDark ? const Color(0xFF08101F) : const Color(0xFFE2E8F0),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
         ],
       ),
       child: Stack(
@@ -2505,9 +2675,11 @@ class _PurchaseSummaryModalState extends State<_PurchaseSummaryModal> {
         color: isDark ? const Color(0xFF0F172A) : Colors.white,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 8),),
+          BoxShadow(
+            color: netColor.withValues(alpha: 0.15),
+            blurRadius: 40,
+            offset: const Offset(0, -10),
+          ),
         ],
       ),
       child: SingleChildScrollView(
@@ -2532,9 +2704,11 @@ class _PurchaseSummaryModalState extends State<_PurchaseSummaryModal> {
                 color: netColor.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 24,
-                    spreadRadius: 2,)
+                  BoxShadow(
+                    color: netColor.withValues(alpha: 0.2),
+                    blurRadius: 20,
+                    spreadRadius: 2,
+                  )
                 ]
               ),
               child: Icon(Icons.check_circle_rounded, color: netColor, size: 36),
@@ -2575,12 +2749,14 @@ class _PurchaseSummaryModalState extends State<_PurchaseSummaryModal> {
                 borderRadius: BorderRadius.circular(32),
                 border: Border.all(
                   color: netColor.withValues(alpha: 0.3),
-                  width: 1,
+                  width: 2,
                 ),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 24,
-                    offset: const Offset(0, 8),)
+                  BoxShadow(
+                    color: netColor.withValues(alpha: 0.1),
+                    blurRadius: 15,
+                    offset: const Offset(0, 8),
+                  )
                 ],
               ),
               child: Column(
@@ -2822,9 +2998,11 @@ class _MasterpieceActionButton extends StatelessWidget {
           ],
         ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 8),),
+          BoxShadow(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
         ],
       ),
       child: Material(
@@ -2904,9 +3082,11 @@ class _NetworkCard extends StatelessWidget {
           ),
           boxShadow: isSelected
               ? [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 24,
-                    offset: const Offset(0, 8),),
+                  BoxShadow(
+                    color: const Color(0xFF2457F5).withValues(alpha: 0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
                 ]
               : [],
         ),
@@ -3013,70 +3193,58 @@ class _ElitePlanTile extends StatelessWidget {
       promoOldPrice = double.tryParse(plan['promo_old_price'].toString());
     }
 
-    final unselectedGradient = isDark 
-      ? const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1F2937), Color(0xFF111827)],
-        )
-      : const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.white, Color(0xFFF8FAFC)],
-        );
-
-    final selectedGradient = isDark
-      ? LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [primary.withValues(alpha: 0.25), const Color(0xFF0F172A)],
-        )
-      : LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [primary.withValues(alpha: 0.1), Colors.white],
-        );
+    final tileColor = selected
+        ? (isDark ? primary.withValues(alpha: 0.16) : primary.withValues(alpha: 0.08))
+        : (isDark ? const Color(0xFF1E293B) : Colors.white);
 
     Widget tile = GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
         decoration: BoxDecoration(
-          gradient: selected ? selectedGradient : unselectedGradient,
+          color: tileColor,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: selected 
                 ? primary 
-                : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
-            width: selected ? 1.5 : 1.0,
+                : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0)),
+            width: selected ? 2.0 : 1.0,
           ),
-          boxShadow: selected ? [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 24,
-              offset: const Offset(0, 8),)
-          ] : [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 24,
-              offset: const Offset(0, 8),)
-          ],
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: primary.withValues(alpha: 0.25),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
         ),
         child: Stack(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+              padding: const EdgeInsets.fromLTRB(14, 16, 12, 16),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   FittedBox(
                     fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
                     child: RichText(
                       text: TextSpan(
                         text: capNumber,
                         style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: isDark ? Colors.white : Colors.black87,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
                           letterSpacing: -0.5,
                         ),
                         children: [
@@ -3084,9 +3252,9 @@ class _ElitePlanTile extends StatelessWidget {
                             TextSpan(
                               text: capUnit,
                               style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: isDark ? Colors.white70 : Colors.black54,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569),
                               ),
                             ),
                         ],
@@ -3099,24 +3267,24 @@ class _ElitePlanTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 11.5,
                       fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.white60 : Colors.black54,
+                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   FittedBox(
                     fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           '₦$price',
                           style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white70 : Colors.black87,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
                           ),
                         ),
                         if (promoOldPrice != null) ...[
@@ -3124,9 +3292,9 @@ class _ElitePlanTile extends StatelessWidget {
                           Text(
                             '₦${_formatMoneyValue(promoOldPrice)}',
                             style: TextStyle(
-                              fontSize: 9,
+                              fontSize: 10,
                               fontWeight: FontWeight.w500,
-                              color: isDark ? Colors.white30 : Colors.black38,
+                              color: isDark ? Colors.white38 : Colors.black38,
                               decoration: TextDecoration.lineThrough,
                             ),
                           ),
@@ -3135,22 +3303,19 @@ class _ElitePlanTile extends StatelessWidget {
                     ),
                   ),
                   if (cashbackLabel != null || promoLabel != null) ...[
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                       decoration: BoxDecoration(
                         color: const Color(0xFF00BFA5).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          cashbackLabel ?? promoLabel!,
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF00BFA5),
-                          ),
+                      child: Text(
+                        cashbackLabel ?? promoLabel!,
+                        style: const TextStyle(
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF00BFA5),
                         ),
                       ),
                     ),
@@ -3158,17 +3323,31 @@ class _ElitePlanTile extends StatelessWidget {
                 ],
               ),
             ),
-            if (promoActive && promoOldPrice != null)
+            if (selected)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: primary,
+                  ),
+                  child: const Icon(Icons.check, size: 12, color: Colors.white),
+                ),
+              ),
+            if (promoActive && promoOldPrice != null && !selected)
               Positioned(
                 top: 0,
                 right: 0,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                   decoration: const BoxDecoration(
                     color: Color(0xFFE53935),
                     borderRadius: BorderRadius.only(
-                      topRight: Radius.circular(9),
-                      bottomLeft: Radius.circular(6),
+                      topRight: Radius.circular(16),
+                      bottomLeft: Radius.circular(8),
                     ),
                   ),
                   child: const Text(
@@ -3257,15 +3436,7 @@ class _GradientActionButton extends StatelessWidget {
 }
 
 class _PlanShimmerGrid extends StatelessWidget {
-  final bool shrinkWrap;
-  final ScrollPhysics? physics;
-  final EdgeInsetsGeometry padding;
-
-  const _PlanShimmerGrid({
-    this.shrinkWrap = false,
-    this.physics,
-    this.padding = const EdgeInsets.symmetric(horizontal: 20),
-  });
+  const _PlanShimmerGrid();
 
   @override
   Widget build(BuildContext context) {
@@ -3275,9 +3446,7 @@ class _PlanShimmerGrid extends StatelessWidget {
         ? const Color(0xFF283656)
         : const Color(0xFFE7EBF3);
     return GridView.builder(
-      shrinkWrap: shrinkWrap,
-      physics: physics,
-      padding: padding,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         crossAxisSpacing: 10,
@@ -3878,7 +4047,7 @@ class _ShareableReceipt extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(6),
                     child: Image.asset(
-                      'assets/brand/meledata-icon.png',
+                      AppConfig.logoAssetPath,
                       fit: BoxFit.contain,
                       errorBuilder: (c, e, s) => Icon(
                         ok ? Icons.local_florist : Icons.error_outline_rounded,
@@ -3892,8 +4061,8 @@ class _ShareableReceipt extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              const Text(
-                'MZDATA',
+              Text(
+                AppConfig.appName,
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 24,
@@ -3958,7 +4127,7 @@ class _ShareableReceipt extends StatelessWidget {
               ),
               _ReceiptTableItem(
                 label: 'Provider',
-                value: 'MZDATA',
+                value: AppConfig.appName,
                 bold: true,
               ),
               _ReceiptTableItem(
@@ -3996,8 +4165,8 @@ class _ShareableReceipt extends StatelessWidget {
               const SizedBox(height: 24),
               const Divider(height: 1),
               const SizedBox(height: 24),
-              const Text(
-                'mzdata.org',
+              Text(
+                AppConfig.supportDomain,
                 style: TextStyle(color: Colors.grey, fontSize: 11),
               ),
             ],

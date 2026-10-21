@@ -19,11 +19,11 @@ class AuthSegmentedControl extends StatelessWidget {
       height: 54,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF111111) : const Color(0xFFF5F5F5),
-        borderRadius: BorderRadius.circular(12),
+        color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: theme.colorScheme.outline,
-          width: 2,
+          color: theme.colorScheme.primary.withValues(alpha: isDark ? 0.3 : 0.2),
+          width: 1,
         ),
       ),
       child: Row(
@@ -72,24 +72,23 @@ class _SegmentButton extends StatelessWidget {
         curve: Curves.easeOutCubic,
         decoration: BoxDecoration(
           color: isSelected ? theme.colorScheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: isSelected ? Border.all(color: Colors.white, width: 1.5) : null,
+          borderRadius: BorderRadius.circular(999),
           boxShadow: isSelected
               ? [
-                  const BoxShadow(
-                    color: Colors.white,
-                    blurRadius: 0,
-                    offset: Offset(2, 2),
+                  BoxShadow(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   )
                 ]
               : [],
         ),
         alignment: Alignment.center,
         child: Text(
-          title.toUpperCase(),
+          title,
           style: TextStyle(
             color: isSelected 
-                ? theme.colorScheme.onPrimary 
+                ? Colors.white 
                 : theme.colorScheme.onSurface.withValues(alpha: isDark ? 0.7 : 0.6),
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
             fontSize: 15,

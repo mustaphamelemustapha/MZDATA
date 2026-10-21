@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 
 enum AppNotificationKind {
@@ -208,8 +210,8 @@ class AppNotification {
       row['title'],
       row['heading'],
       row['subject'],
-      'MZDATA update',
-    ], fallback: 'MZDATA update');
+      '${AppConfig.appName} update',
+    ], fallback: '${AppConfig.appName} update');
     final message = _firstNonEmpty([
       row['message'],
       row['body'],

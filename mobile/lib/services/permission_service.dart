@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -35,7 +37,7 @@ class PermissionService {
           builder: (context) => _PermissionExplanationSheet(
             title: 'Access Contacts',
             description:
-                'MZDATA needs access to your contacts to make it easier for you to select phone numbers for airtime and data top-ups.',
+                '${AppConfig.appName} needs access to your contacts to make it easier for you to select phone numbers for airtime and data top-ups.',
             icon: Icons.contacts_rounded,
             actionLabel: 'Allow Access',
           ),

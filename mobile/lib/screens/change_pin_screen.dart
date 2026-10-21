@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -234,9 +236,9 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          const Center(
+                          Center(
                             child: Text(
-                              'Update MZDATA PIN',
+                              'Update ${AppConfig.appName} PIN',
                               style: TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.w800,

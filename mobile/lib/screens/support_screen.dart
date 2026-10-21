@@ -1,3 +1,6 @@
+import '../config.dart';
+import '../config/brand_config.dart';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../widgets/concentric_circles_bg.dart';
@@ -9,7 +12,8 @@ class SupportScreen extends StatelessWidget {
   static const String route = '/support';
 
   Future<void> _launchWhatsApp(BuildContext context) async {
-    final Uri url = Uri.parse("whatsapp://send?phone=2349067054672&text=Hello%20Mele%20Data%20Support");
+    final brand = BrandConfig.current;
+    final Uri url = Uri.parse("whatsapp://send?phone=2348141114647&text=Hello%20${Uri.encodeComponent(brand.appName)}%20Support");
     if (!await launchUrl(url)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -20,7 +24,8 @@ class SupportScreen extends StatelessWidget {
   }
 
   Future<void> _launchEmail(BuildContext context) async {
-    final Uri url = Uri.parse("mailto:mzdatamzdata2@gmail.com?subject=MZDATA%20Support%20Request");
+    final brand = BrandConfig.current;
+    final Uri url = Uri.parse("mailto:${brand.supportEmail}?subject=${Uri.encodeComponent(brand.appName)}%20Support%20Request");
     if (!await launchUrl(url)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

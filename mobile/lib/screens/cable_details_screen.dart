@@ -309,8 +309,7 @@ class _CableDetailsScreenState extends State<CableDetailsScreen> {
     required String reference,
     required double amount,
   }) {
-    // Always refresh balance so failed or successful transactions appear immediately
-    context.read<SessionController>().refreshBalance();
+    if (status != 'failed') context.read<SessionController>().refreshBalance();
     final ok = status == 'success';
     final isSuccess = status.toLowerCase() != 'failed';
     final userName = context.read<SessionController>().user?['full_name'] ?? 'User';

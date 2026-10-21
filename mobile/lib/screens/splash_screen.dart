@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 
 class SplashScreen extends StatelessWidget {
@@ -38,14 +40,14 @@ class SplashScreen extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(30),
                   child: Image.asset(
-                    'assets/brand/meledata-icon.png',
+                    AppConfig.logoAssetPath,
                     fit: BoxFit.cover,
                   ),
                 ),
               ),
               const SizedBox(height: 18),
               Text(
-                'MZDATA',
+                AppConfig.appName,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                       letterSpacing: -0.4,

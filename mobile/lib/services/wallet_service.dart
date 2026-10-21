@@ -34,7 +34,14 @@ class WalletService {
     if (ninVal.isNotEmpty) {
       body['nin'] = ninVal;
     }
-    return _client.post('/wallet/bank-transfer-accounts', body);
+    try {
+      return await _client.post('/wallet/bank-transfer-accounts', body);
+    } catch (e) {
+      if (e is ApiException && e.statusCode == 405) {
+        return await _client.post('/wallet/monnify/reserved-account', body);
+      }
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> verifyTransferRecipient(String identifier) async {

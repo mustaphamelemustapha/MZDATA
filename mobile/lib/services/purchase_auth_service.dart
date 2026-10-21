@@ -14,42 +14,70 @@ class PurchaseAuthService {
   static const String methodPin = 'pin';
   static const String methodBiometric = 'biometric';
 
+  static bool _isVerifyingFlow = false;
+
   static Future<bool> authorizePin({
     required BuildContext context,
     String reason = 'purchase',
     String preferredMethod = methodAuto,
   }) async {
-    final session = context.read<SessionController>();
-    final token = (session.token ?? '').trim();
-    if (token.isEmpty) return false;
+    if (_isVerifyingFlow) return false;
+    _isVerifyingFlow = true;
 
-    final service = TransactionPinService(token: token);
+    try {
+      final session = context.read<SessionController>();
+      final token = (session.token ?? '').trim();
+      if (token.isEmpty) {
+        PurchaseLoadingOverlay.hide();
+        return false;
+      }
 
-    return _verifyFlow(
-      context: context,
-      service: service,
-      reason: reason,
-      pinLength: 4, 
-      preferredMethod: preferredMethod,
-    );
+      final service = TransactionPinService(token: token);
+
+      final success = await _verifyFlow(
+        context: context,
+        service: service,
+        reason: reason,
+        pinLength: 4, 
+        preferredMethod: preferredMethod,
+      );
+      if (!success) {
+        PurchaseLoadingOverlay.hide();
+      }
+      return success;
+    } catch (_) {
+      PurchaseLoadingOverlay.hide();
+      return false;
+    } finally {
+      _isVerifyingFlow = false;
+    }
   }
+
+  static bool _isShowingSetupPin = false;
 
   static Future<bool> setupPin({
     required BuildContext context,
     String reason = 'account security',
     int pinLength = 4,
   }) async {
-    final session = context.read<SessionController>();
-    final token = (session.token ?? '').trim();
-    if (token.isEmpty) return false;
+    if (_isShowingSetupPin) return false;
+    _isShowingSetupPin = true;
+    
+    try {
+      final session = context.read<SessionController>();
+      final token = (session.token ?? '').trim();
+      if (token.isEmpty) return false;
 
-    final service = TransactionPinService(token: token);
-    return _setupFlow(
-      context: context,
-      service: service,
-      reason: reason,
-      pinLength: pinLength,
-    );
+      final service = TransactionPinService(token: token);
+      return await _setupFlow(
+        context: context,
+        service: service,
+        reason: reason,
+        pinLength: pinLength,
+      );
+    } finally {
+      _isShowingSetupPin = false;
+    }
   }
 
   static Future<bool> _setupFlow({
@@ -204,34 +232,25 @@ class PurchaseAuthService {
         }
       },
       onSubmit: (value) async {
-        // Return null instantly so the bottom sheet dismisses immediately
-        // Verification happens while the main purchase overlay is showing.
-        return null;
+        try {
+          await service.verify(value);
+          return null;
+        } on ApiException catch (e) {
+          if (e.statusCode == 404 || e.message.toLowerCase().contains('not set')) {
+             Navigator.of(context).pop('PIN_NOT_SET');
+             return null;
+          }
+          return _friendlyError(e.message, e.statusCode);
+        } catch (e) {
+          return _friendlyError(e.toString());
+        }
       },
     );
 
     if (pin == null || !context.mounted) return false;
-
-    // Verify the PIN with the loading overlay to make it feel instantly loading
-    PurchaseLoadingOverlay.show(context, title: 'Verifying PIN...');
-    try {
-      await service.verify(pin);
-      // DO NOT hide overlay on success so it transitions smoothly 
-      // into the parent's "Processing order" overlay without flickering.
-    } on ApiException catch (e) {
-      PurchaseLoadingOverlay.hide();
-      if (e.statusCode == 404 || e.message.toLowerCase().contains('not set')) {
-         if (context.mounted) {
-           return _setupFlow(context: context, service: service, reason: reason, pinLength: pinLength);
-         }
-         return false;
-      }
-      if (context.mounted) _showSnack(context, _friendlyError(e.message, e.statusCode));
-      return false;
-    } catch (e) {
-      PurchaseLoadingOverlay.hide();
-      if (context.mounted) _showSnack(context, _friendlyError(e.toString()));
-      return false;
+    
+    if (pin == 'PIN_NOT_SET') {
+      return _setupFlow(context: context, service: service, reason: reason, pinLength: pinLength);
     }
 
     // 4. Sync PIN for future biometric use
@@ -367,8 +386,10 @@ class PurchaseAuthService {
   static String _friendlyError(String message, [int? statusCode]) {
     final raw = message.trim();
     final lower = raw.toLowerCase();
-    if (statusCode == 401 ||
-        statusCode == 403 ||
+    if (statusCode == 401) {
+      return 'Your session has expired. Please sign in again.';
+    }
+    if (statusCode == 403 ||
         statusCode == 423 ||
         statusCode == 429) {
       return 'Incorrect PIN, try again.';

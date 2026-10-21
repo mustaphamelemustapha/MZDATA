@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/axis_tokens.dart';
+import '../config/brand_config.dart';
 
 class PrimaryButton extends StatefulWidget {
   const PrimaryButton({
@@ -44,48 +45,53 @@ class _PrimaryButtonState extends State<PrimaryButton> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final brand = BrandConfig.current;
     final primary = widget.backgroundColor ?? theme.colorScheme.primary;
+
+    final double resolvedRadius = widget.compact
+        ? (brand.buttonRadius * 0.75).clamp(8.0, 999.0)
+        : brand.buttonRadius;
+    final borderRadius = BorderRadius.circular(resolvedRadius);
+
+    final gradientColors = widget.backgroundColor != null
+        ? [primary, primary]
+        : brand.buttonGradient;
+
+    final defaultFg = widget.backgroundColor != null ? Colors.white : brand.onPrimaryColor;
+    final fg = widget.foregroundColor ?? defaultFg;
 
     return SizedBox(
       width: double.infinity,
       child: Listener(
-        onPointerDown: _enabled ? (_) => setState(() => _pressed = true) : null,
+        onPointerDown: _enabled ? (_) {
+          HapticFeedback.heavyImpact();
+          setState(() => _pressed = true);
+        } : null,
         onPointerUp: _enabled ? (_) => setState(() => _pressed = false) : null,
         onPointerCancel: _enabled ? (_) => setState(() => _pressed = false) : null,
         child: AnimatedScale(
-          scale: _pressed ? 0.98 : 1.0,
+          scale: _pressed ? 0.95 : 1.0,
           duration: AxisDurations.fast,
           curve: Curves.easeOut,
           child: Container(
             decoration: BoxDecoration(
               gradient: _enabled
-                  ? (widget.isPremium
-                      ? const LinearGradient(
-                          colors: [
-                            Color(0xFF4F46E5),
-                            Color(0xFFF97316),
-                          ],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        )
-                      : LinearGradient(
-                          colors: [
-                            primary,
-                            primary.withValues(alpha: 0.82),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ))
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: gradientColors,
+                    )
                   : null,
               color: _enabled ? null : theme.disabledColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(AxisRadii.lg),
+              borderRadius: borderRadius,
+
               boxShadow: [
                 if (_enabled)
                   BoxShadow(
-                    color: (widget.isPremium ? const Color(0xFFF97316) : primary)
-                        .withValues(alpha: isDark ? 0.28 : 0.2),
+                    color: gradientColors.first
+                        .withValues(alpha: isDark ? 0.35 : 0.22),
                     blurRadius: 16,
-                    offset: const Offset(0, 8),
+                    offset: const Offset(0, 6),
                   ),
               ],
             ),
@@ -98,22 +104,22 @@ class _PrimaryButtonState extends State<PrimaryButton> {
                       child: CircularProgressIndicator(
                         strokeWidth: 2.2,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          widget.foregroundColor ?? Colors.white,
+                          fg,
                         ),
                       ),
                     )
-                  : Icon(widget.icon ?? Icons.arrow_forward_rounded, size: 20),
+                  : Icon(widget.icon ?? Icons.arrow_forward_rounded, size: 20, color: fg),
               label: Text(widget.label),
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.transparent,
-                foregroundColor: widget.foregroundColor ?? Colors.white,
+                foregroundColor: fg,
                 padding: EdgeInsets.symmetric(
                   horizontal: 20,
                   vertical: widget.compact ? 12 : 16,
                 ),
                 minimumSize: Size.fromHeight(widget.compact ? 48 : 56),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AxisRadii.lg),
+                  borderRadius: borderRadius,
                 ),
                 textStyle: theme.textTheme.labelLarge?.copyWith(
                   fontSize: 16,

@@ -7,6 +7,7 @@ import '../state/session.dart';
 import '../widgets/concentric_circles_bg.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/primary_button.dart';
+import '../widgets/state_select_sheet.dart';
 
 class PersonalInfoScreen extends StatefulWidget {
   const PersonalInfoScreen({super.key});
@@ -18,6 +19,7 @@ class PersonalInfoScreen extends StatefulWidget {
 class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   bool _updatingProfile = false;
   bool _uploadingImage = false;
+  String? _selectedState;
   late TextEditingController _fullNameCtrl;
   late TextEditingController _emailCtrl;
   late TextEditingController _phoneCtrl;
@@ -35,8 +37,10 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
       text: (currentUser['email'] ?? '').toString(),
     );
     _phoneCtrl = TextEditingController(
-      text: (currentUser['phone_number'] ?? '').toString(),
+      text: (currentUser['phone'] ?? currentUser['phone_number'] ?? '').toString(),
     );
+    final rawState = currentUser['state']?.toString().trim();
+    _selectedState = (rawState != null && rawState.isNotEmpty) ? rawState : null;
   }
 
   @override
@@ -45,6 +49,21 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
     super.dispose();
+  }
+
+  void _openStateSelector() {
+    StateSelectBottomSheet.show(
+      context,
+      onCompleted: () {
+        final session = context.read<SessionController>();
+        final st = session.user?['state']?.toString().trim();
+        if (st != null && st.isNotEmpty && mounted) {
+          setState(() {
+            _selectedState = st;
+          });
+        }
+      },
+    );
   }
 
   Future<void> _saveChanges() async {
@@ -62,12 +81,14 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
 
     setState(() => _updatingProfile = true);
     try {
-      // Note: We only update full_name and phone_number, as email usually requires separate verification API
       final updated = await AuthService(token: token).updateProfile(
         fullName: fullName,
-        phoneNumber: _phoneCtrl.text.trim(),
+        state: _selectedState,
       );
       session.updateUser(updated);
+      if (_selectedState != null && _selectedState!.isNotEmpty) {
+        await session.updateUserField('state', _selectedState);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profile updated successfully')),
@@ -94,9 +115,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
         imageQuality: 85,
       );
       if (pickedFile == null) return;
-
       setState(() => _uploadingImage = true);
 
+      if (!mounted) return;
       final session = context.read<SessionController>();
       await session.uploadProfileImage(File(pickedFile.path));
       
@@ -250,7 +271,14 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                           const SizedBox(height: 20),
                           _buildInputLabel('Phone Number'),
                           const SizedBox(height: 8),
-                          _buildTextField(_phoneCtrl),
+                          _buildTextField(
+                            _phoneCtrl,
+                            readOnly: true, // Phone is read-only
+                          ),
+                          const SizedBox(height: 20),
+                          _buildInputLabel('State of Residence'),
+                          const SizedBox(height: 8),
+                          _buildStateField(isDark),
                         ],
                       ),
                     ),
@@ -317,4 +345,62 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
       ),
     );
   }
+
+  Widget _buildStateField(bool isDark) {
+    final hasState = _selectedState != null && _selectedState!.trim().isNotEmpty;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    return InkWell(
+      onTap: _updatingProfile ? null : _openStateSelector,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark ? Colors.white10 : const Color(0xFFE2E8F0),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.location_on_rounded,
+              size: 20,
+              color: hasState ? primaryColor : (isDark ? Colors.white38 : const Color(0xFF94A3B8)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                hasState ? _selectedState! : 'Select your state of residence',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: hasState ? FontWeight.w600 : FontWeight.w400,
+                  color: hasState
+                      ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                      : (isDark ? Colors.white38 : const Color(0xFF94A3B8)),
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: primaryColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                hasState ? 'Change' : 'Select',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: primaryColor,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+

@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -63,10 +65,10 @@ class _AboutScreenState extends State<AboutScreen> {
                         child: const Icon(Icons.chevron_left_rounded, size: 24),
                       ),
                     ),
-                    const Expanded(
+                    Expanded(
                       child: Center(
                         child: Text(
-                          'About MZDATA',
+                          'About ${AppConfig.appName}',
                           style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w900,
@@ -102,10 +104,30 @@ class _AboutScreenState extends State<AboutScreen> {
             textMain: textMain,
             textDim: textDim,
           ),
+          const SizedBox(height: 12),
+          _InfoCard(
+            label: 'Privacy Policy',
+            value: 'View Policy',
+            valueColor: primary,
+            cardBg: cardBg,
+            textMain: textMain,
+            textDim: textDim,
+            onTap: () => launchUrl(Uri.parse(AppConfig.privacyUrl), mode: LaunchMode.externalApplication),
+          ),
+          const SizedBox(height: 12),
+          _InfoCard(
+            label: 'Terms of Service',
+            value: 'View Terms',
+            valueColor: primary,
+            cardBg: cardBg,
+            textMain: textMain,
+            textDim: textDim,
+            onTap: () => launchUrl(Uri.parse(AppConfig.termsUrl), mode: LaunchMode.externalApplication),
+          ),
           
           const SizedBox(height: 24),
           Text(
-            'This will notify you if an update is available. Keeping your MZDATA app updated ensures you get the most out of our services.',
+            'This will notify you if an update is available. Keeping your ${AppConfig.appName} app updated ensures you get the most out of our services.',
             style: TextStyle(
               color: textDim,
               fontSize: 14,
@@ -137,7 +159,7 @@ class _AboutScreenState extends State<AboutScreen> {
                   ),
                 ),
                 Text(
-                  'Founder MzData',
+                  'Founder MMTechGlobe',
                   style: TextStyle(
                     color: textDim,
                     fontSize: 13,
@@ -193,6 +215,7 @@ class _InfoCard extends StatelessWidget {
     required this.cardBg,
     required this.textMain,
     required this.textDim,
+    this.onTap,
   });
 
   final String label;
@@ -201,10 +224,11 @@ class _InfoCard extends StatelessWidget {
   final Color cardBg;
   final Color textMain;
   final Color textDim;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final content = Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       decoration: BoxDecoration(
         color: cardBg,
@@ -222,16 +246,34 @@ class _InfoCard extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              color: valueColor ?? textDim,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  color: valueColor ?? textDim,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (onTap != null) ...[
+                const SizedBox(width: 6),
+                Icon(Icons.open_in_new_rounded, size: 16, color: valueColor ?? textDim),
+              ],
+            ],
           ),
         ],
       ),
     );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: content,
+      );
+    }
+    return content;
   }
 }

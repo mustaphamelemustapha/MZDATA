@@ -5,18 +5,29 @@ import 'package:flutter/material.dart';
 
 class PurchaseLoadingOverlay {
   static OverlayEntry? _entry;
+  static final ValueNotifier<String> _titleNotifier =
+      ValueNotifier<String>('Processing request');
+
+  static bool get isShowing => _entry != null;
 
   static void show(
     BuildContext context, {
     String title = 'Processing request',
   }) {
-    hide();
+    _titleNotifier.value = title;
+    if (_entry != null) return;
     FocusManager.instance.primaryFocus?.unfocus();
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
 
-    _entry = OverlayEntry(builder: (_) => _PurchaseLoadingView(title: title));
+    _entry = OverlayEntry(
+      builder: (_) => _PurchaseLoadingView(titleNotifier: _titleNotifier),
+    );
     overlay.insert(_entry!);
+  }
+
+  static void updateTitle(String newTitle) {
+    _titleNotifier.value = newTitle;
   }
 
   static void hide() {
@@ -26,9 +37,9 @@ class PurchaseLoadingOverlay {
 }
 
 class _PurchaseLoadingView extends StatefulWidget {
-  const _PurchaseLoadingView({required this.title});
+  const _PurchaseLoadingView({required this.titleNotifier});
 
-  final String title;
+  final ValueNotifier<String> titleNotifier;
 
   @override
   State<_PurchaseLoadingView> createState() => _PurchaseLoadingViewState();
@@ -122,11 +133,14 @@ class _PurchaseLoadingViewState extends State<_PurchaseLoadingView>
                     children: [
                       const _PremiumSpinner(),
                       const SizedBox(height: 14),
-                      Text(
-                        widget.title,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ValueListenableBuilder<String>(
+                        valueListenable: widget.titleNotifier,
+                        builder: (context, title, _) => Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
                       ),
                       const SizedBox(height: 6),
                       const _DynamicLoadingText(),

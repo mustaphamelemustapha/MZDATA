@@ -7,21 +7,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'state/session.dart';
 import 'state/theme_controller.dart';
 import 'theme/app_theme.dart';
-import 'screens/register_screen.dart';
-import 'screens/reset_password_screen.dart';
+import 'config.dart';
 import 'screens/reset_pin_screen.dart';
 import 'screens/shell_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/force_update_screen.dart';
+import 'screens/maintenance_screen.dart';
 import 'screens/security_preference_screen.dart';
 import 'screens/app_lock_screen.dart';
-import 'screens/quick_auth_screen.dart';
+import 'screens/auth_password_screen.dart';
+import 'screens/set_pin_screen.dart';
+import 'screens/signup_wizard_screen.dart';
 import 'services/push_notification_service.dart';
 
-class MzDataApp extends StatelessWidget {
-  const MzDataApp({super.key});
+class AxisVTUApp extends StatelessWidget {
+  const AxisVTUApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +37,7 @@ class MzDataApp extends StatelessWidget {
           final mode = context.watch<ThemeController>().mode;
           return MaterialApp(
             navigatorKey: PushNotificationService.navigatorKey,
-            title: 'MZDATA',
+            title: AppConfig.appName,
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light(),
             darkTheme: AppTheme.dark(),
@@ -44,18 +46,33 @@ class MzDataApp extends StatelessWidget {
               final media = MediaQuery.of(context);
               // Use textScaleFactor for better compatibility
               final scale = media.textScaleFactor.clamp(0.95, 1.12);
+              
+              final session = context.watch<SessionController>();
+              Widget content = child ?? const SizedBox.shrink();
+              
+              if (session.isBootstrapped && session.isAuthenticated && session.isLocked) {
+                content = Stack(
+                  children: [
+                    content,
+                    const Positioned.fill(child: AppLockScreen()),
+                  ],
+                );
+              }
+              
               return MediaQuery(
                 data: media.copyWith(textScaleFactor: scale),
-                child: child ?? const SizedBox.shrink(),
+                child: content,
               );
             },
             routes: {
               '/splash': (_) => const SplashScreen(),
               WelcomeScreen.route: (_) => const WelcomeScreen(),
-               RegisterScreen.route: (_) => const RegisterScreen(),
+              '/register': (_) => const WelcomeScreen(),
               ShellScreen.route: (_) => const ShellScreen(),
               SecurityPreferenceScreen.route: (_) => const SecurityPreferenceScreen(),
-              QuickAuthScreen.route: (_) => const QuickAuthScreen(),
+              AuthPasswordScreen.route: (_) => const AuthPasswordScreen(identifier: ''),
+              SetPinScreen.route: (_) => const SetPinScreen(),
+              SignupWizardScreen.route: (_) => const SignupWizardScreen(phone: ''),
             },
             home: const AppEntryGate(),
           );
@@ -96,25 +113,26 @@ class _AppEntryGateState extends State<AppEntryGate> with WidgetsBindingObserver
     super.dispose();
   }
 
-  DateTime? _pausedTime;
+  DateTime? _pausedAt;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
-      _pausedTime = DateTime.now();
-    } else if (state == AppLifecycleState.resumed) {
-      final session = context.read<SessionController>();
+    final session = context.read<SessionController>();
+    if (state == AppLifecycleState.resumed) {
       if (session.isAuthenticated) {
         session.refreshBalance();
-        final pausedAt = _pausedTime;
-        if (pausedAt != null) {
-          final difference = DateTime.now().difference(pausedAt);
-          if (difference.inSeconds >= 2) {
-            session.lockForcefully();
+        // Only lock if Maximum Security is active AND the user was away for > 60 seconds
+        // Prevents annoying auto-lock when briefly switching apps to copy a number or check an OTP
+        if (session.securityPreference == 'max' && _pausedAt != null) {
+          final elapsed = DateTime.now().difference(_pausedAt!);
+          if (elapsed.inSeconds >= 60) {
+            session.lock();
           }
         }
+        _pausedAt = null;
       }
-      _pausedTime = null;
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _pausedAt = DateTime.now();
     }
   }
 
@@ -147,14 +165,6 @@ class _AppEntryGateState extends State<AppEntryGate> with WidgetsBindingObserver
       if (isPinReset) {
         return ResetPinScreen(token: token);
       }
-
-      final isPasswordReset = flow == 'password' ||
-          path.contains('reset-password') ||
-          path.contains('password/reset');
-
-      if (isPasswordReset) {
-        return ResetPasswordScreen(token: token);
-      }
     }
 
     final session = context.watch<SessionController>();
@@ -162,17 +172,24 @@ class _AppEntryGateState extends State<AppEntryGate> with WidgetsBindingObserver
       return const SplashScreen();
     }
 
+    if (session.maintenanceMode) {
+      return MaintenanceScreen(
+        message: session.maintenanceMessage,
+        supportPhone: session.supportPhone,
+        supportWhatsApp: session.supportWhatsApp,
+        onRetry: () => session.bootstrap(),
+      );
+    }
+
     if (session.updateRequired) {
       return ForceUpdateScreen(
         playStoreUrl: session.playStoreUrl,
         appStoreUrl: session.appStoreUrl,
+        releaseNotes: session.releaseNotes,
       );
     }
 
     if (session.isAuthenticated) {
-      if (session.isLocked) {
-        return const AppLockScreen();
-      }
       if (!session.hasSecurityPreference) {
         return const SecurityPreferenceScreen();
       }
@@ -183,7 +200,18 @@ class _AppEntryGateState extends State<AppEntryGate> with WidgetsBindingObserver
       return const OnboardingScreen();
     }
     if (session.lastUser != null) {
-      return const QuickAuthScreen();
+      final phone = (session.lastUser?['phone_number'] ??
+              session.lastUser?['phone'] ??
+              session.lastUser?['email'] ??
+              '')
+          .toString();
+      if (phone.isNotEmpty) {
+        return AuthPasswordScreen(
+          identifier: phone,
+          autoPromptBiometrics: true,
+        );
+      }
+      return const WelcomeScreen();
     }
     return const WelcomeScreen();
   }

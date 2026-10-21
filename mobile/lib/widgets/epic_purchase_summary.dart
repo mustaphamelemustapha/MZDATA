@@ -44,6 +44,7 @@ class EpicPurchaseSummary extends StatefulWidget {
 
 class _EpicPurchaseSummaryState extends State<EpicPurchaseSummary> {
   bool _bioAvailable = false;
+  BiometricAvailability? _bioAvailability;
 
   @override
   void initState() {
@@ -52,10 +53,17 @@ class _EpicPurchaseSummaryState extends State<EpicPurchaseSummary> {
   }
 
   Future<void> _checkBio() async {
+    final changed = await BiometricService.hasEnrolledBiometricsChanged();
+    if (changed) {
+      await BiometricService.deletePin();
+      if (mounted) setState(() => _bioAvailable = false);
+      return;
+    }
     final enabled = await BiometricService.isAppLockEnabled;
     final availability = await BiometricService.getAvailability();
     if (mounted) {
       setState(() {
+        _bioAvailability = availability;
         _bioAvailable = enabled && availability.ready;
       });
     }
@@ -253,11 +261,15 @@ class _EpicPurchaseSummaryState extends State<EpicPurchaseSummary> {
                       }
                     },
                     icon: Icon(
-                            _bioAvailable ? Icons.fingerprint_rounded : Icons.lock_outline_rounded,
+                            _bioAvailable
+                                ? (_bioAvailability?.icon ?? Icons.fingerprint_rounded)
+                                : Icons.lock_outline_rounded,
                             color: primary.computeLuminance() > 0.5 ? Colors.black : Colors.white,
                           ),
                     label: Text(
-                      _bioAvailable ? 'Confirm with Biometrics' : 'Confirm & Pay with PIN',
+                      _bioAvailable
+                          ? 'Confirm with ${_bioAvailability?.label ?? "Biometrics"}'
+                          : 'Confirm & Pay with PIN',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,

@@ -1,10 +1,14 @@
+import '../config.dart';
+
 import 'dart:async';
 import 'dart:ui';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoActivityIndicator, CupertinoSliverRefreshControl, RefreshIndicatorMode;
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,7 +17,6 @@ import '../services/dashboard_snapshot_cache.dart';
 import '../services/notifications_service.dart';
 import '../services/transactions_service.dart';
 import '../services/wallet_service.dart';
-import '../services/data_service.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
 import '../theme/axis_tokens.dart';
@@ -23,8 +26,9 @@ import '../widgets/epic_purchase_summary.dart';
 import '../widgets/fund_wallet_sheet.dart';
 import '../widgets/purchase_result_sheet.dart';
 import '../widgets/primary_button.dart';
+import '../widgets/startup_popup_dialog.dart';
 import 'notification_center_screen.dart';
-import '../widgets/theme_toggle_button.dart';
+import 'promo_screen.dart';
 import 'airtime_screen.dart';
 import 'cable_screen.dart';
 import 'data_screen.dart';
@@ -39,7 +43,7 @@ import 'wallet_screen.dart';
 import '../widgets/concentric_circles_bg.dart';
 import '../services/agent_service.dart';
 import '../models/agent_models.dart';
-import '../widgets/mele_data_loader.dart';
+import '../widgets/dynamic_brand_loader.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -51,7 +55,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends State<HomeScreen> {
   static const _hideBalanceKey = 'wallet_hide_balance';
   static const _homeServiceAspectRatio = 1.12;
   Future<Map<String, dynamic>>? _walletFuture;
@@ -62,6 +66,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Map<String, dynamic>? _cachedAccountsData;
   List<dynamic>? _cachedTransactionsData;
   List<Map<String, dynamic>>? _announcements;
+
+  static bool _hasShownStartupPopup = false;
+
   Set<String> _dismissedAnnouncementIds = {};
   int _activeAccountIndex = 0;
   String _activeToken = '';
@@ -73,24 +80,49 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<RewardCampaign> _activeCampaigns = [];
   bool _dismissedUpdateBanner = false;
   String _dismissedVersionStr = '';
+  
+  double? _previousBalance;
+  double _balanceDiff = 0.0;
+  bool _showBalanceDiff = false;
+  Timer? _balanceDiffTimer;
+  bool _readyForLiveUpdates = false;
 
   void _startRefreshTimer() {
     _refreshTimer?.cancel();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (!mounted) return;
       final session = context.read<SessionController>();
       final token = (session.token ?? '').trim();
       final dashboardKey =
           DashboardSnapshotCache.identityFromUser(session.user) ?? token;
       if (token.isNotEmpty && dashboardKey.isNotEmpty) {
-        _reloadDashboard(token, dashboardKey);
+        _checkWalletUpdateSilently(token, dashboardKey);
       }
     });
   }
 
+  void _checkWalletUpdateSilently(String token, String dashboardKey) {
+    if (!mounted || dashboardKey != _activeDashboardKey) return;
+    final service = WalletService(token: token);
+    service.getWallet(forceRefresh: true).then((data) {
+      if (!mounted || dashboardKey != _activeDashboardKey) return;
+      final newMap = _asMap(data);
+      final newBalance = _extractBalance(newMap);
+      final oldBalance = _extractBalance(_cachedWalletData ?? const {});
+      
+      // If balance changed (e.g. money funded), trigger full reload
+      if ((newBalance - oldBalance).abs() > 0.001) {
+        _reloadDashboard(token, dashboardKey, forceRefresh: true);
+      } else {
+        // Keep cached wallet updated without disturbing transaction futures or UI
+        _cachedWalletData = newMap;
+        unawaited(DashboardSnapshotCache.save(dashboardKey, wallet: data));
+      }
+    }).catchError((_) {});
+  }
+
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     super.dispose();
   }
@@ -98,28 +130,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _readyForLiveUpdates = true);
+    });
     _loadBalancePreference();
     _loadDismissedAnnouncements();
     _startRefreshTimer();
     Future.delayed(Duration.zero, () {
       if (mounted) {
-        _initialSecurityCheck();
         final session = context.read<SessionController>();
         if (session.isAuthenticated && session.user == null) {
           session.syncProfileIfNeeded();
         }
       }
     });
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      if (mounted) {
-        context.read<SessionController>().refreshBalance();
-      }
-    }
   }
 
   Future<void> _loadDismissedAnnouncements() async {
@@ -142,6 +166,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await prefs.setStringList('dismissed_announcements', _dismissedAnnouncementIds.toList());
   }
 
+  void _checkStartupPopup() {
+    if (_hasShownStartupPopup || _announcements == null || _announcements!.isEmpty) return;
+    try {
+      final popup = _announcements!.firstWhere(
+        (a) => a['is_popup'] == true && !_dismissedAnnouncementIds.contains(a['id']?.toString()),
+        orElse: () => {},
+      );
+      if (popup.isNotEmpty) {
+        _hasShownStartupPopup = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            StartupPopupDialog.show(context, popup).then((_) {
+              // Optionally mark as dismissed if we want 'once ever' behavior
+              // But user asked for option 1 (once per session), so we don't save to prefs.
+            });
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
   Future<void> _dismissUpdateBanner(String version) async {
     setState(() {
       _dismissedUpdateBanner = true;
@@ -152,26 +197,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initialSecurityCheck() async {
-    final session = context.read<SessionController>();
-    final token = (session.token ?? '').trim();
-    if (token.isEmpty) return;
-
-    final service = TransactionPinService(token: token);
-    try {
-      final status = await service.statusOrNull();
-      if (!mounted) return;
-
-      if (status != null && !status.isSet) {
-        // Show the setup flow proactively for new/web users
-        await PurchaseAuthService.setupPin(
-          context: context,
-          reason: 'account security',
-          pinLength: status.pinLength,
-        );
-      }
-    } catch (_) {
-      // Silently fail to avoid blocking the home screen
-    }
+    // PIN setup is handled during account registration and at purchase time.
+    // Intrusive popup on home screen is disabled.
   }
 
   @override
@@ -205,29 +232,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _cachedTransactionsData = null;
       }
       _activeDashboardKey = dashboardKey;
-      _reloadDashboard(token, dashboardKey);
+      _reloadDashboard(token, dashboardKey, forceRefresh: tickChanged);
       
       // Load from high-speed in-memory static cache synchronously on the very first frame to prevent UI flickering!
-      final memCached = DashboardSnapshotCache.loadSync(dashboardKey);
-      if (memCached != null) {
-        _cachedWalletData = _asMap(memCached['wallet']);
-        _cachedAccountsData = _asMap(memCached['accounts']);
-        final memTransactions = memCached['transactions'];
-        if (memTransactions is List) {
-          _cachedTransactionsData = memTransactions
-              .whereType<Map>()
-              .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
-              .toList();
+      if (!tickChanged && _cachedTransactionsData == null) {
+        final memCached = DashboardSnapshotCache.loadSync(dashboardKey);
+        if (memCached != null) {
+          _cachedWalletData = _asMap(memCached['wallet']);
+          _cachedAccountsData = _asMap(memCached['accounts']);
+          final memTransactions = memCached['transactions'];
+          if (memTransactions is List) {
+            _cachedTransactionsData = memTransactions
+                .whereType<Map>()
+                .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
+                .toList();
+          }
+          final memAnnouncements = memCached['announcements'];
+          if (memAnnouncements is List) {
+            _announcements = memAnnouncements
+                .whereType<Map>()
+                .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
+                .toList();
+            _checkStartupPopup();
+          }
+        } else {
+          _loadCachedDashboard(dashboardKey);
         }
-        final memAnnouncements = memCached['announcements'];
-        if (memAnnouncements is List) {
-          _announcements = memAnnouncements
-              .whereType<Map>()
-              .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
-              .toList();
-        }
-      } else {
-        _loadCachedDashboard(dashboardKey);
       }
       
       _activeToken = token;
@@ -321,7 +351,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'Agent Benefits in MZDATA:',
+                    'Agent Benefits in ${AppConfig.appName}:',
                     style: TextStyle(
                       color: textPrimary,
                       fontSize: 15,
@@ -339,14 +369,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   _benefitItem(
                     icon: Icons.group_add_rounded,
                     title: 'Register an Agent',
-                    description: 'Onboard POS agents who sell mobile data. Once an agent becomes active (sells 50GB+), you earn ₦2,000 per agent. There’s no limit, earn as much as you want.',
+                    description: 'Onboard POS agents who sell mobile data and earn commissions on their transactions automatically. Build your agent network with ease.',
                     isDark: isDark,
                   ),
                   const SizedBox(height: 12),
                   _benefitItem(
                     icon: Icons.share_rounded,
                     title: 'Referrals',
-                    description: 'Invite someone to join MZDATA using your referral code. Every time they buy data, you earn a commission automatically.',
+                    description: 'Invite someone to join ${AppConfig.appName} using your referral code. Every time they buy data, you earn a commission automatically.',
                     isDark: isDark,
                   ),
                   const SizedBox(height: 12),
@@ -421,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _launchSupport() async {
-    final phone = '+2349067054672';
+    final phone = '+2348141114647';
     final url = Uri.parse('https://wa.me/${phone.replaceAll('+', '')}');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (mounted) {
@@ -466,6 +496,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             )
             .toList();
+        _checkStartupPopup();
       }
     });
   }
@@ -475,7 +506,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       context: context,
       barrierDismissible: true,
       builder: (context) {
-        return _MZDATAAccountActivationDialog(
+        return _KULLOMADATAAccountActivationDialog(
           onActivated: () {
             if (!mounted) return;
             final token = (context.read<SessionController>().token ?? '').trim();
@@ -488,17 +519,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _reloadDashboard(String token, String dashboardKey) {
+  void _reloadDashboard(String token, String dashboardKey, {bool forceRefresh = false}) {
     final service = WalletService(token: token);
     final txService = TransactionsService(token: token);
-    _walletFuture = service.getWallet();
-    _accountsFuture = service.getBankAccounts();
-    _transactionsFuture = txService.getTransactions();
+    _walletFuture = service.getWallet(forceRefresh: true);
+    _accountsFuture = service.getBankAccounts(forceRefresh: forceRefresh);
+    _transactionsFuture = txService.getTransactions(forceRefresh: forceRefresh);
     _notificationsFuture = _loadNotifications(token);
-    
-    // Silently preload data plans in the background to ensure instant loading when user navigates to Data Screen
-    DataService(token: token).getPlans(forceRefresh: false).catchError((_) => []);
-    
     _walletFuture!.then((data) {
       if (!mounted || dashboardKey != _activeDashboardKey) return;
       setState(() {
@@ -542,6 +569,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _announcements = data;
       });
+      _checkStartupPopup();
       unawaited(
         DashboardSnapshotCache.save(
           dashboardKey,
@@ -587,10 +615,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _refresh() async {
     final token = (context.read<SessionController>().token ?? '').trim();
     if (token.isEmpty) return;
-    
-    // Clear cache to ensure pull-to-refresh gets fresh data
-    await ApiClient.clearCache();
-    
     final dashboardKey =
         DashboardSnapshotCache.identityFromUser(
           context.read<SessionController>().user,
@@ -605,6 +629,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _accountsFuture!,
         _transactionsFuture ?? Future.value(<dynamic>[]),
         _notificationsFuture ?? Future.value(<Map<String, dynamic>>[]),
+        Future.delayed(const Duration(milliseconds: 650)),
       ]);
     } catch (e) {
       if (mounted) {
@@ -626,26 +651,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _copyAccountNumber(String value) async {
-    if (value.trim().isEmpty) return;
-    await Clipboard.setData(ClipboardData(text: value));
+    final cleanDigits = value.replaceAll(RegExp(r'\s+'), '').trim();
+    if (cleanDigits.isEmpty) return;
+    HapticFeedback.selectionClick();
+    await Clipboard.setData(ClipboardData(text: cleanDigits));
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Account number copied')));
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Account number copied! Transfer here to fund your wallet instantly.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   String _formatAccountNumber(String value) {
-    final digits = value.replaceAll(RegExp(r'\s+'), '');
-    if (digits.isEmpty) return '';
-    if (digits.length == 10) {
-      return '${digits.substring(0, 4)} ${digits.substring(4, 7)} ${digits.substring(7)}';
-    }
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && i % 4 == 0) buffer.write(' ');
-      buffer.write(digits[i]);
-    }
-    return buffer.toString();
+    return value.replaceAll(RegExp(r'\s+'), '').trim();
   }
 
   String _formatNaira(dynamic value) {
@@ -671,7 +692,71 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return (tx['tx_type'] ?? 'transaction').toString().trim().toLowerCase();
   }
 
-  bool _txIsCredit(Map<String, dynamic> tx) => _txTypeOf(tx) == 'wallet_fund';
+  bool _txIsCredit(Map<String, dynamic> tx) {
+    final type = _txTypeOf(tx);
+    final failure = (tx['failure_reason'] ?? '').toString().trim().toLowerCase();
+    final ref = (tx['reference'] ?? '').toString().trim().toUpperCase();
+
+    String ledger = '';
+    final meta = tx['meta'];
+    if (meta is Map) {
+      ledger = (meta['ledger_description'] ?? '').toString().trim().toLowerCase();
+    }
+
+    // Explicit debits must never be counted as credit
+    if (failure.contains('debit') || ledger.contains('debit')) {
+      return false;
+    }
+
+    const creditTypes = {
+      'wallet_fund',
+      'wallet_funding',
+      'fund',
+      'funding',
+      'topup',
+      'top_up',
+      'admin_credit',
+      'agent_reward',
+      'deposit',
+      'credit',
+      'refund',
+      'cashback',
+      'bonus',
+      'referral_bonus',
+      'transfer_in',
+      'receive',
+    };
+    if (creditTypes.contains(type)) {
+      return true;
+    }
+
+    if (failure.contains('credit') ||
+        failure.contains('fund') ||
+        failure.contains('deposit') ||
+        failure.contains('reward') ||
+        failure.contains('refund') ||
+        failure.contains('bonus') ||
+        ledger.contains('credit') ||
+        ledger.contains('fund') ||
+        ledger.contains('deposit') ||
+        ledger.contains('reward') ||
+        ledger.contains('refund') ||
+        ledger.contains('bonus')) {
+      return true;
+    }
+
+    if (ref.startsWith('FUND_') ||
+        ref.startsWith('DEP_') ||
+        ref.startsWith('TOP_') ||
+        ref.startsWith('CREDIT_') ||
+        ref.startsWith('MONNIFY_') ||
+        ref.startsWith('PAYSTACK_') ||
+        ref.startsWith('FLW_')) {
+      return true;
+    }
+
+    return false;
+  }
 
   Color _txStatusColor(BuildContext context, String status) {
     final s = status.toLowerCase();
@@ -690,9 +775,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   String _txTitleFor(Map<String, dynamic> tx) {
+    if (_txIsCredit(tx)) {
+      final type = _txTypeOf(tx);
+      if (type == 'agent_reward') return 'Agent Reward';
+      if (type == 'admin_credit') return 'Admin Credit';
+      final failure = (tx['failure_reason'] ?? '').toString().trim().toLowerCase();
+      if (failure.contains('admin credit')) return 'Admin Credit';
+      if (failure.contains('reward')) return 'Agent Reward';
+      if (failure.contains('refund')) return 'Refund Credit';
+      if (failure.contains('bonus')) return 'Bonus Credit';
+      return 'Credit Added';
+    }
     return switch (_txTypeOf(tx)) {
       'data' => 'Data Bundle',
-      'wallet_fund' => 'Credit Added',
       'airtime' => 'Mobile Airtime',
       'cable' => 'TV Subscription',
       'electricity' => 'Power Token',
@@ -905,51 +1000,67 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final level = (announcement['level'] ?? 'info').toString().toLowerCase();
 
     // Default color maps for 'info'
-    Color bannerBg = const Color(0xFFE2E8F0);
-    Color textPrimaryColor = const Color(0xFF0F172A);
-    Color textSecondaryColor = const Color(0xFF334155);
+    List<Color> gradientColors = const [
+      Color(0xFF60A5FA), // Blue 400
+      Color(0xFF3B82F6), // Blue 500
+    ];
+    Color textPrimaryColor = const Color(0xFF1E3A8A); // Blue 900
+    Color textSecondaryColor = const Color(0xFF1E40AF); // Blue 800
     IconData iconData = Icons.info_outline_rounded;
-    Color iconColor = const Color(0xFF0F172A);
-    Color closeBtnBg = Colors.white;
+    Color iconColor = const Color(0xFF1E3A8A);
+    Color closeBtnBg = const Color(0xFF1E3A8A).withOpacity(0.08);
+    Color shadowColor = const Color(0xFF3B82F6).withOpacity(0.18);
 
     if (level == 'success') {
-      bannerBg = const Color(0xFFCCFF00); // Electric Lime
-      textPrimaryColor = Colors.black;
-      textSecondaryColor = Colors.black87;
+      gradientColors = const [
+        Color(0xFF34D399), // Emerald 400
+        Color(0xFF10B981), // Emerald 500
+      ];
+      textPrimaryColor = const Color(0xFF064E3B); // Emerald 950
+      textSecondaryColor = const Color(0xFF065F46); // Emerald 900
       iconData = Icons.check_circle_outline_rounded;
-      iconColor = Colors.black;
-      closeBtnBg = Colors.white;
+      iconColor = const Color(0xFF064E3B);
+      closeBtnBg = const Color(0xFF064E3B).withOpacity(0.08);
+      shadowColor = const Color(0xFF10B981).withOpacity(0.18);
     } else if (level == 'warning') {
-      bannerBg = const Color(0xFFFBBF24); // Amber
-      textPrimaryColor = Colors.black;
-      textSecondaryColor = Colors.black87;
+      gradientColors = const [
+        Color(0xFFFBBF24), // Amber 400
+        Color(0xFFF59E0B), // Amber 500
+      ];
+      textPrimaryColor = const Color(0xFF451A03); // Amber 950
+      textSecondaryColor = const Color(0xFF78350F); // Amber 900
       iconData = Icons.warning_amber_rounded;
-      iconColor = Colors.black;
-      closeBtnBg = Colors.white;
+      iconColor = const Color(0xFF451A03);
+      closeBtnBg = const Color(0xFF451A03).withOpacity(0.08);
+      shadowColor = const Color(0xFFF59E0B).withOpacity(0.18);
     } else if (level == 'critical') {
-      bannerBg = const Color(0xFFEF4444); // Red
-      textPrimaryColor = Colors.black;
-      textSecondaryColor = Colors.white;
+      gradientColors = const [
+        Color(0xFFF87171), // Red 400
+        Color(0xFFEF4444), // Red 500
+      ];
+      textPrimaryColor = const Color(0xFF7F1D1D); // Red 950
+      textSecondaryColor = const Color(0xFF991B1B); // Red 900
       iconData = Icons.gpp_bad_outlined;
-      iconColor = Colors.black;
-      closeBtnBg = Colors.white;
+      iconColor = const Color(0xFF7F1D1D);
+      closeBtnBg = const Color(0xFF7F1D1D).withOpacity(0.08);
+      shadowColor = const Color(0xFFEF4444).withOpacity(0.18);
     }
-    
-    final theme = Theme.of(context);
     
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
-        color: bannerBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.outline,
-          width: 1,
+        gradient: LinearGradient(
+          colors: gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 8),),
+          BoxShadow(
+            color: shadowColor,
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
       child: Padding(
@@ -1003,15 +1114,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   }
                 },
                 style: TextButton.styleFrom(
-                  backgroundColor: Colors.transparent,
+                  backgroundColor: textPrimaryColor.withOpacity(0.15),
                   foregroundColor: textPrimaryColor,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(
-                      color: textPrimaryColor,
-                      width: 1,
-                    ),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
                 child: Text(
@@ -1054,24 +1161,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildActionPill(BuildContext context, {required IconData icon, required String label, required VoidCallback onTap, required bool primary, required bool isDark}) {
-    final theme = Theme.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           color: primary 
-              ? theme.colorScheme.primary 
-              : theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: theme.colorScheme.outline,
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 24,
-              offset: const Offset(0, 8),)
+              ? Theme.of(context).colorScheme.primary 
+              : (isDark ? const Color(0xFF1E293B) : Colors.white),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: primary ? [
+            BoxShadow(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            )
+          ] : [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
           ],
         ),
         child: Row(
@@ -1080,15 +1190,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Icon(
               icon,
               size: 20,
-              color: primary ? Colors.black : theme.colorScheme.onSurface,
+              color: primary ? Colors.white : (isDark ? Colors.white : Colors.black87),
             ),
             const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
                 fontSize: 14,
-                color: primary ? Colors.black : theme.colorScheme.onSurface,
+                color: primary ? Colors.white : (isDark ? Colors.white : Colors.black87),
               ),
             ),
           ],
@@ -1098,11 +1208,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) {
+
+  Widget _buildTopServiceItem(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required Color iconColor,
+    required Color bgColor,
+    required VoidCallback onTap,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF334155) : bgColor,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0x08000000),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: iconColor, size: 28),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : const Color(0xFF334155),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+    Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final compact = size.width < 360 || size.height < 760;
-    final user = context.watch<SessionController>().user ?? {};
-    final name = (user['full_name'] ?? user['name'] ?? 'MZDATA User')
+    final session = context.watch<SessionController>();
+    final user = session.user ?? {};
+    final isDeveloper = session.isDeveloper;
+    final isAgent = !isDeveloper && session.isAgent;
+    final isAdmin = !isDeveloper && !isAgent && session.isAdmin;
+    debugPrint('[HeaderRoleCheck] isDev: $isDeveloper, isAgent: $isAgent, role: ${user['role']}');
+    final name = (user['full_name'] ?? user['name'] ?? '${AppConfig.appName} User')
         .toString()
         .trim();
     final role = (user['role'] ?? 'Member').toString().trim();
@@ -1122,9 +1283,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final heroSoftText = isDark
         ? Colors.white.withValues(alpha: 0.84)
         : const Color(0xFF5B6B82);
-    final balance = _cachedWalletData != null
+    final currentBalance = _cachedWalletData != null
         ? _extractBalance(_cachedWalletData)
         : _extractBalance(user);
+
+    if (_readyForLiveUpdates && _previousBalance != null && _previousBalance != currentBalance) {
+      final diff = currentBalance - _previousBalance!;
+      if (diff.abs() > 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() {
+            _balanceDiff = diff;
+            _showBalanceDiff = true;
+          });
+          _balanceDiffTimer?.cancel();
+          _balanceDiffTimer = Timer(const Duration(seconds: 2), () {
+            if (mounted) setState(() => _showBalanceDiff = false);
+          });
+        });
+      }
+    }
+    _previousBalance = currentBalance;
+    final balance = currentBalance;
 
     final services = <_HomeService>[
       _HomeService(
@@ -1171,984 +1351,795 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     ];
 
-    return ConcentricCirclesBg(
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: RefreshIndicator(
-              onRefresh: _refresh,
-              displacement: 18,
-              edgeOffset: 10,
-              child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-          children: [
-            // Floating Pill Header (Glassmorphic)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Flexible(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(30),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                      child: Container(
-                        padding: const EdgeInsets.only(left: 6, right: 16, top: 6, bottom: 6),
-                        decoration: BoxDecoration(
-                          color: (isDark ? const Color(0xFF0F172A) : Colors.white).withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(30),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: isDark ? 0.1 : 0.5),
-                            width: 1,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      child: Container(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              // Minimalist Header (Pinned at top, stays clean during pull-to-refresh)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            image: profileImageUrl != null && profileImageUrl.isNotEmpty
+                                ? DecorationImage(
+                                    image: NetworkImage(profileImageUrl),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
-                                  width: 1,
-                                ),
-                                image: profileImageUrl != null && profileImageUrl.isNotEmpty
-                                    ? DecorationImage(
-                                        image: NetworkImage(profileImageUrl),
-                                        fit: BoxFit.cover,
-                                      )
-                                    : null,
-                                gradient: profileImageUrl != null && profileImageUrl.isNotEmpty ? null : LinearGradient(
-                                  colors: [
-                                    Theme.of(context).colorScheme.primary,
-                                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
-                                  ],
-                                ),
-                              ),
-                              child: profileImageUrl != null && profileImageUrl.isNotEmpty ? null : Center(
-                                child: Text(
-                                  initials,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 13,
-                                  ),
-                                ),
+                          child: profileImageUrl != null && profileImageUrl.isNotEmpty ? null : Center(
+                            child: Text(
+                              initials,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    _greetingText(),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: heroSoftText.withValues(alpha: 0.8),
-                                      fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Hi, ${name.split(" ").first}',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                              ),
+                            ),
+                            Row(
+                              children: [
+                                Text(
+                                  isDeveloper
+                                      ? '${AppConfig.appName} Developer'
+                                      : isAgent
+                                          ? '${AppConfig.appName} Agent'
+                                          : isAdmin
+                                              ? '${AppConfig.appName} Admin'
+                                              : AppConfig.appName,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.verified_rounded,
+                                  size: 13,
+                                  color: isAgent
+                                      ? const Color(0xFFF59E0B)
+                                      : isAdmin
+                                          ? const Color(0xFF8B5CF6)
+                                          : const Color(0xFF1E64F8),
+                                ),
+                                if (isDeveloper) ...[
+                                  const SizedBox(width: 5),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1E64F8).withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(5),
+                                      border: Border.all(color: const Color(0xFF1E64F8).withValues(alpha: 0.25)),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.code_rounded, size: 10, color: Color(0xFF1E64F8)),
+                                        SizedBox(width: 2.5),
+                                        Text(
+                                          'DEV',
+                                          style: TextStyle(
+                                            fontSize: 8.5,
+                                            fontWeight: FontWeight.w900,
+                                            color: Color(0xFF1E64F8),
+                                            letterSpacing: 0.3,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          name,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                ] else if (isAgent) ...[
+                                  const SizedBox(width: 5),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF59E0B).withValues(alpha: 0.14),
+                                      borderRadius: BorderRadius.circular(5),
+                                      border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.support_agent_rounded, size: 10, color: Color(0xFFD97706)),
+                                        SizedBox(width: 2.5),
+                                        Text(
+                                          'AGENT',
                                           style: TextStyle(
-                                            fontSize: 14,
+                                            fontSize: 8.5,
                                             fontWeight: FontWeight.w900,
-                                            color: heroText,
-                                            letterSpacing: -0.3,
+                                            color: Color(0xFFD97706),
+                                            letterSpacing: 0.3,
                                           ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      if (role.toLowerCase() == 'reseller' || role.toLowerCase() == 'agent')
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: const Text(
-                                            'AGENT',
-                                            style: TextStyle(
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.w900,
-                                              color: Color(0xFFD97706),
-                                            ),
+                                      ],
+                                    ),
+                                  ),
+                                ] else if (isAdmin) ...[
+                                  const SizedBox(width: 5),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF8B5CF6).withValues(alpha: 0.14),
+                                      borderRadius: BorderRadius.circular(5),
+                                      border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.3)),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.shield_rounded, size: 10, color: Color(0xFF7C3AED)),
+                                        SizedBox(width: 2.5),
+                                        Text(
+                                          'ADMIN',
+                                          style: TextStyle(
+                                            fontSize: 8.5,
+                                            fontWeight: FontWeight.w900,
+                                            color: Color(0xFF7C3AED),
+                                            letterSpacing: 0.3,
                                           ),
                                         ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                            ],
+                          ),
+                          child: IconButton(
+                            icon: Icon(Icons.notifications_outlined, size: 22, color: isDark ? Colors.white : const Color(0xFF0F172A)),
+                            onPressed: _openNotificationsCenter,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => _openScreen(const PromoScreen()),
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFF1F2),
+                              border: isDark ? null : Border.all(color: const Color(0xFFFFE4E6)),
+                            ),
+                            child: Icon(Icons.card_giftcard_rounded, color: isDark ? const Color(0xFFFDA4AF) : const Color(0xFFE11D48), size: 20),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Smooth Scrollable Content with iOS Cupertino Bounce & Refresh
+              Expanded(
+                child: CustomScrollView(
+                  physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                  slivers: [
+                    CupertinoSliverRefreshControl(
+                      refreshTriggerPullDistance: 80.0,
+                      refreshIndicatorExtent: 52.0,
+                      onRefresh: _refresh,
+                      builder: (
+                        BuildContext context,
+                        RefreshIndicatorMode refreshState,
+                        double pulledExtent,
+                        double refreshTriggerPullDistance,
+                        double refreshIndicatorExtent,
+                      ) {
+                        final double percentageComplete = (pulledExtent / refreshTriggerPullDistance).clamp(0.0, 1.0);
+                        return Container(
+                          height: refreshIndicatorExtent,
+                          alignment: Alignment.center,
+                          child: refreshState == RefreshIndicatorMode.refresh || refreshState == RefreshIndicatorMode.armed
+                              ? CupertinoActivityIndicator(
+                                  radius: 12,
+                                  color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                )
+                              : CupertinoActivityIndicator.partiallyRevealed(
+                                  radius: 12,
+                                  progress: percentageComplete,
+                                  color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                ),
+                        );
+                      },
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                      sliver: SliverList(
+                        delegate: SliverChildListDelegate([
+                          // Hero Balance Card (Amigo Lite Polish)
+                          Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0x06000000),
+                          blurRadius: 20,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Account Balance',
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: _toggleBalanceVisibility,
+                              child: Icon(
+                                _hideBalance ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                size: 20,
+                                color: isDark ? Colors.white54 : const Color(0xFF64748B),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(22),
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                        child: Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: (isDark ? const Color(0xFF0F172A) : Colors.white).withValues(alpha: 0.7),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: isDark ? 0.1 : 0.5),
-                              width: 1,
-                            ),
-                          ),
-                          child: IconButton(
-                            onPressed: _openNotificationsCenter,
-                            icon: const Icon(Icons.notifications_outlined, size: 20),
-                            color: heroText,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    ThemeToggleButton(size: 44),
-                  ],
-                ),
-              ],
-            ),
-            (() {
-              final active = (_announcements ?? [])
-                  .where((a) {
-                    final id = a['id']?.toString() ?? a['message']?.toString() ?? '';
-                    final message = (a['message'] ?? a['text'] ?? '').toString();
-                    return message.isNotEmpty && !_dismissedAnnouncementIds.contains(id);
-                  })
-                  .toList();
-                  
-              if (active.isNotEmpty) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 20),
-                    ...active.map((a) => _buildAnnouncementBanner(a)),
-                    const SizedBox(height: 12),
-                  ],
-                );
-              }
-              return const SizedBox(height: 32);
-            })(),
-
-            _buildOptionalUpdateBanner(context.watch<SessionController>()),
-            
-            // THE MASTERPIECE: Floating Balance Section
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const SizedBox(height: 10),
-                Text(
-                  'Total Balance',
-                  style: TextStyle(
-                    color: heroSoftText,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(
-                      '₦',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: heroText,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _hideBalance ? '••••' : NumberFormat('#,##0.00').format(balance),
-                      style: TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -1.5,
-                        color: heroText,
-                        height: 1.0,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    GestureDetector(
-                      onTap: _toggleBalanceVisibility,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          _hideBalance ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                          size: 18,
-                          color: heroSoftText,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                
-                // Action Pills
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: _buildActionPill(
-                        context,
-                        icon: Icons.add_rounded,
-                        label: 'Fund Wallet',
-                        onTap: () {
-                          FundWalletSheet.show(context);
-                        },
-                        primary: true,
-                        isDark: isDark,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildActionPill(
-                        context,
-                        icon: Icons.send_rounded,
-                        label: 'Transfer',
-                        onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => const TransferScreen()));
-                        },
-                        primary: false,
-                        isDark: isDark,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            
-            // Ultra-Polished Account Bar
-                          FutureBuilder<Map<String, dynamic>>(
-                            future: _accountsFuture,
-                            initialData: _cachedAccountsData,
-                            builder: (context, snapshot) {
-                              final data = snapshot.data;
-                              final rawAccounts = (data?['accounts'] as List?) ?? [];
-                              
-                              if (rawAccounts.isEmpty) {
-                                if (snapshot.connectionState == ConnectionState.waiting) {
-                                  return Container(
-                                    width: double.infinity,
-                                    height: 120,
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.surface,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Theme.of(context).colorScheme.outline,
-                                        width: 1,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                                          blurRadius: 24,
-                                          offset: const Offset(0, 8),),
-                                      ],
-                                    ),
-                                    child: const Center(
-                                      child: SizedBox(
-                                        height: 24,
-                                        width: 24,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
-                                      ),
-                                    ),
-                                  );
-                                }
-                                return Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.surface,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Theme.of(context).colorScheme.outline,
-                                      width: 1,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                                        blurRadius: 24,
-                                        offset: const Offset(0, 8),),
-                                    ],
+                        const SizedBox(height: 8),
+                        TweenAnimationBuilder<double>(
+                          tween: Tween<double>(begin: 0, end: balance),
+                          duration: const Duration(milliseconds: 1200),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, value, child) {
+                            final rawBalance = NumberFormat('0.00').format(value);
+                            final parts = rawBalance.split('.');
+                            final whole = parts[0];
+                            final decimal = parts.length > 1 ? '.${parts[1]}' : '.00';
+                            
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.baseline,
+                              textBaseline: TextBaseline.alphabetic,
+                              children: [
+                                Text(
+                                  '₦',
+                                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: isDark ? Colors.white : const Color(0xFF0F172A)),
+                                ),
+                                const SizedBox(width: 4),
+                                if (_hideBalance)
+                                  Text(
+                                    '••••••',
+                                    style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: isDark ? Colors.white : const Color(0xFF0A0F1D), letterSpacing: -1.0),
+                                  )
+                                else ...[
+                                  Text(
+                                    NumberFormat('#,##0').format(int.tryParse(whole) ?? 0),
+                                    style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: isDark ? Colors.white : const Color(0xFF0A0F1D), letterSpacing: -1.0),
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
+                                  Text(
+                                    decimal,
+                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: const Color(0xFF94A3B8)),
+                                  ),
+                                  if (_showBalanceDiff) ...[
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: _balanceDiff > 0 ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Container(
-                                            padding: const EdgeInsets.all(6),
-                                            decoration: BoxDecoration(
-                                              color: Colors.blue.withValues(alpha: 0.2),
-                                              borderRadius: BorderRadius.circular(8),
-                                            ),
-                                            child: const Icon(
-                                              Icons.auto_awesome,
-                                              size: 14,
-                                              color: Colors.blue,
-                                            ),
+                                          Icon(
+                                            _balanceDiff > 0 ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                                            size: 12,
+                                            color: _balanceDiff > 0 ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
                                           ),
-                                          const SizedBox(width: 8),
-                                          const Text(
-                                            'ACTIVATE VIRTUAL ACCOUNT',
+                                          const SizedBox(width: 2),
+                                          Text(
+                                            '${_balanceDiff > 0 ? '+' : '-'}₦${NumberFormat('#,##0').format(_balanceDiff.abs())}',
                                             style: TextStyle(
-                                              color: Colors.blue,
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w900,
-                                              letterSpacing: 1.5,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w800,
+                                              color: _balanceDiff > 0 ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
                                             ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Get a Dedicated Virtual Account ⚡',
-                                        style: TextStyle(
-                                          color: heroText,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w900,
+                                    ),
+                                  ],
+                                ],
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Dedicated Virtual Bank Account Card
+                        FutureBuilder<Map<String, dynamic>>(
+                          future: _accountsFuture,
+                          initialData: _cachedAccountsData,
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData && snapshot.connectionState == ConnectionState.waiting) {
+                              return Container(
+                                height: 56,
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.5) : const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isDark ? const Color(0xFF334155).withValues(alpha: 0.6) : const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                              );
+                            }
+                            final rawAccounts = (snapshot.data?['accounts'] as List?) ?? [];
+                            if (rawAccounts.isEmpty) {
+                              return GestureDetector(
+                                onTap: _showAccountActivationDialog,
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.55) : const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: isDark ? const Color(0xFF334155).withValues(alpha: 0.75) : const Color(0xFFE2E8F0),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(10),
                                         ),
+                                        child: const Icon(Icons.account_balance_rounded, size: 18, color: Color(0xFFD97706)),
                                       ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Enjoy 100% automated deposits for instant wallet funding. Link your BVN or NIN to generate your dedicated bank accounts in seconds.',
-                                        style: TextStyle(
-                                          color: heroSoftText,
-                                          fontSize: 11,
-                                          height: 1.4,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      SizedBox(
-                                        width: double.infinity,
-                                        height: 44,
-                                        child: FilledButton(
-                                          onPressed: () {
-                                            _showAccountActivationDialog();
-                                          },
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor: Colors.blue.shade600,
-                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              'Activate Virtual Account',
+                                              style: TextStyle(
+                                                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 13,
+                                              ),
                                             ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'Tap to link BVN/NIN for automated funding',
+                                              style: TextStyle(
+                                                color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                                                fontWeight: FontWeight.w500,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(Icons.chevron_right_rounded, color: isDark ? Colors.white54 : const Color(0xFF64748B), size: 20),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }
+                            
+                            final accounts = List<Map<String, dynamic>>.from(rawAccounts.map((i) => Map<String, dynamic>.from(i as Map)));
+                            accounts.sort((a, b) {
+                              final aName = (a['bank_name'] ?? '').toString().toLowerCase();
+                              final bName = (b['bank_name'] ?? '').toString().toLowerCase();
+                              if (aName.contains('moniepoint') && !bName.contains('moniepoint')) return -1;
+                              if (!aName.contains('moniepoint') && bName.contains('moniepoint')) return 1;
+                              return 0;
+                            });
+
+                            final activeAccount = accounts.first;
+                            final rawBankName = (activeAccount['bank_name'] ?? 'Bank').toString().trim();
+                            final bankNameLower = rawBankName.toLowerCase();
+                            final displayBankName = (bankNameLower.contains('9psb') || bankNameLower.contains('9 payment'))
+                                ? '9 Payment Service Bank (9PSB)'
+                                : (bankNameLower.contains('safehaven') || bankNameLower.contains('safe haven')
+                                    ? 'Safehaven MFB'
+                                    : (bankNameLower.contains('moniepoint')
+                                        ? 'Moniepoint MFB'
+                                        : (bankNameLower.contains('palmpay')
+                                            ? 'PalmPay'
+                                            : (bankNameLower.contains('paga') || bankNameLower.contains('aspfiy')
+                                                ? 'Paga'
+                                                : (bankNameLower.contains('wema')
+                                                    ? 'Wema Bank'
+                                                    : (bankNameLower.contains('sterling')
+                                                        ? 'Sterling Bank'
+                                                        : rawBankName))))));
+                            final accountNumber = (activeAccount['account_number'] ?? '').toString().trim();
+                            final formattedNumber = _formatAccountNumber(accountNumber);
+
+                            return GestureDetector(
+                              onTap: () => FundWalletSheet.show(context),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.55) : const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isDark ? const Color(0xFF334155).withValues(alpha: 0.75) : const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color: isDark 
+                                            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.22)
+                                            : Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Icon(
+                                        Icons.account_balance_rounded,
+                                        size: 18,
+                                        color: Theme.of(context).colorScheme.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  displayBankName,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: isDark ? Colors.white70 : const Color(0xFF475569),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                width: 3,
+                                                height: 3,
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                'Auto-Fund',
+                                                style: TextStyle(
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: isDark ? const Color(0xFF38BDF8) : Theme.of(context).colorScheme.primary,
+                                                ),
+                                              ),
+                                            ],
                                           ),
-                                          child: const Text(
-                                            'Link BVN/NIN to Start',
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            formattedNumber.isNotEmpty ? formattedNumber : accountNumber,
                                             style: TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
+                                              fontSize: 16.5,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 1.0,
+                                              color: isDark ? Colors.white : const Color(0xFF0F172A),
                                             ),
                                           ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () => _copyAccountNumber(accountNumber),
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Ink(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: isDark ? const Color(0xFF334155) : Colors.white,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                                            ),
+                                            boxShadow: isDark
+                                                ? null
+                                                : [
+                                                    BoxShadow(
+                                                      color: Colors.black.withValues(alpha: 0.04),
+                                                      blurRadius: 4,
+                                                      offset: const Offset(0, 1),
+                                                    ),
+                                                  ],
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.copy_rounded,
+                                                size: 13,
+                                                color: Theme.of(context).colorScheme.primary,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Copy',
+                                                style: TextStyle(
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Theme.of(context).colorScheme.primary,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 14),
+                        // Quick Action Buttons Row
+                        Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => FundWalletSheet.show(context),
+                                child: Container(
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.primary,
+                                    borderRadius: BorderRadius.circular(21),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 3),
                                       ),
                                     ],
                                   ),
-                                );
-                              }
-                              
-                              final accounts = List<Map<String, dynamic>>.from(
-                                rawAccounts.map((item) => Map<String, dynamic>.from(item as Map))
-                              );
-
-                              // Sort: prioritize Moniepoint first
-                              accounts.sort((a, b) {
-                                final aName = (a['bank_name'] ?? '').toString().toLowerCase();
-                                final bName = (b['bank_name'] ?? '').toString().toLowerCase();
-                                if (aName.contains('moniepoint') && !bName.contains('moniepoint')) return -1;
-                                if (!aName.contains('moniepoint') && bName.contains('moniepoint')) return 1;
-                                return 0;
-                              });
-
-                              final activeIndex = _activeAccountIndex.clamp(0, accounts.length - 1);
-                              final activeAccount = accounts[activeIndex];
-                              final rawBank = (activeAccount['bank_name'] ?? 'Bank').toString().trim();
-                              final bank = rawBank.toLowerCase().contains('titan') || rawBank.toLowerCase().contains('paystack')
-                                  ? 'PAYSTACK TITAN'
-                                  : rawBank.toLowerCase().contains('moniepoint')
-                                      ? 'MONIEPOINT MFB'
-                                      : rawBank.toLowerCase().contains('wema')
-                                          ? 'WEMA BANK'
-                                          : rawBank.toLowerCase().contains('sterling')
-                                              ? 'STERLING BANK'
-                                              : rawBank.toLowerCase().contains('palmpay')
-                                                  ? 'PALMPAY'
-                                                  : rawBank.toUpperCase();
-                              final number = activeAccount['account_number'] ?? '';
-                              
-                              // Format account holder name nicely
-                              String rawName = (activeAccount['account_name'] ?? name).toString().trim();
-                              final prefixPattern = RegExp(
-                                r'^(?:MMTECHGLOBE|MZDATA)(?:\s*[-\/:]\s*|\s+)?',
-                                caseSensitive: false,
-                              );
-                              String cleanName = rawName.replaceFirst(prefixPattern, '').trim();
-                              if (cleanName.isEmpty) {
-                                cleanName = rawName;
-                              }
-                              final accountName = 'MMTECHGLOBE / $cleanName';
-
-                              final isMoniepoint = bank.toLowerCase().contains('moniepoint');
-                              final isWema = bank.toLowerCase().contains('wema');
-                              final isSterling = bank.toLowerCase().contains('sterling');
-                              final isPaystack = bank.toLowerCase().contains('paystack') || bank.toLowerCase().contains('titan');
-                              final isPalmpay = bank.toLowerCase().contains('palmpay');
-
-                              final cardGradient = isMoniepoint
-                                  ? const LinearGradient(
-                                      colors: [Color(0xFF070F24), Color(0xFF0F1E4A), Color(0xFF142966)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    )
-                                  : isWema
-                                      ? const LinearGradient(
-                                          colors: [Color(0xFF1F0825), Color(0xFF3B0C46), Color(0xFF5D1268)],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        )
-                                      : isSterling
-                                          ? const LinearGradient(
-                                              colors: [Color(0xFF1F090B), Color(0xFF4C0E11), Color(0xFF8B1E22)],
-                                              begin: Alignment.topLeft,
-                                              end: Alignment.bottomRight,
-                                            )
-                                          : isPaystack
-                                              ? const LinearGradient(
-                                                  colors: [Color(0xFF031A18), Color(0xFF0A3C37), Color(0xFF105F56)],
-                                                  begin: Alignment.topLeft,
-                                                  end: Alignment.bottomRight,
-                                                )
-                                              : isPalmpay
-                                                  ? const LinearGradient(
-                                                      colors: [Color(0xFF0A0F30), Color(0xFF1F124A), Color(0xFF361875)],
-                                                      begin: Alignment.topLeft,
-                                                      end: Alignment.bottomRight,
-                                                    )
-                                                  : LinearGradient(
-                                                      colors: [
-                                                        Colors.white.withValues(alpha: 0.02),
-                                                        Colors.white.withValues(alpha: 0.04),
-                                                      ],
-                                                      begin: Alignment.topLeft,
-                                                      end: Alignment.bottomRight,
-                                                    );
-
-                              final cardBorderColor = isMoniepoint
-                                  ? Colors.blue.withValues(alpha: 0.3)
-                                  : isWema
-                                      ? Colors.purple.withValues(alpha: 0.3)
-                                      : isSterling
-                                          ? Colors.red.withValues(alpha: 0.3)
-                                          : isPaystack
-                                              ? Colors.teal.withValues(alpha: 0.3)
-                                              : isPalmpay
-                                                  ? Colors.deepPurple.withValues(alpha: 0.3)
-                                                  : Colors.white.withValues(alpha: 0.05);
-
-                              final badgeBg = isMoniepoint
-                                  ? Colors.blue.withValues(alpha: 0.15)
-                                  : isWema
-                                      ? Colors.purple.withValues(alpha: 0.15)
-                                      : isSterling
-                                          ? Colors.red.withValues(alpha: 0.15)
-                                          : isPaystack
-                                              ? Colors.teal.withValues(alpha: 0.15)
-                                              : isPalmpay
-                                                  ? Colors.purple.withValues(alpha: 0.15)
-                                                  : Colors.white.withValues(alpha: 0.08);
-
-                              final badgeText = isMoniepoint
-                                  ? Colors.blue.shade300
-                                  : isWema
-                                      ? Colors.purple.shade300
-                                      : isSterling
-                                          ? Colors.red.shade300
-                                          : isPaystack
-                                              ? Colors.teal.shade300
-                                              : isPalmpay
-                                                  ? Colors.purple.shade300
-                                                  : Colors.white.withValues(alpha: 0.5);
-
-                              final routeName = isMoniepoint
-                                  ? 'MONIEPOINT SECURE ROUTE'
-                                  : isWema
-                                      ? 'WEMA BANK AUTOMATED'
-                                      : isSterling
-                                          ? 'STERLING DEDICATED'
-                                          : isPaystack
-                                              ? 'PAYSTACK TITAN ROUTE'
-                                              : isPalmpay
-                                                  ? 'PALMPAY SECURE ROUTE'
-                                                  : 'AUTOMATED PAYMENTS';
-
-                              final hasMonie = accounts.any((acc) => (acc['bank_name'] ?? '').toString().toLowerCase().contains('moniepoint'));
-
-                              return Column(
-                                children: [
-                                  // Shuffle/Segment Selection Row
-                                  if (accounts.length > 1) ...[
-                                    SingleChildScrollView(
-                                      scrollDirection: Axis.horizontal,
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: List.generate(accounts.length, (idx) {
-                                          final acc = accounts[idx];
-                                          final isM = (acc['bank_name'] ?? '').toString().toLowerCase().contains('moniepoint');
-                                          final isSel = activeIndex == idx;
-                                          return GestureDetector(
-                                            onTap: () {
-                                              setState(() {
-                                                _activeAccountIndex = idx;
-                                              });
-                                            },
-                                            child: Container(
-                                              margin: const EdgeInsets.symmetric(horizontal: 4),
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                              decoration: BoxDecoration(
-                                                color: isSel
-                                                    ? (isM ? Colors.blue.withValues(alpha: 0.15) : Theme.of(context).colorScheme.primary.withValues(alpha: 0.15))
-                                                    : (isDark ? Colors.white : Colors.black).withValues(alpha: 0.03),
-                                                borderRadius: BorderRadius.circular(10),
-                                                border: Border.all(
-                                                  color: isSel
-                                                      ? (isM ? Colors.blue.withValues(alpha: 0.4) : Theme.of(context).colorScheme.primary.withValues(alpha: 0.4))
-                                                      : (isDark ? Colors.white : Colors.black).withValues(alpha: 0.05),
-                                                ),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  if (isM) ...[
-                                                    Icon(Icons.auto_awesome, size: 10, color: Colors.blue.shade300),
-                                                    const SizedBox(width: 4),
-                                                  ],
-                                                  Text(
-                                                    (acc['bank_name'] ?? 'Bank').toString(),
-                                                    style: TextStyle(
-                                                      fontSize: 10,
-                                                      fontWeight: FontWeight.w900,
-                                                      color: isSel
-                                                          ? (isM ? Colors.blue.shade300 : Theme.of(context).colorScheme.primary)
-                                                          : (isDark ? Colors.white : Colors.black).withValues(alpha: 0.5),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          );
-                                        }),
+                                  alignment: Alignment.center,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.add_rounded, color: Theme.of(context).colorScheme.onPrimary, size: 18),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Add Money',
+                                        style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontWeight: FontWeight.w700, fontSize: 13),
                                       ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                  ],
-
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(20),
-                                    child: BackdropFilter(
-                                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                                        decoration: BoxDecoration(
-                                          gradient: cardGradient,
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: Colors.white.withValues(alpha: 0.25),
-                                            width: 1,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                                              blurRadius: 24,
-                                              offset: const Offset(0, 8),),
-                                          ],
-                                        ),
-                                    child: Column(
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(
-                                                    'BANK NAME',
-                                                    style: TextStyle(
-                                                      color: Colors.white.withValues(alpha: 0.5),
-                                                      fontSize: 9,
-                                                      fontWeight: FontWeight.w900,
-                                                      letterSpacing: 1.0,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  FittedBox(
-                                                    fit: BoxFit.scaleDown,
-                                                    alignment: Alignment.centerLeft,
-                                                    child: Text(
-                                                      bank,
-                                                      style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontSize: 24,
-                                                        fontWeight: FontWeight.w900,
-                                                        letterSpacing: -0.2,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color: badgeBg,
-                                                borderRadius: BorderRadius.circular(6),
-                                              ),
-                                              child: Text(
-                                                routeName,
-                                                style: TextStyle(
-                                                  color: badgeText,
-                                                  fontSize: 8,
-                                                  fontWeight: FontWeight.w900,
-                                                  letterSpacing: 0.5,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: FittedBox(
-                                            fit: BoxFit.scaleDown,
-                                            child: Text(
-                                              accountName,
-                                              style: TextStyle(
-                                                color: isMoniepoint
-                                                    ? Colors.blue.shade300
-                                                    : (isWema
-                                                        ? Colors.purple.shade300
-                                                        : (isSterling
-                                                            ? Colors.red.shade300
-                                                            : (isPaystack
-                                                                ? Colors.teal.shade300
-                                                                : (isPalmpay
-                                                                    ? Colors.purple.shade300
-                                                                    : Colors.blue.withAlpha(230))))),
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w800,
-                                                letterSpacing: 0.1,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Expanded(
-                                              child: FittedBox(
-                                                fit: BoxFit.scaleDown,
-                                                alignment: Alignment.centerLeft,
-                                                child: Text(
-                                                  number.toString(),
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 22,
-                                                    fontWeight: FontWeight.w800,
-                                                    letterSpacing: 2,
-                                                    fontFeatures: [FontFeature.tabularFigures()],
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            Material(
-                                              color: Colors.transparent,
-                                              child: InkWell(
-                                                onTap: () => _copyAccountNumber(number.toString()),
-                                                borderRadius: BorderRadius.circular(8),
-                                                child: Container(
-                                                  padding: const EdgeInsets.all(8),
-                                                  child: Icon(
-                                                    Icons.copy_rounded,
-                                                    size: 16,
-                                                    color: Colors.white.withValues(alpha: 0.6),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                              ),
-                                ),
-                              ),
-                                ],
-                              );
-                            },
-                          ),
-
-            const SizedBox(height: 32),
-
-            if (_activeCampaigns.any((c) => !c.isClaimed)) ...[
-              ..._activeCampaigns.where((c) => !c.isClaimed).map((c) => _buildCampaignProgressCard(c)).toList(),
-              const SizedBox(height: 12),
-            ],
-
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Quick Services',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      Text(
-                        'Tap to start a new transaction',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: heroSoftText.withValues(alpha: 0.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final columns = constraints.maxWidth < 430 ? 3 : 4;
-                  return GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: services.length,
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                      mainAxisExtent: compact ? 82 : 88,
-                    ),
-                    itemBuilder: (context, index) {
-                      final item = services[index];
-                      return _ServiceCard(item: item);
-                    },
-                  );
-                },
-              ),
-            ),
-            if (referralCode.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outline,
-                    width: 1,
-                  ),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.stars_rounded,
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Referral Program',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                            color: Theme.of(context).colorScheme.onSurface,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'REFERRAL LINK',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: Theme.of(context).colorScheme.onSurface,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              SelectableText(
-                                'https://mzdata.org/register?ref=$referralCode',
-                                maxLines: 1,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        InkWell(
-                          onTap: () async {
-                            await Clipboard.setData(ClipboardData(text: 'https://mzdata.org/register?ref=$referralCode'));
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Referral link copied!'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Theme.of(context).colorScheme.outline,
-                                width: 1,
-                              ),
-                            ),
-                            child: Icon(
-                              Icons.copy_rounded,
-                              size: 14,
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Divider(
-                      height: 1,
-                      color: Theme.of(context).colorScheme.outline,
-                      thickness: 2,
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'REFERRAL CODE',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: Theme.of(context).colorScheme.onSurface,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              SelectableText(
-                                referralCode,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  color: Theme.of(context).colorScheme.onSurface,
-                                  letterSpacing: 1.0,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        InkWell(
-                          onTap: () async {
-                            await Clipboard.setData(ClipboardData(text: referralCode));
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Referral code copied!'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Theme.of(context).colorScheme.outline,
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.copy_rounded,
-                                  size: 14,
-                                  color: Theme.of(context).colorScheme.onSurface,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Copy Code',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                    color: Theme.of(context).colorScheme.onSurface,
+                                    ],
                                   ),
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => Navigator.push(context, FastRoute(page: const TransferScreen())),
+                                child: Container(
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: isDark ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15) : Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(21),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.send_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Transfer',
+                                        style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w700, fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 14),
+                  
+                  if (_activeCampaigns.any((c) => !c.isClaimed)) ...[
+                    ..._activeCampaigns.where((c) => !c.isClaimed).map((c) => _buildCampaignProgressCard(c)).toList(),
+                    const SizedBox(height: 10),
+                  ],
+
+                  // Top Services Row Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0x04000000),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildTopServiceItem(
+                          context,
+                          label: 'Data',
+                          icon: Icons.wifi,
+                          iconColor: const Color(0xFF1D61F2),
+                          bgColor: const Color(0xFFEFF6FF),
+                          onTap: () => _openScreen(const DataScreen()),
+                        ),
+                        _buildTopServiceItem(
+                          context,
+                          label: 'Airtime',
+                          icon: Icons.sim_card_rounded,
+                          iconColor: const Color(0xFF16A34A),
+                          bgColor: const Color(0xFFF0FDF4),
+                          onTap: () => _openScreen(const AirtimeScreen()),
+                        ),
+                        _buildTopServiceItem(
+                          context,
+                          label: 'Electricity',
+                          icon: Icons.bolt_rounded,
+                          iconColor: const Color(0xFFEA580C),
+                          bgColor: const Color(0xFFFFF7ED),
+                          onTap: () => _openScreen(const ElectricityScreen()),
+                        ),
+                        _buildTopServiceItem(
+                          context,
+                          label: 'Cable TV',
+                          icon: Icons.tv_rounded,
+                          iconColor: const Color(0xFF7C3AED),
+                          bgColor: const Color(0xFFF5F3FF),
+                          onTap: () => _openScreen(const CableScreen()),
+                        ),
+                      ],
+                    ),
+                  ),
+
+            if (referralCode.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(color: const Color(0x06000000), blurRadius: 15, offset: const Offset(0, 4)),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.group_add_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Invite friends & earn bonus',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () async {
+                        HapticFeedback.lightImpact();
+                        final referralLink = "https://${AppConfig.supportDomain}/register?ref=$referralCode";
+                        final shareMessage = "Hey! Buy cheap data, airtime, and utility top-ups instantly on ${AppConfig.appName}. Register using my link: $referralLink";
+                        
+                        try {
+                          await Share.share(
+                            shareMessage,
+                            subject: "Join ${AppConfig.appName}",
+                          );
+                        } catch (e) {
+                          await Clipboard.setData(ClipboardData(text: referralLink));
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text("Referral link copied to clipboard!"),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        minimumSize: const Size(0, 36),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                      ),
+                      child: const Text('Share Link', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                     ),
                   ],
                 ),
@@ -2180,11 +2171,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               initialData: _cachedTransactionsData,
               builder: (context, snapshot) {
                 final isLoading = snapshot.connectionState == ConnectionState.waiting;
-                final raw = snapshot.data ?? const <dynamic>[];
+                final raw = snapshot.data ?? _cachedTransactionsData ?? const <dynamic>[];
                 final items = _normalizeTransactions(raw);
                 final recent = items.take(4).toList();
                 
-                if (recent.isEmpty && !isLoading) {
+                if (recent.isEmpty) {
+                  if (isLoading && _cachedTransactionsData == null) {
+                    return GlassCard(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
                   return GlassCard(
                     padding: const EdgeInsets.symmetric(vertical: 32),
                     child: Center(
@@ -2206,6 +2212,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           title: _txTitleFor(recent[i]),
                           subtitle: _txSubtitleFor(recent[i]),
                           amount: _txAmountLabel(recent[i]),
+                          isCredit: _txIsCredit(recent[i]),
                           date: _txDateLabel(recent[i]).split(' • ').first,
                           onTap: () {
                             HapticFeedback.lightImpact();
@@ -2286,7 +2293,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const SizedBox(height: 40),
             Center(
               child: Text(
-                'MZDATA v1.2.0 • SECURE & TRUSTED',
+                '${AppConfig.appName} v1.2.0 • SECURE & TRUSTED',
                 style: TextStyle(
                   color: muted.withValues(alpha: 0.4),
                   fontSize: 10,
@@ -2295,11 +2302,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
             ),
-          ],
-        ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2427,9 +2439,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: borderColor),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 8),),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
       child: Column(
@@ -2870,7 +2884,7 @@ class _RecentActivityEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Your recent purchases and wallet activity will appear here as soon as you start using MZDATA.',
+            'Your recent purchases and wallet activity will appear here as soon as you start using ${AppConfig.appName}.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(color: muted),
           ),
@@ -3092,9 +3106,11 @@ class _FundingAccountBlock extends StatelessWidget {
           color: Theme.of(context).colorScheme.outline.withValues(alpha: isDark ? 0.1 : 0.08),
         ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
             blurRadius: 24,
-            offset: const Offset(0, 8),),
+            offset: const Offset(0, 12),
+          ),
         ],
       ),
       child: Column(
@@ -3260,58 +3276,67 @@ class _ServiceCardState extends State<_ServiceCard> {
           },
           onHighlightChanged: (value) => setState(() => _pressed = value),
           borderRadius: BorderRadius.circular(24),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outline,
-                  width: 1,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF0F172A).withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: isDark ? 0.1 : 0.6),
+                    width: 1.5,
+                  ),
+                  boxShadow: _pressed ? [] : [
+                    BoxShadow(
+                      color: widget.item.accent.withValues(alpha: 0.1),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
+                    )
+                  ],
                 ),
-                boxShadow: _pressed ? [] : [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 24,
-                    offset: const Offset(0, 8),)
-                ],
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: widget.item.accent,
-                      shape: BoxShape.rectangle,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.outline,
-                        width: 1,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: widget.item.accent.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: widget.item.accent.withValues(alpha: 0.4),
+                            blurRadius: 12,
+                          ),
+                        ]
+                      ),
+                      child: Icon(
+                        widget.item.icon,
+                        size: compact ? 22 : 26,
+                        color: widget.item.accent,
                       ),
                     ),
-                    child: Icon(
-                      widget.item.icon,
-                      size: compact ? 18 : 22,
-                      color: Theme.of(context).colorScheme.onSurface,
+                    const SizedBox(height: 12),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        widget.item.label,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.2,
+                              color: isDark ? Colors.white : const Color(0xFF1E293B),
+                              fontSize: compact ? 11 : 12,
+                            ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      widget.item.label,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.2,
-                            color: Theme.of(context).colorScheme.onSurface,
-                            fontSize: compact ? 11 : 12,
-                          ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
+          ),
         ),
       ),
     );
@@ -3864,7 +3889,7 @@ class _TopUpSheetState extends State<_TopUpSheet> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Need help? Contact support at mzdata.org',
+            'Need help? Contact support at kullomadata.com',
             style: TextStyle(fontSize: 11, color: muted),
           ),
         ],
@@ -3918,7 +3943,7 @@ class _StepTile extends StatelessWidget {
               if (!isLast)
                 Expanded(
                   child: Container(
-                    width: 1,
+                    width: 2,
                     margin: const EdgeInsets.symmetric(vertical: 4),
                     color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1),
                   ),
@@ -3964,6 +3989,7 @@ class _RecentActivityTile extends StatelessWidget {
     required this.subtitle,
     required this.amount,
     required this.date,
+    required this.isCredit,
     required this.onTap,
   });
   final Map<String, dynamic> tx;
@@ -3971,23 +3997,24 @@ class _RecentActivityTile extends StatelessWidget {
   final String subtitle;
   final String amount;
   final String date;
+  final bool isCredit;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final type = tx['tx_type']?.toString() ?? '';
-    final isCredit = type == 'wallet_fund';
     final status = (tx['status'] ?? 'success').toString().toLowerCase();
 
-    final icon = switch (type) {
-      'data' => Icons.wifi_rounded,
-      'airtime' => Icons.phone_iphone_rounded,
-      'electricity' => Icons.bolt_rounded,
-      'cable' => Icons.live_tv_rounded,
-      'exam' => Icons.school_rounded,
-      'wallet_fund' => Icons.add_rounded,
-      _ => Icons.receipt_long_rounded,
-    };
+    final icon = isCredit
+        ? Icons.add_rounded
+        : switch (type) {
+            'data' => Icons.wifi_rounded,
+            'airtime' => Icons.phone_iphone_rounded,
+            'electricity' => Icons.bolt_rounded,
+            'cable' => Icons.live_tv_rounded,
+            'exam' => Icons.school_rounded,
+            _ => Icons.receipt_long_rounded,
+          };
 
     final statusColor = status == 'success'
         ? const Color(0xFF10B981)
@@ -3995,88 +4022,104 @@ class _RecentActivityTile extends StatelessWidget {
             ? const Color(0xFFF59E0B)
             : const Color(0xFFEF4444));
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: statusColor, size: 20),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    amount,
-                    style: TextStyle(
-                      color: isCredit ? const Color(0xFF16A34A) : Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      letterSpacing: -0.5,
-                    ),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.05),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Icon(icon, color: statusColor, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      if (status == 'failed') ...[
-                        Icon(Icons.error_rounded, size: 12, color: Theme.of(context).colorScheme.error),
-                        const SizedBox(width: 4),
-                      ],
                       Text(
-                        date,
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
-                ],
-              ),
-            ],
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      amount,
+                      style: TextStyle(
+                        color: isCredit ? const Color(0xFF16A34A) : Theme.of(context).colorScheme.onSurface,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (status == 'failed') ...[
+                          Icon(Icons.error_rounded, size: 12, color: Theme.of(context).colorScheme.error),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          date,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -4084,16 +4127,16 @@ class _RecentActivityTile extends StatelessWidget {
   }
 }
 
-class _MZDATAAccountActivationDialog extends StatefulWidget {
+class _KULLOMADATAAccountActivationDialog extends StatefulWidget {
   final VoidCallback onActivated;
 
-  const _MZDATAAccountActivationDialog({required this.onActivated});
+  const _KULLOMADATAAccountActivationDialog({required this.onActivated});
 
   @override
-  State<_MZDATAAccountActivationDialog> createState() => _MZDATAAccountActivationDialogState();
+  State<_KULLOMADATAAccountActivationDialog> createState() => _KULLOMADATAAccountActivationDialogState();
 }
 
-class _MZDATAAccountActivationDialogState extends State<_MZDATAAccountActivationDialog> {
+class _KULLOMADATAAccountActivationDialogState extends State<_KULLOMADATAAccountActivationDialog> {
   String _option = 'bvn'; // 'bvn' or 'nin'
   final _inputCtrl = TextEditingController();
   bool _loading = false;
@@ -4170,7 +4213,7 @@ class _MZDATAAccountActivationDialogState extends State<_MZDATAAccountActivation
                 children: [
                   Expanded(
                     child: Text(
-                      'Generate MZDATA Account',
+                      'Generate ${AppConfig.appName} Account',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         fontSize: 18,
@@ -4219,9 +4262,11 @@ class _MZDATAAccountActivationDialogState extends State<_MZDATAAccountActivation
                             borderRadius: BorderRadius.circular(8),
                             boxShadow: _option == 'bvn'
                                 ? [
-                                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                                      blurRadius: 24,
-                                      offset: const Offset(0, 8),),
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.05),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
                                   ]
                                 : null,
                           ),
@@ -4262,9 +4307,11 @@ class _MZDATAAccountActivationDialogState extends State<_MZDATAAccountActivation
                             borderRadius: BorderRadius.circular(8),
                             boxShadow: _option == 'nin'
                                 ? [
-                                    BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-                                      blurRadius: 24,
-                                      offset: const Offset(0, 8),),
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.05),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
                                   ]
                                 : null,
                           ),
@@ -4325,7 +4372,7 @@ class _MZDATAAccountActivationDialogState extends State<_MZDATAAccountActivation
               ],
               const SizedBox(height: 16),
               Text(
-                'MZDATA will not store your ${_option.toUpperCase()} in our system for your safety.',
+                '${AppConfig.appName} will not store your ${_option.toUpperCase()} in our system for your safety.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.brightness == Brightness.dark ? Colors.white60 : Colors.black87,
                   height: 1.4,

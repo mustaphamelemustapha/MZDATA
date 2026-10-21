@@ -10,18 +10,25 @@ import '../services/api_client.dart';
 import '../services/biometric_service.dart';
 import '../services/push_notification_service.dart';
 import '../services/config_service.dart';
+import '../config.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class SessionController extends ChangeNotifier {
-  SessionController();
-
-  static const String lastIdentifierKey = 'mzdata_last_identifier';
-  static const String _tokenKey = 'mzdata_secure_token_v1';
-  static const String _biometricTokenKey = 'mzdata_biometric_token_v1';
-  static const String _biometricUserKey = 'mzdata_biometric_user';
-  static const String _biometricPasswordKey = 'mzdata_biometric_password';
-  static const String _securityPrefKey = 'mzdata_security_preference_v1';
-  static const String _lastUserJsonKey = 'mzdata_last_user_v1';
+  SessionController() {
+    ApiClient.onUnauthorizedError.stream.listen((_) {
+      if (isAuthenticated && !_isLocked) {
+        debugPrint('[Session] Global 401 intercepted. Locking session.');
+        lockForcefully();
+      }
+    });
+  }
+  static const String _tokenKey = 'axisvtu_secure_token_v1';
+  static const String _biometricTokenKey = 'axisvtu_biometric_token_v1';
+  static const String _biometricUserKey = 'axisvtu_biometric_user';
+  static const String _biometricPasswordKey = 'axisvtu_biometric_password';
+  static const String _securityPrefKey = 'axisvtu_security_preference_v1';
+  static const String _lastUserJsonKey = 'axisvtu_last_user_v1';
+  static const String lastIdentifierKey = 'axisvtu_last_identifier_v1';
   
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -41,6 +48,11 @@ class SessionController extends ChangeNotifier {
   String _latestAppVersion = '1.0.0';
   String _playStoreUrl = '';
   String _appStoreUrl = '';
+  bool _maintenanceMode = false;
+  String _maintenanceMessage = '';
+  String _releaseNotes = '';
+  String _supportPhone = '';
+  String _supportWhatsApp = '';
 
   String? get token => _token;
   Map<String, dynamic>? get user => _user;
@@ -53,10 +65,62 @@ class SessionController extends ChangeNotifier {
   String get latestAppVersion => _latestAppVersion;
   String get playStoreUrl => _playStoreUrl;
   String get appStoreUrl => _appStoreUrl;
+  bool get maintenanceMode => _maintenanceMode;
+  String get maintenanceMessage => _maintenanceMessage;
+  String get releaseNotes => _releaseNotes;
+  String get supportPhone => _supportPhone;
+  String get supportWhatsApp => _supportWhatsApp;
   bool get isAuthenticated => _token != null && _token!.isNotEmpty;
   bool get isAdmin {
     final role = (_user?['role'] ?? '').toString().toLowerCase();
     return role == 'admin' || role == 'superadmin';
+  }
+
+  static const String _devStatusJsonKey = 'axisvtu_dev_status_v1';
+  Map<String, dynamic>? _developerStatus;
+  Map<String, dynamic>? get developerStatus => _developerStatus;
+
+  bool get isDeveloper {
+    final role = (_user?['role'] ?? '').toString().toLowerCase();
+    if (role == 'developer') return true;
+
+    // Check status fetched from /developer/status (active API keys generated via web portal)
+    final bool devHasKeys = _developerStatus?['has_keys'] == true ||
+        (_developerStatus?['api_public_key'] != null && _developerStatus!['api_public_key'].toString().trim().isNotEmpty);
+    final String devStat = (_developerStatus?['developer_status'] ?? '').toString().toLowerCase();
+    final bool devFlag = _developerStatus?['is_developer'] == true;
+    if (devHasKeys && (devFlag || devStat == 'approved')) return true;
+
+    // Check status from /auth/me user object
+    final isDev = _user?['is_developer'];
+    final bool userIsDev = isDev == true || isDev == 1 || isDev == 'true';
+    final status = (_user?['developer_status'] ?? '').toString().toLowerCase();
+    final bool userHasKeys = _user?['has_api_keys'] == true ||
+        (_user?['api_public_key'] != null && _user!['api_public_key'].toString().trim().isNotEmpty);
+
+    return userHasKeys && (userIsDev || status == 'approved');
+  }
+
+  bool get isAgent {
+    final isAg = _user?['is_agent'];
+    if (isAg == true || isAg == 1 || isAg == 'true') return true;
+    final role = (_user?['role'] ?? '').toString().toLowerCase();
+    return role == 'agent' || role == 'reseller' || role == 'ambassador';
+  }
+
+  Future<void> refreshDeveloperStatus() async {
+    if (_token == null || _token!.isEmpty) return;
+    try {
+      final res = await ApiClient(baseUrl: AppConfig.baseUrl, token: _token!).get('/developer/status', forceRefresh: true);
+      if (res['detail'] == null && res['status'] != false) {
+        _developerStatus = res;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_devStatusJsonKey, jsonEncode(res));
+        notifyListeners();
+      }
+    } catch (_) {
+      // Silently ignore if developer endpoint is inactive or user has not applied
+    }
   }
 
   String? _securityPreference;
@@ -67,11 +131,11 @@ class SessionController extends ChangeNotifier {
   int get balanceRefreshTick => _balanceRefreshTick;
 
   void refreshBalance() {
-    ApiClient.clearCache().then((_) {
-      _balanceRefreshTick++;
-      syncProfileIfNeeded();
-      notifyListeners();
-    });
+    _balanceRefreshTick++;
+    ApiClient.invalidate('/transactions/me');
+    ApiClient.invalidate('/wallet/me');
+    refreshDeveloperStatus();
+    notifyListeners();
   }
 
   String _getUserPrefKey(String? identifier) {
@@ -79,16 +143,14 @@ class SessionController extends ChangeNotifier {
       return _securityPrefKey;
     }
     final sanitized = identifier.trim().toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
-    return 'mzdata_security_preference_v1_$sanitized';
+    return 'axisvtu_security_preference_v1_$sanitized';
   }
 
   bool _isLocked = false;
   bool get isLocked => _isLocked;
 
-  Future<void> lock() async {
+  void lock() {
     if (_securityPreference == 'max') {
-      // Also clear any stored transaction PIN for the logged‑out user
-      await BiometricService.deletePin();
       _isLocked = true;
       notifyListeners();
     }
@@ -163,17 +225,23 @@ class SessionController extends ChangeNotifier {
     try {
       // 1. Load security preference and cached profile locally FIRST (sub-millisecond)
       final prefs = await SharedPreferences.getInstance();
-      final identifier = prefs.getString(lastIdentifierKey);
-      _securityPreference = prefs.getString(_getUserPrefKey(identifier));
+      final identifier = prefs.getString(lastIdentifierKey) ?? prefs.getString('mzdata_last_identifier') ?? prefs.getString('axisvtu_last_identifier_v1');
+      await prefs.remove('axisvtu_developer_mode_v1');
+      final cachedDevJson = prefs.getString(_devStatusJsonKey);
+      if (cachedDevJson != null && cachedDevJson.isNotEmpty) {
+        try {
+          _developerStatus = jsonDecode(cachedDevJson) as Map<String, dynamic>;
+        } catch (_) {}
+      }
       
-      final lastUserJson = prefs.getString(_lastUserJsonKey);
+      final lastUserJson = prefs.getString(_lastUserJsonKey) ?? prefs.getString('mzdata_last_user_v1');
       if (lastUserJson != null && lastUserJson.isNotEmpty) {
         try {
           _lastUser = jsonDecode(lastUserJson) as Map<String, dynamic>;
           
-          // Invalidate legacy cached profiles that contain "MzData" or "Axis" in the name
+          // Invalidate legacy cached profiles that contain "KullomaData" or "Axis" in the name
           final nameStr = (_lastUser?['full_name'] ?? _lastUser?['name'] ?? '').toString().toLowerCase();
-          if (nameStr.contains('mzdata') || nameStr.contains('axis vtu') || nameStr.trim() == 'axis') {
+          if (nameStr.contains('axisvtu') || nameStr.contains('axis vtu') || nameStr.trim() == 'axis') {
             _lastUser = null;
             await prefs.remove(_lastUserJsonKey);
           }
@@ -185,9 +253,20 @@ class SessionController extends ChangeNotifier {
         } catch (_) {}
       }
 
-      // 2. Read stored secure token locally
+      // 2. Load security preference locally (default to 'smart' so users aren't locked on every brief pause)
+      final userIdent = identifier ??
+          _lastUser?['email']?.toString() ??
+          _lastUser?['phone_number']?.toString() ??
+          _lastUser?['phone']?.toString();
+      _securityPreference = (userIdent != null && userIdent.trim().isNotEmpty)
+          ? (prefs.getString(_getUserPrefKey(userIdent.trim())) ?? prefs.getString(_securityPrefKey))
+          : prefs.getString(_securityPrefKey);
+
+      _securityPreference ??= 'smart';
+
+      // 3. Read stored secure token locally
       try {
-        _token = await _secureStorage.read(key: _tokenKey);
+        _token = await _secureStorage.read(key: _tokenKey) ?? await _secureStorage.read(key: 'mzdata_secure_token_v1');
       } catch (e) {
         debugPrint('[Session] Secure storage read failed: $e');
         _token = null;
@@ -214,6 +293,11 @@ class SessionController extends ChangeNotifier {
       final config = await ConfigService.fetchAppConfig();
       _playStoreUrl = config['play_store_url'] ?? '';
       _appStoreUrl = config['app_store_url'] ?? '';
+      _maintenanceMode = config['maintenance_mode'] == true;
+      _maintenanceMessage = (config['maintenance_message'] ?? '').toString();
+      _releaseNotes = (config['release_notes'] ?? '').toString();
+      _supportPhone = (config['support_phone'] ?? '').toString();
+      _supportWhatsApp = (config['support_whatsapp'] ?? '').toString();
       
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
@@ -260,6 +344,8 @@ class SessionController extends ChangeNotifier {
           notifyListeners();
         }
       }
+
+      await refreshDeveloperStatus();
     }
     
     // C. Initialize Push Notifications in the background
@@ -336,7 +422,7 @@ class SessionController extends ChangeNotifier {
     String email,
     String phone,
     String password,
-    {String? referralCode}
+    {String? referralCode, String? state, String? pin}
   ) async {
     _setLoading(true);
     try {
@@ -347,6 +433,8 @@ class SessionController extends ChangeNotifier {
         phone: phone,
         password: password,
         referralCode: referralCode,
+        state: state,
+        pin: pin,
       );
       _token = _extractToken(data);
       _user = _extractUser(data);
@@ -368,6 +456,13 @@ class SessionController extends ChangeNotifier {
       if (!_hasMeaningfulProfile(_user)) {
         final fresh = await _fetchMe(_token!);
         if (fresh != null) _user = fresh;
+      }
+      if (state != null && state.trim().isNotEmpty) {
+        final current = _user != null ? Map<String, dynamic>.from(_user!) : <String, dynamic>{};
+        if (current['state'] == null || current['state'].toString().trim().isEmpty) {
+          current['state'] = state.trim();
+          _user = current;
+        }
       }
 
       await _secureStorage.write(key: _tokenKey, value: _token!);
@@ -418,8 +513,9 @@ class SessionController extends ChangeNotifier {
     try {
       await _secureStorage.delete(key: _tokenKey);
       final prefs = await SharedPreferences.getInstance();
-      final identifier = prefs.getString(lastIdentifierKey);
+      final identifier = prefs.getString(lastIdentifierKey) ?? prefs.getString('mzdata_last_identifier') ?? prefs.getString('axisvtu_last_identifier_v1');
       await prefs.remove(_getUserPrefKey(identifier));
+      await prefs.remove(_devStatusJsonKey);
       // Clear any stored transaction PIN for the logged‑out user
       await BiometricService.deletePin();
     } catch (e) {
@@ -427,6 +523,7 @@ class SessionController extends ChangeNotifier {
     }
     _token = null;
     _user = null;
+    _developerStatus = null;
     _securityPreference = null;
     _isLocked = false;
     await ApiClient.clearCache();
@@ -450,8 +547,18 @@ class SessionController extends ChangeNotifier {
   Future<void> setSecurityPreference(String pref) async {
     _securityPreference = pref;
     final prefs = await SharedPreferences.getInstance();
-    final identifier = prefs.getString(lastIdentifierKey);
-    await prefs.setString(_getUserPrefKey(identifier), pref);
+    await prefs.setString(_securityPrefKey, pref);
+    final userIdent = _user?['email']?.toString() ??
+        _user?['phone_number']?.toString() ??
+        _user?['phone']?.toString() ??
+        _lastUser?['email']?.toString() ??
+        _lastUser?['phone_number']?.toString() ??
+        _lastUser?['phone']?.toString();
+    final identifier = prefs.getString(lastIdentifierKey) ?? userIdent;
+    if (identifier != null && identifier.trim().isNotEmpty) {
+      await prefs.setString(lastIdentifierKey, identifier.trim());
+      await prefs.setString(_getUserPrefKey(identifier.trim()), pref);
+    }
     notifyListeners();
   }
 
@@ -486,10 +593,62 @@ class SessionController extends ChangeNotifier {
     }
   }
 
-  /// Attempts to restore the session using the saved biometric token or credentials.
-  Future<bool> loginWithBiometrics() async {
+  /// Compares two user identifiers (phone or email) flexibly
+  static bool isSameUser(String? a, String? b) {
+    if (a == null || b == null) return false;
+    final cleanA = a.trim().toLowerCase();
+    final cleanB = b.trim().toLowerCase();
+    if (cleanA.isEmpty || cleanB.isEmpty) return false;
+    if (cleanA == cleanB) return true;
+
+    // Email check
+    if (cleanA.contains('@') || cleanB.contains('@')) {
+      return cleanA == cleanB;
+    }
+
+    // Phone digits comparison (strip country codes, leading zeros, dashes)
+    final digitsA = cleanA.replaceAll(RegExp(r'\D'), '');
+    final digitsB = cleanB.replaceAll(RegExp(r'\D'), '');
+    if (digitsA.isEmpty || digitsB.isEmpty) return false;
+
+    final last10A = digitsA.length >= 10 ? digitsA.substring(digitsA.length - 10) : digitsA;
+    final last10B = digitsB.length >= 10 ? digitsB.substring(digitsB.length - 10) : digitsB;
+    return last10A == last10B;
+  }
+
+  /// Returns the saved identifier for biometric quick-login, if any.
+  Future<String?> getBiometricUser() async {
     try {
-      final bioToken = await _secureStorage.read(key: _biometricTokenKey);
+      return await _secureStorage.read(key: _biometricUserKey) ?? await _secureStorage.read(key: 'mzdata_biometric_user');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Checks if stored biometric credentials belong to this specific user identifier.
+  Future<bool> hasBiometricsFor(String? identifier) async {
+    if (identifier == null || identifier.trim().isEmpty) return false;
+    final savedUser = await getBiometricUser();
+    if (savedUser == null || savedUser.isEmpty) return false;
+    return isSameUser(savedUser, identifier);
+  }
+
+  /// Attempts to restore the session using the saved biometric token or credentials.
+  /// If [targetIdentifier] is provided, it guarantees that biometric login only logs into that user.
+  Future<bool> loginWithBiometrics({String? targetIdentifier}) async {
+    try {
+      final savedUser = await _secureStorage.read(key: _biometricUserKey) ?? await _secureStorage.read(key: 'mzdata_biometric_user');
+
+      // CRITICAL: If a specific target identifier was requested, verify that the saved
+      // credentials actually match this account. Never log a user into someone else's account!
+      if (targetIdentifier != null && targetIdentifier.trim().isNotEmpty) {
+        if (savedUser == null || !isSameUser(savedUser, targetIdentifier)) {
+          debugPrint('[Session] loginWithBiometrics rejected: target ($targetIdentifier) != saved ($savedUser)');
+          return false;
+        }
+      }
+
+      final bioToken = await _secureStorage.read(key: _biometricTokenKey) ?? await _secureStorage.read(key: 'mzdata_biometric_token_v1');
       if (bioToken == null || bioToken.isEmpty) {
         debugPrint('[Session] No biometric token found.');
         return false;
@@ -499,6 +658,14 @@ class SessionController extends ChangeNotifier {
       try {
         final user = await _fetchMe(bioToken);
         if (user != null) {
+          // Double-check fetched profile against targetIdentifier
+          if (targetIdentifier != null && targetIdentifier.trim().isNotEmpty) {
+            final fetchedPhone = user['phone_number'] ?? user['phone'] ?? user['email'];
+            if (fetchedPhone != null && !isSameUser(fetchedPhone.toString(), targetIdentifier)) {
+              debugPrint('[Session] Token belonged to different user. Aborting biometric restore.');
+              return false;
+            }
+          }
           _token = bioToken;
           _user = user;
           await _secureStorage.write(key: _tokenKey, value: _token!);
@@ -511,8 +678,7 @@ class SessionController extends ChangeNotifier {
       }
 
       // If token failed/expired, try to perform a full re-login using securely stored credentials!
-      final savedUser = await _secureStorage.read(key: _biometricUserKey);
-      final savedPass = await _secureStorage.read(key: _biometricPasswordKey);
+      final savedPass = await _secureStorage.read(key: _biometricPasswordKey) ?? await _secureStorage.read(key: 'mzdata_biometric_password');
 
       if (savedUser != null && savedUser.isNotEmpty && savedPass != null && savedPass.isNotEmpty) {
         debugPrint('[Session] Re-authenticating with saved biometric credentials.');
@@ -522,8 +688,7 @@ class SessionController extends ChangeNotifier {
         }
       }
 
-      // If both token and credentials fail, do NOT disable biometrics or delete the keys!
-      // This is the core fix so the toggle stays enabled in settings and user can try again or use password!
+      // If both token and credentials fail, keep keys intact for settings toggle
       debugPrint('[Session] Biometric login failed. Kept credentials intact.');
       _token = null;
       return false;
@@ -588,6 +753,18 @@ class SessionController extends ChangeNotifier {
 
   void updateUser(Map<String, dynamic> user) {
     _user = user;
+    notifyListeners();
+  }
+
+  Future<void> updateUserField(String key, dynamic value) async {
+    if (_user == null) return;
+    final updated = Map<String, dynamic>.from(_user!);
+    updated[key] = value;
+    _user = updated;
+    _lastUser = updated;
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_lastUserJsonKey, jsonEncode(updated));
     notifyListeners();
   }
 

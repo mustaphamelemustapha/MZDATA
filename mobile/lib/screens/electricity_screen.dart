@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/services_service.dart';
 import '../state/session.dart';
 import 'electricity_meter_screen.dart';
-import '../widgets/mele_data_loader.dart';
+import '../widgets/dynamic_brand_loader.dart';
 
 
 class ElectricityProvider {
@@ -236,7 +236,7 @@ class _ElectricityScreenState extends State<ElectricityScreen> {
             
             Expanded(
               child: _loading 
-                ? const Center(child: MeleDataLoader(size: 80.0))
+                ? const Center(child: DynamicBrandLoader(size: 80.0))
                 : ListView.builder(
                     itemCount: _filteredProviders.length,
                     itemBuilder: (context, index) {

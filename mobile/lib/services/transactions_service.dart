@@ -8,9 +8,13 @@ class TransactionsService {
 
   ApiClient get _client => ApiClient(baseUrl: AppConfig.baseUrl, token: token);
 
-  Future<List<dynamic>> getTransactions() async {
-    final data = await _client.get('/transactions/me');
+  Future<List<dynamic>> getTransactions({bool forceRefresh = false}) async {
+    final data = await _client.get('/transactions/me', forceRefresh: forceRefresh);
     final list = data['data'] ?? data['transactions'] ?? data['items'];
     return list is List ? list : [];
+  }
+
+  static void invalidateCache() {
+    ApiClient.invalidate('/transactions/me');
   }
 }

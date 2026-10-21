@@ -20,17 +20,17 @@ class ElitePhoneInput extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF131B2A) : Colors.white,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
-          width: 1,
+          color: isDark ? const Color(0xFF2A3A52) : const Color(0xFFE2E8F0),
+          width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
+            color: isDark ? const Color(0xFF08101F) : const Color(0xFFCBD5E1).withValues(alpha: 0.4),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),

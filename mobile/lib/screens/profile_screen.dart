@@ -1,3 +1,6 @@
+import '../config.dart';
+import '../config/brand_config.dart';
+
 import 'package:flutter/material.dart';
 import '../utils/fast_route.dart';
 import 'package:flutter/services.dart';
@@ -17,18 +20,20 @@ import 'personal_info_screen.dart';
 import '../widgets/pin_entry_sheet.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/theme_toggle_button.dart';
+import '../widgets/theme_picker_sheet.dart';
 import '../services/transaction_pin_service.dart';
 import '../services/biometric_service.dart';
 import '../services/push_notification_service.dart';
-import 'quick_auth_screen.dart';
 import 'welcome_screen.dart';
 import 'about_screen.dart';
 import 'referral_screen.dart';
 import 'senior_men_board_screen.dart';
 import 'security_screen.dart';
+import 'lockscreen_settings_screen.dart';
 import 'admin_announcements_screen.dart';
 import 'agent_dashboard_screen.dart';
 import 'admin_agent_screen.dart';
+import 'admin_promo_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -475,7 +480,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Are you sure you want to delete your MZDATA account? This will immediately:',
+                        'Are you sure you want to delete your ${AppConfig.appName} account? This will immediately:',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               fontWeight: FontWeight.w600,
                               height: 1.4,
@@ -588,7 +593,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _toggleThemePreference() async {
     HapticFeedback.selectionClick();
-    context.read<ThemeController>().toggle();
+    context.read<ThemeController>().toggle(currentBrightness: Theme.of(context).brightness);
   }
 
   Future<void> _togglePushPreference(bool value) async {
@@ -674,7 +679,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _openIssueSheet() async {
-    final subjectCtrl = TextEditingController(text: 'MZDATA issue report');
+    final subjectCtrl = TextEditingController(text: '${AppConfig.appName} issue report');
     final detailsCtrl = TextEditingController();
     await showModalBottomSheet(
       context: context,
@@ -721,7 +726,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Write a short summary and we will route it to the mzdata support team.',
+                  'Write a short summary and we will route it to the mmtechglobe support team.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(
                       context,
@@ -753,10 +758,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.mail_outline_rounded,
                   onPressed: () async {
                     final subject = subjectCtrl.text.trim().isEmpty
-                        ? 'MZDATA issue report'
+                        ? '${AppConfig.appName} issue report'
                         : subjectCtrl.text.trim();
                     final body = detailsCtrl.text.trim().isEmpty
-                        ? 'Hello mzdata team,\n\nI need help with an issue in the app.'
+                        ? 'Hello mmtechglobe team,\n\nI need help with an issue in the app.'
                         : detailsCtrl.text.trim();
                     Navigator.pop(context);
                     await _launchSupportEmail(subject: subject, body: body);
@@ -772,8 +777,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _contactSupport() async {
     await _launchSupportEmail(
-      subject: 'MZDATA support request',
-      body: 'Hello mzdata team,\n\nI need help with my MZDATA account.',
+      subject: '${AppConfig.appName} support request',
+      body: 'Hello mmtechglobe team,\n\nI need help with my ${AppConfig.appName} account.',
     );
   }
 
@@ -783,21 +788,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }) async {
     final sheetContext = context;
     final messenger = ScaffoldMessenger.of(sheetContext);
+    final email = BrandConfig.current.supportEmail;
     final uri = Uri(
       scheme: 'mailto',
-      path: 'mzdatamzdata2@gmail.com',
+      path: email,
       queryParameters: {'subject': subject, 'body': body},
     );
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
         await Clipboard.setData(
-          const ClipboardData(text: 'mzdatamzdata2@gmail.com'),
+          ClipboardData(text: email),
         );
         messenger.showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Support email copied. Send your issue to mzdatamzdata2@gmail.com.',
+              'Support email copied. Send your issue to $email.',
             ),
           ),
         );
@@ -805,12 +811,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (_) {
       if (!mounted) return;
       await Clipboard.setData(
-        const ClipboardData(text: 'mzdatamzdata2@gmail.com'),
+        ClipboardData(text: email),
       );
       messenger.showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Support email copied. Send your issue to mzdatamzdata2@gmail.com.',
+            'Support email copied. Send your issue to $email.',
           ),
         ),
       );
@@ -851,14 +857,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final size = MediaQuery.sizeOf(context);
     final compact = size.width < 360 || size.height < 760;
     final session = context.watch<SessionController>();
+    final themeController = context.watch<ThemeController>();
     final user = session.user ?? {};
     final name = _displayName(user);
-    final phone = (user['phone_number'] ?? user['phone'] ?? '').toString().trim();
-    final email = (user['email'] ?? '').toString().trim();
     final role = (user['role'] ?? '').toString().trim().toLowerCase();
     final joined = _joinedLabel(user['created_at']);
     final initials = _initialsFromName(name);
     final profileImageUrl = user['profile_image_url'] as String?;
+    final userState = (user['state'] ?? '').toString().trim();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
     // Header Colors
@@ -911,29 +917,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             ),
                           ),
-                          if (phone.isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              phone,
-                              style: TextStyle(
-                                color: heroSoftText,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                          if (email.isNotEmpty && email != name) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              email,
-                              style: TextStyle(
-                                color: heroSoftText,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 4),
                           Row(
                             children: [
                               Text(
@@ -944,7 +928,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              if (role == 'reseller' || role == 'agent') ...[
+                              if (session.isDeveloper) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF1E64F8).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: const Color(0xFF1E64F8).withValues(alpha: 0.3)),
+                                  ),
+                                  child: const Text(
+                                    'DEVELOPER',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w900,
+                                      color: Color(0xFF1E64F8),
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ] else if (session.isAgent) ...[
                                 const SizedBox(width: 8),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -979,14 +982,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _ProfileTile(label: 'Manage Announcements', icon: Icons.campaign_rounded, onTap: () => Navigator.push(context, FastRoute(page: const AdminAnnouncementsScreen()))),
                 if (session.isAdmin)
                   _ProfileTile(label: 'Manage Agents', icon: Icons.support_agent_rounded, onTap: () => Navigator.push(context, FastRoute(page: const AdminAgentScreen()))),
-                if (role == 'reseller' || role == 'agent')
+                if (session.isAdmin)
+                  _ProfileTile(label: 'Manage Promos', icon: Icons.local_activity_rounded, onTap: () => Navigator.push(context, FastRoute(page: const AdminPromoScreen()))),
+                if (session.isAgent)
                   _ProfileTile(label: 'Agent Dashboard', icon: Icons.analytics_rounded, onTap: () => Navigator.push(context, FastRoute(page: const AgentDashboardScreen()))),
               ]),
 
               _buildFormGroup(context, [
                 _ProfileTile(
+                  label: 'Appearance',
+                  icon: Icons.palette_outlined,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        themeController.modeTitle,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        size: 20,
+                        color: (isDark ? Colors.white : const Color(0xFF0F172A)).withValues(alpha: 0.3),
+                      ),
+                    ],
+                  ),
+                  onTap: () => ThemePickerSheet.show(context),
+                ),
+                _ProfileTile(
                   label: 'Personal Info', 
-                  icon: Icons.person_outline_rounded, 
+                  icon: Icons.person_outline_rounded,
+                  trailing: userState.isNotEmpty
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              userState,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              size: 20,
+                              color: (isDark ? Colors.white : const Color(0xFF0F172A)).withValues(alpha: 0.3),
+                            ),
+                          ],
+                        )
+                      : null,
                   onTap: () => Navigator.push(
                     context, 
                     FastRoute(page: const PersonalInfoScreen()),
@@ -1007,6 +1057,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onTap: () => _togglePushPreference(!_pushNotifications),
                 ),
                 _ProfileTile(
+                  label: 'Lockscreen',
+                  icon: Icons.lock_outline_rounded,
+                  onTap: () => Navigator.push(
+                    context,
+                    FastRoute(page: const LockscreenSettingsScreen()),
+                  ),
+                ),
+                _ProfileTile(
                   label: 'Security', 
                   icon: Icons.security_rounded, 
                   onTap: () => Navigator.push(
@@ -1018,6 +1076,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               _buildFormGroup(context, [
                 _ProfileTile(label: 'About', icon: Icons.info_outline_rounded, onTap: () => Navigator.push(context, FastRoute(page: const AboutScreen()))),
+                _ProfileTile(
+                  label: 'Privacy Policy',
+                  icon: Icons.privacy_tip_outlined,
+                  trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey),
+                  onTap: () => launchUrl(Uri.parse(AppConfig.privacyUrl), mode: LaunchMode.externalApplication),
+                ),
+                _ProfileTile(
+                  label: 'Terms of Service',
+                  icon: Icons.description_outlined,
+                  trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey),
+                  onTap: () => launchUrl(Uri.parse(AppConfig.termsUrl), mode: LaunchMode.externalApplication),
+                ),
                 _ProfileTile(label: 'Help', icon: Icons.help_outline_rounded, onTap: _contactSupport),
               ]),
 
@@ -1031,7 +1101,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onTap: () async {
                     await session.logout();
                     if (!context.mounted) return;
-                    Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(QuickAuthScreen.route, (_) => false);
+                    Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(WelcomeScreen.route, (_) => false);
                   },
                 ),
               ]),
@@ -1049,8 +1119,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               _buildFormGroup(context, [
                 _ProfileTile(label: 'WhatsApp Channel', icon: Icons.chat_bubble_outline_rounded, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse('https://whatsapp.com/channel/0029VbCanujEawdvqLAYu83T'))),
-                _ProfileTile(label: 'Instagram', icon: Icons.camera_alt_outlined, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse('https://www.instagram.com/mzdata.org?igsh=enNtb255MXpuemJ3&utm_source=qr'))),
-                _ProfileTile(label: 'TikTok', icon: Icons.video_library_outlined, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse('https://www.tiktok.com/@mzdata_ng'))),
+                _ProfileTile(label: 'Instagram', icon: Icons.camera_alt_outlined, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse(AppConfig.instagramUrl))),
+                _ProfileTile(label: 'TikTok', icon: Icons.video_library_outlined, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse(AppConfig.tiktokUrl))),
               ]),
               const SizedBox(height: 40),
             ],

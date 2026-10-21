@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -14,7 +16,7 @@ class ReceiptExportService {
     required List<ReceiptField> fields,
   }) {
     final buffer = StringBuffer();
-    buffer.writeln('MZDATA');
+    buffer.writeln(AppConfig.appName);
     buffer.writeln('Transaction receipt');
     buffer.writeln('');
     buffer.writeln('Status: ${status.toUpperCase()}');
@@ -32,7 +34,7 @@ class ReceiptExportService {
       buffer.writeln(value);
       buffer.writeln('');
     }
-    buffer.writeln('MZDATA');
+    buffer.writeln(AppConfig.appName);
     return buffer.toString();
   }
 
@@ -43,7 +45,7 @@ class ReceiptExportService {
         if (_looksLikeRealReference(ref)) return ref;
       }
     }
-    return 'mzdata_${DateTime.now().millisecondsSinceEpoch}';
+    return '${AppConfig.prefixName}_${DateTime.now().millisecondsSinceEpoch}';
   }
 
   static String _sanitize(String value) =>
@@ -58,7 +60,7 @@ class ReceiptExportService {
 
   static String inferReceiptImageFilename(List<ReceiptField> fields) {
     final reference = inferReference(fields);
-    return 'mzdata_receipt_${_sanitize(reference)}.png';
+    return '${AppConfig.prefixName}_receipt_${_sanitize(reference)}.png';
   }
 
   static Future<void> downloadReceiptImage({
@@ -77,8 +79,8 @@ class ReceiptExportService {
       await SharePlus.instance.share(
         ShareParams(
           files: [file],
-          subject: 'MZDATA receipt',
-          text: 'MZDATA receipt image ready to save or share.',
+          subject: '${AppConfig.appName} receipt',
+          text: '${AppConfig.appName} receipt image ready to save or share.',
           fileNameOverrides: [filename],
         ),
       );
@@ -112,8 +114,8 @@ class ReceiptExportService {
       await SharePlus.instance.share(
         ShareParams(
           files: [file],
-          subject: 'MZDATA receipt',
-          text: 'MZDATA receipt image.',
+          subject: '${AppConfig.appName} receipt',
+          text: '${AppConfig.appName} receipt image.',
           fileNameOverrides: [filename],
         ),
       );
@@ -139,7 +141,7 @@ class ReceiptExportService {
       fields: fields,
     );
     final reference = inferReference(fields);
-    final filename = 'mzdata_receipt_${_sanitize(reference)}.txt';
+    final filename = '${AppConfig.prefixName}_receipt_${_sanitize(reference)}.txt';
     final bytes = Uint8List.fromList(utf8.encode(text));
     final file = XFile.fromData(bytes, mimeType: 'text/plain', name: filename);
 
@@ -147,8 +149,8 @@ class ReceiptExportService {
       await SharePlus.instance.share(
         ShareParams(
           files: [file],
-          subject: 'MZDATA receipt',
-          text: 'MZDATA receipt file ready to save.',
+          subject: '${AppConfig.appName} receipt',
+          text: '${AppConfig.appName} receipt file ready to save.',
           fileNameOverrides: [filename],
         ),
       );
@@ -186,7 +188,7 @@ class ReceiptExportService {
     );
     try {
       await SharePlus.instance.share(
-        ShareParams(text: text, subject: 'MZDATA receipt'),
+        ShareParams(text: text, subject: '${AppConfig.appName} receipt'),
       );
     } catch (_) {
       await Clipboard.setData(ClipboardData(text: text));

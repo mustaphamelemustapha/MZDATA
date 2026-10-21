@@ -6,11 +6,11 @@ import 'electricity_screen.dart';
 import 'cable_screen.dart';
 import 'exam_screen.dart';
 import 'referral_screen.dart';
-import 'wallet_screen.dart';
 import 'senior_men_board_screen.dart';
 import 'transfer_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../widgets/concentric_circles_bg.dart';
+import '../utils/fast_route.dart';
 class ServicesScreen extends StatelessWidget {
   const ServicesScreen({super.key});
 
@@ -100,12 +100,8 @@ class ServicesScreen extends StatelessWidget {
   }
 
   void _openScreen(BuildContext context, Widget screen) {
-    HapticFeedback.mediumImpact();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => screen,
-      ),
-    );
+    HapticFeedback.lightImpact();
+    Navigator.of(context).push(FastRoute(page: screen));
   }
 }
 
@@ -124,7 +120,7 @@ class _ServiceGrid extends StatelessWidget {
         crossAxisCount: 3,
         crossAxisSpacing: 12,
         mainAxisSpacing: 16,
-        childAspectRatio: 0.95,
+        childAspectRatio: 0.85,
       ),
       itemBuilder: (context, index) => _ServiceCard(item: items[index]),
     );
@@ -173,12 +169,12 @@ class _ServiceCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: item.accent.withValues(alpha: isDark ? 0.15 : 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(item.icon, color: item.accent, size: 22),
+              child: Icon(item.icon, color: item.accent, size: 28),
             ),
             const SizedBox(height: 12),
             Text(
@@ -263,7 +259,7 @@ class _SupportCard extends StatelessWidget {
   final bool isDark;
 
   Future<void> _launchSupport(BuildContext context) async {
-    final phone = '+2349067054672';
+    final phone = '+2348141114647';
     final url = Uri.parse('https://wa.me/${phone.replaceAll('+', '')}');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (context.mounted) {

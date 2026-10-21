@@ -11,12 +11,13 @@ class ApiClient {
 
   final String baseUrl;
   final String? token;
-  static const Duration _timeout = Duration(seconds: 60);
+  static const Duration _timeout = Duration(seconds: 15);
   
   // Fast memory cache for 0ms loading
   static final Map<String, dynamic> _memoryCache = {};
   static final Map<String, DateTime> _cacheTimestamps = {};
-  static final Map<String, Future<Map<String, dynamic>>> _inFlightRequests = {};
+  
+  static final StreamController<int> onUnauthorizedError = StreamController<int>.broadcast();
 
   static Future<void> clearCache() async {
     _memoryCache.clear();
@@ -31,6 +32,19 @@ class ApiClient {
     } catch (e) {
       debugPrint('[ApiClient] Error clearing cache: $e');
     }
+  }
+
+  static void invalidate(String pathPattern) {
+    _memoryCache.removeWhere((key, _) => key.contains(pathPattern));
+    _cacheTimestamps.removeWhere((key, _) => key.contains(pathPattern));
+    SharedPreferences.getInstance().then((prefs) {
+      final keys = prefs.getKeys();
+      for (final key in keys) {
+        if (key.startsWith('api_cache_') && key.contains(pathPattern)) {
+          prefs.remove(key);
+        }
+      }
+    }).catchError((_) {});
   }
 
   void _log(String message) {
@@ -50,13 +64,11 @@ class ApiClient {
     return headers;
   }
 
-  Map<String, dynamic>? getSync(String path) {
-    final tokenSuffix = (token != null && token!.length > 10) ? token!.substring(token!.length - 10) : 'none';
-    final cacheKey = 'api_cache_${tokenSuffix}_$path';
-    return _memoryCache[cacheKey];
-  }
-
-  Future<Map<String, dynamic>> get(String path, {bool forceRefresh = false}) async {
+  Future<Map<String, dynamic>> get(
+    String path, {
+    bool forceRefresh = false,
+    Duration? timeout,
+  }) async {
     final uri = Uri.parse('$baseUrl$path');
     final tokenSuffix = (token != null && token!.length > 10) ? token!.substring(token!.length - 10) : 'none';
     final cacheKey = 'api_cache_${tokenSuffix}_$path';
@@ -69,7 +81,7 @@ class ApiClient {
       final now = DateTime.now();
       if (lastFetch == null || now.difference(lastFetch).inSeconds > 60) {
         // Kick off background refresh silently
-        _fetchAndCache(uri, path, cacheKey).ignore();
+        _fetchAndCache(uri, path, cacheKey, timeout: timeout).ignore();
       }
       return _memoryCache[cacheKey];
     }
@@ -84,7 +96,7 @@ class ApiClient {
           _memoryCache[cacheKey] = cachedData;
           _log('API GET (Disk Cache): $uri');
           // Kick off background refresh silently
-          _fetchAndCache(uri, path, cacheKey).ignore();
+          _fetchAndCache(uri, path, cacheKey, timeout: timeout).ignore();
           return cachedData;
         }
       } catch (e) {
@@ -92,26 +104,20 @@ class ApiClient {
       }
     }
 
-    // 3. If no cache or forceRefresh, check if there's an in-flight request
-    if (_inFlightRequests.containsKey(cacheKey)) {
-      _log('API GET (In-Flight): $uri');
-      return await _inFlightRequests[cacheKey]!;
-    }
-
-    // 4. Otherwise, fetch normally and block
+    // 3. If no cache or forceRefresh, fetch normally and block
     _log('API GET (Network): $uri');
-    final future = _fetchAndCache(uri, path, cacheKey);
-    _inFlightRequests[cacheKey] = future;
-    try {
-      return await future;
-    } finally {
-      _inFlightRequests.remove(cacheKey);
-    }
+    return await _fetchAndCache(uri, path, cacheKey, timeout: timeout);
   }
 
-  Future<Map<String, dynamic>> _fetchAndCache(Uri uri, String path, String cacheKey) async {
+  Future<Map<String, dynamic>> _fetchAndCache(
+    Uri uri,
+    String path,
+    String cacheKey, {
+    Duration? timeout,
+  }) async {
     try {
-      final resp = await http.get(uri, headers: _headers()).timeout(_timeout);
+      final effectiveTimeout = timeout ?? _timeout;
+      final resp = await http.get(uri, headers: _headers()).timeout(effectiveTimeout);
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         final data = _decode(resp, path);
         
@@ -353,9 +359,14 @@ class ApiClient {
     if (resp.body.isNotEmpty && resp.statusCode >= 400) {
       _log('API BODY [$path]: ${resp.body}');
     }
-    final data = resp.body.isNotEmpty
-        ? jsonDecode(resp.body)
-        : <String, dynamic>{};
+    dynamic data;
+    try {
+      data = resp.body.isNotEmpty
+          ? jsonDecode(resp.body)
+          : <String, dynamic>{};
+    } catch (_) {
+      data = {'detail': resp.body.trim()};
+    }
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       if (data is Map<String, dynamic>) {
         return data;
@@ -368,6 +379,11 @@ class ApiClient {
               data['error'] ??
               'Request failed')
         : 'Request failed';
+        
+    if (resp.statusCode == 401) {
+      onUnauthorizedError.add(401);
+    }
+    
     throw ApiException(
       resp.statusCode,
       _friendlyMessage(resp.statusCode, _formatErrorMessage(message)),

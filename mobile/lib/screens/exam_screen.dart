@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -445,8 +447,9 @@ class _ExamScreenState extends State<ExamScreen> {
     required String reference,
     required List<ReceiptField> fields,
   }) {
-    // Always refresh balance so failed or successful transactions appear immediately
-    context.read<SessionController>().refreshBalance();
+    if (status != 'failed') {
+      context.read<SessionController>().refreshBalance();
+    }
     final ok = status == 'success';
     final isSuccess = status.toLowerCase() != 'failed';
     final userName = context.read<SessionController>().user?['full_name'] ?? 'User';
@@ -454,7 +457,7 @@ class _ExamScreenState extends State<ExamScreen> {
     final Map<String, String> details = {
       'Date & Time': DateTime.now().toString().substring(0, 16),
       'Sender': userName,
-      'Provider': 'MZDATA',
+      'Provider': AppConfig.appName,
       'Transaction Type': 'Exam PIN Purchase',
       'Exam Board': _exam.toUpperCase(),
       if (_selectedPackage != null && _packages.isNotEmpty)

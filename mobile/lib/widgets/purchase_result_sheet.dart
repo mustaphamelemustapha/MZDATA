@@ -1,3 +1,5 @@
+import '../config.dart';
+
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -59,7 +61,7 @@ class _PurchaseResultSheetState extends State<PurchaseResultSheet> {
         if (!mounted) return;
         InteractiveNotificationBanner.show(
           context,
-          title: 'MZDATA',
+          title: AppConfig.appName,
           message: widget.subtitle.isNotEmpty ? widget.subtitle : '${widget.title} transaction was successful.',
         );
       });
@@ -296,7 +298,7 @@ class DetailedReceiptImage extends StatelessWidget {
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: isSuccess 
-                ? [const Color(0xFF2463EB), const Color(0xFF3B82F6)] 
+                ? AppConfig.brand.buttonGradient 
                 : [const Color(0xFF64748B), const Color(0xFF94A3B8)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -320,7 +322,7 @@ class DetailedReceiptImage extends StatelessWidget {
                   ],
                 ),
                 child: Image.asset(
-                  'assets/brand/mzdata-receipt-logo.jpg',
+                  AppConfig.logoAssetPath,
                   height: 52,
                   fit: BoxFit.contain,
                   errorBuilder: (c, e, s) => Icon(
@@ -380,8 +382,8 @@ class DetailedReceiptImage extends StatelessWidget {
               const SizedBox(height: 24),
               const Divider(height: 1),
               const SizedBox(height: 24),
-              const Text(
-                'mzdata.org',
+              Text(
+                AppConfig.supportDomain,
                 style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.w500),
               ),
             ],
