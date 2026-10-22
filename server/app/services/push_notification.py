@@ -15,9 +15,14 @@ class PushNotificationService:
         
         try:
             import json
+            import base64
             cred = None
+            b64_creds = os.getenv("FIREBASE_CREDENTIALS_BASE64")
             json_creds = os.getenv("FIREBASE_CREDENTIALS_JSON")
-            if json_creds:
+            if b64_creds:
+                cred_dict = json.loads(base64.b64decode(b64_creds.strip()).decode("utf-8"))
+                cred = credentials.Certificate(cred_dict)
+            elif json_creds:
                 cred_dict = json.loads(json_creds)
                 cred = credentials.Certificate(cred_dict)
             else:
