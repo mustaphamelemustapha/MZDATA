@@ -389,7 +389,7 @@ class _AuthPasswordScreenState extends State<AuthPasswordScreen> {
                             child: Text(
                               'PASSWORD',
                               style: GoogleFonts.plusJakartaSans(
-                                color: theme.colorScheme.primary,
+                                color: isDark ? theme.colorScheme.primary : const Color(0xFF0F172A),
                                 fontSize: 11,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 1.2,
@@ -673,12 +673,12 @@ class _LoginButtonState extends State<_LoginButton> {
           ),
           alignment: Alignment.center,
           child: widget.loading
-              ? const SizedBox(
+              ? SizedBox(
                   width: 22,
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    valueColor: AlwaysStoppedAnimation<Color>(brand.onPrimaryColor),
                   ),
                 )
               : Row(
@@ -687,16 +687,16 @@ class _LoginButtonState extends State<_LoginButton> {
                     Text(
                       'Sign In',
                       style: GoogleFonts.plusJakartaSans(
-                        color: Colors.white,
+                        color: brand.onPrimaryColor,
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.2,
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Icon(
+                    Icon(
                       Icons.arrow_forward_rounded,
-                      color: Colors.white,
+                      color: brand.onPrimaryColor,
                       size: 20,
                     ),
                   ],

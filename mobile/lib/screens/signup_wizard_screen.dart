@@ -337,13 +337,13 @@ class _SignupWizardScreenState extends State<SignupWizardScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                         decoration: BoxDecoration(
-                          color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFF1F5F9),
+                          color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFF0F172A),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           'Step ${_currentStep + 1} of 4',
                           style: GoogleFonts.plusJakartaSans(
-                            color: brand.primaryColor,
+                            color: isDark ? brand.primaryColor : Colors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.3,
@@ -500,7 +500,7 @@ class _SignupWizardScreenState extends State<SignupWizardScreen> {
                   child: Text(
                     'PASSWORD',
                     style: GoogleFonts.plusJakartaSans(
-                      color: theme.colorScheme.primary,
+                      color: isDark ? theme.colorScheme.primary : const Color(0xFF0F172A),
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1.2,
@@ -834,7 +834,7 @@ class _SignupWizardScreenState extends State<SignupWizardScreen> {
                   child: Text(
                     'NEW 4-DIGIT PIN',
                     style: GoogleFonts.plusJakartaSans(
-                      color: theme.colorScheme.primary,
+                      color: isDark ? theme.colorScheme.primary : const Color(0xFF0F172A),
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1.2,
@@ -930,7 +930,7 @@ class _SignupWizardScreenState extends State<SignupWizardScreen> {
                   child: Text(
                     'CONFIRM 4-DIGIT PIN',
                     style: GoogleFonts.plusJakartaSans(
-                      color: theme.colorScheme.primary,
+                      color: isDark ? theme.colorScheme.primary : const Color(0xFF0F172A),
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1.2,
@@ -1140,7 +1140,7 @@ class _SignupWizardScreenState extends State<SignupWizardScreen> {
                   child: Text(
                     'FULL NAME',
                     style: GoogleFonts.plusJakartaSans(
-                      color: theme.colorScheme.primary,
+                      color: isDark ? theme.colorScheme.primary : const Color(0xFF0F172A),
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1.2,
@@ -1219,7 +1219,7 @@ class _SignupWizardScreenState extends State<SignupWizardScreen> {
                   child: Text(
                     'EMAIL ADDRESS',
                     style: GoogleFonts.plusJakartaSans(
-                      color: theme.colorScheme.primary,
+                      color: isDark ? theme.colorScheme.primary : const Color(0xFF0F172A),
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1.2,
@@ -1339,7 +1339,7 @@ class _SignupWizardScreenState extends State<SignupWizardScreen> {
                           Text(
                             'Have a referral code? (Optional)',
                             style: GoogleFonts.plusJakartaSans(
-                              color: theme.colorScheme.primary,
+                              color: isDark ? theme.colorScheme.primary : const Color(0xFF0F172A),
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
                             ),
@@ -1707,11 +1707,10 @@ class _WizardActionButtonState extends State<_WizardActionButton> {
                     end: Alignment.bottomRight,
                     colors: gradientColors,
                   )
-                : LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: gradientColors.map((c) => c.withValues(alpha: isDark ? 0.35 : 0.40)).toList(),
-                  ),
+                : null,
+            color: widget.enabled
+                ? null
+                : (isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0)),
             borderRadius: borderRadius,
             boxShadow: widget.enabled
                 ? [
@@ -1725,12 +1724,12 @@ class _WizardActionButtonState extends State<_WizardActionButton> {
           ),
           alignment: Alignment.center,
           child: widget.loading
-              ? const SizedBox(
+              ? SizedBox(
                   width: 22,
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    valueColor: AlwaysStoppedAnimation<Color>(brand.onPrimaryColor),
                   ),
                 )
               : Row(
@@ -1739,7 +1738,9 @@ class _WizardActionButtonState extends State<_WizardActionButton> {
                     Text(
                       widget.label,
                       style: GoogleFonts.plusJakartaSans(
-                        color: widget.enabled ? Colors.white : Colors.white.withValues(alpha: 0.85),
+                        color: widget.enabled
+                            ? brand.onPrimaryColor
+                            : (isDark ? Colors.white38 : const Color(0xFF64748B)),
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.2,
@@ -1748,7 +1749,9 @@ class _WizardActionButtonState extends State<_WizardActionButton> {
                     const SizedBox(width: 8),
                     Icon(
                       Icons.arrow_forward_rounded,
-                      color: widget.enabled ? Colors.white : Colors.white.withValues(alpha: 0.85),
+                      color: widget.enabled
+                          ? brand.onPrimaryColor
+                          : (isDark ? Colors.white38 : const Color(0xFF64748B)),
                       size: 18,
                     ),
                   ],

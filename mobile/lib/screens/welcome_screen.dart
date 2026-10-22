@@ -970,12 +970,12 @@ class _TactilePrimaryButtonState extends State<_TactilePrimaryButton> {
           ),
           alignment: Alignment.center,
           child: widget.loading
-              ? const SizedBox(
+              ? SizedBox(
                   width: 22,
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    valueColor: AlwaysStoppedAnimation<Color>(brand.onPrimaryColor),
                   ),
                 )
               : Row(
@@ -984,16 +984,16 @@ class _TactilePrimaryButtonState extends State<_TactilePrimaryButton> {
                     Text(
                       'Continue',
                       style: GoogleFonts.plusJakartaSans(
-                        color: Colors.white,
+                        color: brand.onPrimaryColor,
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.2,
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Icon(
+                    Icon(
                       Icons.arrow_forward_rounded,
-                      color: Colors.white,
+                      color: brand.onPrimaryColor,
                       size: 18,
                     ),
                   ],

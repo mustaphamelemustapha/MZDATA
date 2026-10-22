@@ -1190,7 +1190,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(
               icon,
               size: 20,
-              color: primary ? Colors.white : (isDark ? Colors.white : Colors.black87),
+              color: primary ? Theme.of(context).colorScheme.onPrimary : (isDark ? Colors.white : const Color(0xFF0F172A)),
             ),
             const SizedBox(width: 8),
             Text(
@@ -1198,7 +1198,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 14,
-                color: primary ? Colors.white : (isDark ? Colors.white : Colors.black87),
+                color: primary ? Theme.of(context).colorScheme.onPrimary : (isDark ? Colors.white : const Color(0xFF0F172A)),
               ),
             ),
           ],
@@ -1383,8 +1383,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: profileImageUrl != null && profileImageUrl.isNotEmpty ? null : Center(
                             child: Text(
                               initials,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.onPrimary,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 16,
                               ),
@@ -1987,18 +1987,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Container(
                                   height: 42,
                                   decoration: BoxDecoration(
-                                    color: isDark ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15) : Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                                    color: isDark ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15) : const Color(0xFFF1F5F9),
                                     borderRadius: BorderRadius.circular(21),
                                   ),
                                   alignment: Alignment.center,
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.send_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
+                                      Icon(Icons.send_rounded, size: 16, color: isDark ? Theme.of(context).colorScheme.primary : const Color(0xFF0F172A)),
                                       const SizedBox(width: 6),
                                       Text(
                                         'Transfer',
-                                        style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w700, fontSize: 13),
+                                        style: TextStyle(color: isDark ? Theme.of(context).colorScheme.primary : const Color(0xFF0F172A), fontWeight: FontWeight.w700, fontSize: 13),
                                       ),
                                     ],
                                   ),
@@ -2161,6 +2161,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 TextButton(
                   onPressed: () => widget.onNavigateTab?.call(2),
+                  style: TextButton.styleFrom(
+                    foregroundColor: isDark ? Theme.of(context).colorScheme.primary : const Color(0xFF047857),
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
                   child: const Text('View All'),
                 ),
               ],
@@ -2282,10 +2286,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   TextButton(
                     onPressed: _launchSupport,
                     style: TextButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                      backgroundColor: isDark ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15) : const Color(0xFFF1F5F9),
+                      foregroundColor: isDark ? Theme.of(context).colorScheme.primary : const Color(0xFF0F172A),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: const Text('Chat now', style: TextStyle(fontWeight: FontWeight.w900)),
+                    child: const Text('Chat now', style: TextStyle(fontWeight: FontWeight.w800)),
                   ),
                 ],
               ),

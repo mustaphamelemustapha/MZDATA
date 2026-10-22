@@ -82,7 +82,7 @@ class _PrimaryButtonState extends State<PrimaryButton> {
                       colors: gradientColors,
                     )
                   : null,
-              color: _enabled ? null : theme.disabledColor.withValues(alpha: 0.12),
+              color: _enabled ? null : (isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0)),
               borderRadius: borderRadius,
 
               boxShadow: [
@@ -104,15 +104,16 @@ class _PrimaryButtonState extends State<PrimaryButton> {
                       child: CircularProgressIndicator(
                         strokeWidth: 2.2,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          fg,
+                          _enabled ? fg : (isDark ? Colors.white38 : const Color(0xFF64748B)),
                         ),
                       ),
                     )
-                  : Icon(widget.icon ?? Icons.arrow_forward_rounded, size: 20, color: fg),
+                  : Icon(widget.icon ?? Icons.arrow_forward_rounded, size: 20, color: _enabled ? fg : (isDark ? Colors.white38 : const Color(0xFF64748B))),
               label: Text(widget.label),
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.transparent,
-                foregroundColor: fg,
+                foregroundColor: _enabled ? fg : (isDark ? Colors.white38 : const Color(0xFF64748B)),
+                disabledForegroundColor: isDark ? Colors.white38 : const Color(0xFF64748B),
                 padding: EdgeInsets.symmetric(
                   horizontal: 20,
                   vertical: widget.compact ? 12 : 16,

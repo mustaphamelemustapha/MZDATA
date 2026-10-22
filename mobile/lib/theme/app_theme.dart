@@ -204,7 +204,10 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AxisRadii.lg),
-          borderSide: BorderSide(color: scheme.primary.withValues(alpha: 0.92), width: 1.4),
+          borderSide: BorderSide(
+            color: isDark ? scheme.primary.withValues(alpha: 0.92) : const Color(0xFF0F172A),
+            width: 1.6,
+          ),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AxisRadii.lg),
@@ -230,6 +233,8 @@ class AppTheme {
           animationDuration: AxisDurations.normal,
           backgroundColor: scheme.primary,
           foregroundColor: scheme.onPrimary,
+          disabledBackgroundColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+          disabledForegroundColor: isDark ? Colors.white38 : const Color(0xFF64748B),
           elevation: 0,
           surfaceTintColor: Colors.transparent,
         ),
