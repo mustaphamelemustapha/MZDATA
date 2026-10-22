@@ -31,6 +31,7 @@ class BrandConfig {
   final String supportEmail;
   final String topicName;
   final String prefixName;
+  final String whatsappChannelUrl;
   final String instagramUrl;
   final String tiktokUrl;
 
@@ -53,6 +54,7 @@ class BrandConfig {
     required this.supportEmail,
     required this.topicName,
     required this.prefixName,
+    required this.whatsappChannelUrl,
     required this.instagramUrl,
     required this.tiktokUrl,
   });
@@ -86,6 +88,7 @@ class BrandConfig {
     supportEmail: 'mzdatamzdata2@gmail.com',
     topicName: 'mzdata_users',
     prefixName: 'mzdata',
+    whatsappChannelUrl: 'https://whatsapp.com/channel/0029VbE2NCI1t90almwOo81x',
     instagramUrl: 'https://www.instagram.com/mzdata.org?igsh=enNtb255MXpuemJ3&utm_source=qr',
     tiktokUrl: 'https://www.tiktok.com/@mzdata_ng',
   );

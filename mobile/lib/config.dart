@@ -18,6 +18,7 @@ class AppConfig {
   static String get supportEmail => brand.supportEmail;
   static String get topicName => brand.topicName;
   static String get prefixName => brand.prefixName;
+  static String get whatsappChannelUrl => brand.whatsappChannelUrl;
   static String get instagramUrl => brand.instagramUrl;
   static String get tiktokUrl => brand.tiktokUrl;
   static String get privacyUrl => brand.privacyUrl;

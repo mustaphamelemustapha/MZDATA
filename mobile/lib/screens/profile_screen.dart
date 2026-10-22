@@ -1109,7 +1109,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const Padding(
                 padding: EdgeInsets.only(left: 8, bottom: 12),
                 child: Text(
-                  'Social Media',
+                  'Community & Updates',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -1118,9 +1118,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               _buildFormGroup(context, [
-                _ProfileTile(label: 'WhatsApp Channel', icon: Icons.chat_bubble_outline_rounded, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse('https://whatsapp.com/channel/0029VbCanujEawdvqLAYu83T'))),
-                _ProfileTile(label: 'Instagram', icon: Icons.camera_alt_outlined, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse(AppConfig.instagramUrl))),
-                _ProfileTile(label: 'TikTok', icon: Icons.video_library_outlined, trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey), onTap: () => launchUrl(Uri.parse(AppConfig.tiktokUrl))),
+                _ProfileTile(
+                  label: 'WhatsApp Channel',
+                  icon: Icons.chat_bubble_outline_rounded,
+                  trailing: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.grey),
+                  onTap: () => launchUrl(
+                    Uri.parse(AppConfig.whatsappChannelUrl),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
               ]),
               const SizedBox(height: 40),
             ],
