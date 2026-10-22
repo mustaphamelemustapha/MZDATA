@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
@@ -44,12 +45,22 @@ class PushNotificationService {
       
       final messaging = FirebaseMessaging.instance;
       
-      // Request permissions (important for iOS)
-      final settings = await messaging.requestPermission(
+      // Enable system heads-up notifications even when app is open in foreground
+      await messaging.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
         sound: true,
       );
+
+      // Request runtime notification permissions
+      await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      try {
+        await Permission.notification.request();
+      } catch (_) {}
 
       // On iOS, wait for APNs token to be registered before requesting FCM token
       if (Platform.isIOS) {
@@ -100,6 +111,7 @@ class PushNotificationService {
 
         if (message.notification != null) {
           debugPrint('Message also contained a notification: ${message.notification}');
+          final overlay = navigatorKey.currentState?.overlay;
           final context = navigatorKey.currentContext;
           if (context != null && context.mounted) {
             final title = message.notification?.title ?? AppConfig.appName;
@@ -112,6 +124,7 @@ class PushNotificationService {
               message: body,
               soundType: soundType,
               imageUrl: imageUrl,
+              overlayState: overlay,
             );
           }
         }

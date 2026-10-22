@@ -29,6 +29,7 @@ class InteractiveNotificationBanner extends StatefulWidget {
     String? soundType,
     String? imageUrl,
     String? logoAsset,
+    OverlayState? overlayState,
   }) {
     final effectiveLogo = logoAsset ?? AppConfig.logoAssetPath;
     // Generate tactile feedback to simulate native notification arrival
@@ -47,7 +48,11 @@ class InteractiveNotificationBanner extends StatefulWidget {
       }
     }
 
-    final overlay = Overlay.of(context);
+    final overlay = overlayState ?? Overlay.maybeOf(context);
+    if (overlay == null) {
+      debugPrint("[InteractiveNotificationBanner] No OverlayState found to mount banner.");
+      return;
+    }
     late OverlayEntry entry;
 
     entry = OverlayEntry(
