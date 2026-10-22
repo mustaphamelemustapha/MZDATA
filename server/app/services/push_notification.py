@@ -139,7 +139,7 @@ class PushNotificationService:
             message = messaging.Message(
                 notification=notification,
                 data=data or {},
-                topic="vtu_all_users",
+                topic=os.getenv("FCM_BROADCAST_TOPIC", "mzdata_users"),
                 android=android_config,
                 apns=apns_config,
             )
