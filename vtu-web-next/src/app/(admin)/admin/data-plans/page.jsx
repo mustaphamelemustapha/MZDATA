@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Database, RefreshCw, X, Plus, Trash2 } from 'lucide-react';
-import { adminGetDataPlans, adminGetPricingRules, adminSyncDataPlans, adminUpdateDataPlan, adminDeleteDataPlan, adminDeleteAutosyncedPlans, apiFetch } from '@/lib/api';
+import { adminGetDataPlans, adminGetPricingRules, adminSyncDataPlans, adminUpdateDataPlan, adminDeleteDataPlan, adminDeleteAutosyncedPlans, adminDeletePlansByNetwork, apiFetch } from '@/lib/api';
 import { filterAllowedAmigoPlans } from '@/lib/amigo-plan-policy';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import { Button } from '@/components/ui/button';
@@ -121,6 +121,29 @@ export default function AdminDataPlansPage() {
       setCleaning(false);
     }
   }, [load]);
+
+  const [deletingNetwork, setDeletingNetwork] = useState(null);
+
+  const handleDeleteNetwork = useCallback(async (network) => {
+    if (!network) return;
+    const netUpper = network.toUpperCase();
+    const count = byNetwork[network.toLowerCase()] || 0;
+    const confirmed = window.confirm(
+      `⚠️ ARE YOU SURE?\n\nThis will permanently DELETE all ${count} ${netUpper} data plans from the database!\n\nThis action cannot be undone. Click OK to confirm.`
+    );
+    if (!confirmed) return;
+
+    setDeletingNetwork(network);
+    try {
+      const res = await adminDeletePlansByNetwork(network);
+      alert(res.message || `All ${netUpper} plans have been deleted successfully!`);
+      await load();
+    } catch (err) {
+      alert(err.message || `Failed to delete ${netUpper} plans`);
+    } finally {
+      setDeletingNetwork(null);
+    }
+  }, [byNetwork, load]);
 
   const handleDeleteAutosynced = useCallback(async (scope = 'autosynced') => {
     const isAll = scope === 'all';
@@ -422,7 +445,17 @@ export default function AdminDataPlansPage() {
             <Button variant="destructive" onClick={handleDisableAll} disabled={cleaning || syncing || toggling === 'all'}>
               {toggling === 'all' ? 'Disabling...' : 'Disable All Active'}
             </Button>
-            <Button onClick={handleSync} disabled={cleaning || syncing || toggling === 'all'}>
+            {activeNetwork && (
+              <Button
+                variant="destructive"
+                onClick={() => handleDeleteNetwork(activeNetwork)}
+                disabled={cleaning || syncing || deletingNetwork !== null || !byNetwork[activeNetwork]}
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Delete All {activeNetwork.toUpperCase()} Plans
+              </Button>
+            )}
+            <Button onClick={handleSync} disabled={cleaning || syncing || toggling === 'all' || deletingNetwork !== null}>
               <RefreshCw className={syncing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
               {syncing ? 'Syncing...' : 'Sync plans'}
             </Button>
@@ -443,15 +476,32 @@ export default function AdminDataPlansPage() {
       </FilterBar>
 
       <div className="grid gap-4 md:grid-cols-4">
-        {['mtn', 'airtel', 'glo', '9mobile'].map((network) => (
-          <Card key={network}>
-            <CardContent className="p-4">
-              <div className="axis-label">{network.toUpperCase()}</div>
-              <div className="mt-2 text-2xl font-semibold text-foreground">{byNetwork[network] || 0}</div>
-              <div className="text-xs text-muted-foreground">Plans available</div>
-            </CardContent>
-          </Card>
-        ))}
+        {['mtn', 'airtel', 'glo', '9mobile'].map((network) => {
+          const count = byNetwork[network] || 0;
+          const isDeletingThis = deletingNetwork === network;
+          return (
+            <Card key={network} className="relative overflow-hidden group border border-border/80 shadow-sm hover:border-border transition-all">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="axis-label font-bold text-foreground tracking-wide">{network.toUpperCase()}</div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-red-600 hover:text-red-700 hover:bg-red-500/10 h-7 px-2 text-xs font-semibold"
+                    onClick={() => handleDeleteNetwork(network)}
+                    disabled={count === 0 || deletingNetwork !== null}
+                    title={`Delete all ${network.toUpperCase()} plans`}
+                  >
+                    <Trash2 className={`h-3.5 w-3.5 mr-1 ${isDeletingThis ? 'animate-spin' : ''}`} />
+                    {isDeletingThis ? 'Deleting...' : 'Delete all'}
+                  </Button>
+                </div>
+                <div className="mt-2 text-2xl font-semibold text-foreground">{count}</div>
+                <div className="text-xs text-muted-foreground">Plans available</div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       <AdminTable

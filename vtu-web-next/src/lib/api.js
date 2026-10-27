@@ -400,6 +400,12 @@ export async function adminDeleteAutosyncedPlans(scope = 'autosynced') {
   });
 }
 
+export async function adminDeletePlansByNetwork(network) {
+  return apiFetch(`/admin/data-plans/by-network/${encodeURIComponent(network)}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function adminAdjustWallet(payload) {
   return apiFetch('/admin/wallets/adjust', {
     method: 'POST',
