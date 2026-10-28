@@ -19,7 +19,7 @@ class ForgotPasswordScreen extends StatefulWidget {
   State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
-class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with WidgetsBindingObserver {
   int _step = 0; // 0: OTP, 1: New Password
   
   // OTP Step
@@ -39,6 +39,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _startTimer();
     _otpCtrl.addListener(() {
       if (_otpCtrl.text.length > 6) {
@@ -75,6 +76,72 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _step == 0) {
+      _checkClipboardForOtp();
+    }
+  }
+
+  Future<void> _checkClipboardForOtp() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text?.trim() ?? '';
+      final match = RegExp(r'\b\d{6}\b').firstMatch(text);
+      if (match != null && mounted && _step == 0) {
+        final code = match.group(0)!;
+        if (_otpCtrl.text != code) {
+          setState(() {
+            _otpCtrl.text = code;
+            _error = null;
+          });
+          HapticFeedback.mediumImpact();
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    HapticFeedback.lightImpact();
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text?.trim() ?? '';
+      final match = RegExp(r'\b\d{6}\b').firstMatch(text);
+      if (match != null) {
+        setState(() {
+          _otpCtrl.text = match.group(0)!;
+          _error = null;
+        });
+      } else if (text.isNotEmpty) {
+        final digits = text.replaceAll(RegExp(r'\D'), '');
+        if (digits.length >= 6) {
+          setState(() {
+            _otpCtrl.text = digits.substring(0, 6);
+            _error = null;
+          });
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No 6-digit code found in clipboard'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Clipboard is empty'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
   void _startTimer() {
     _timer?.cancel();
     _countdown = 300;
@@ -89,6 +156,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _otpCtrl.dispose();
     _otpFocus.dispose();
@@ -115,7 +183,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       );
       if (mounted) {
         setState(() {
-          _loading = false;
           _step = 1;
           _error = null;
         });
@@ -123,9 +190,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _loading = false;
           _error = 'Invalid or expired code. Please try again.';
         });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
       }
     }
   }
@@ -214,70 +284,90 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Widget _buildOtpBoxes(bool isDark) {
-    return Stack(
-      children: [
-        // Invisible text field
-        Opacity(
-          opacity: 0.0,
-          child: TextField(
-            controller: _otpCtrl,
-            focusNode: _otpFocus,
-            keyboardType: TextInputType.number,
-            autofillHints: const [AutofillHints.oneTimeCode],
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            maxLength: 6,
-            autofocus: true,
-            decoration: const InputDecoration(counterText: ''),
-          ),
-        ),
-        // Visual boxes
-        GestureDetector(
-          onTap: () => _otpFocus.requestFocus(),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(6, (index) {
-              final text = _otpCtrl.text;
-              final hasChar = index < text.length;
-              final isActive = index == text.length || (index == 5 && text.length == 6);
-              final char = hasChar ? text[index] : '';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        if (!_otpFocus.hasFocus) {
+          _otpFocus.requestFocus();
+        }
+      },
+      child: SizedBox(
+        height: 56,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.001,
+                child: TextField(
+                  controller: _otpCtrl,
+                  focusNode: _otpFocus,
+                  keyboardType: TextInputType.number,
+                  autofillHints: const [AutofillHints.oneTimeCode],
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  autofocus: true,
+                  enableInteractiveSelection: true,
+                  decoration: const InputDecoration(
+                    counterText: '',
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+            ),
+            IgnorePointer(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: List.generate(6, (index) {
+                  final text = _otpCtrl.text;
+                  final hasChar = index < text.length;
+                  final isActive = index == text.length || (index == 5 && text.length == 6);
+                  final char = hasChar ? text[index] : '';
 
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                width: 48,
-                height: 56,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF131B2E) : Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isActive
-                        ? const Color(0xFF2563EB)
-                        : theme.colorScheme.outline.withValues(alpha: isDark ? 0.2 : 0.1),
-                    width: isActive ? 2.0 : 1.0,
-                  ),
-                  boxShadow: isActive
-                      ? [
-                          BoxShadow(
-                            color: const Color(0xFF2563EB).withValues(alpha: 0.15),
-                            blurRadius: 10,
-                          )
-                        ]
-                      : [],
-                ),
-                child: Text(
-                  char,
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? Colors.white : const Color(0xFF0F172A),
-                  ),
-                ),
-              );
-            }),
-          ),
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOut,
+                    width: 48,
+                    height: 56,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF131B2E) : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isActive
+                            ? const Color(0xFF2563EB)
+                            : theme.colorScheme.outline.withValues(alpha: isDark ? 0.2 : 0.1),
+                        width: isActive ? 2.0 : 1.0,
+                      ),
+                      boxShadow: isActive
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFF2563EB).withValues(alpha: 0.15),
+                                blurRadius: 10,
+                              )
+                            ]
+                          : [],
+                    ),
+                    child: Text(
+                      char,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -411,6 +501,89 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         const SizedBox(height: 24),
         
         _buildOtpBoxes(isDark),
+
+        const SizedBox(height: 14),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            InkWell(
+              onTap: _pasteFromClipboard,
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isDark ? Colors.white12 : const Color(0xFFCBD5E1),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.content_paste_rounded,
+                      size: 14,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Paste code',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_otpCtrl.text.isNotEmpty) ...[
+              const SizedBox(width: 10),
+              InkWell(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  setState(() {
+                    _otpCtrl.clear();
+                    _error = null;
+                  });
+                  _otpFocus.requestFocus();
+                },
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isDark ? Colors.white12 : const Color(0xFFCBD5E1),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.clear_rounded,
+                        size: 14,
+                        color: Color(0xFF94A3B8),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Clear',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
 
         if (_error != null) ...[
           const SizedBox(height: 16),
