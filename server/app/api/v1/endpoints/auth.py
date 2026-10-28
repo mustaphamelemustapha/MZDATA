@@ -367,6 +367,8 @@ def app_config():
         "latest_app_version": settings.latest_app_version,
         "play_store_url": settings.play_store_url,
         "app_store_url": settings.app_store_url,
+        "support_phone": "09067054672",
+        "support_whatsapp": "2349067054672",
     }
 
 
