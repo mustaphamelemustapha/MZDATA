@@ -1142,3 +1142,6 @@ async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
             db.rollback()
             logger.error("Aspfiy Webhook error: %s", exc)
             raise HTTPException(status_code=500, detail="Internal server error")
+
+aspfiy_webhook = aspify_webhook
+
