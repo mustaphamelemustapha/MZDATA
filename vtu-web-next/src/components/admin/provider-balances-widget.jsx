@@ -61,7 +61,7 @@ export function ProviderBalancesWidget() {
         </div>
       ) : (
         <div className="space-y-3">
-          {['amigo', 'smeplug', 'clubkonnect'].map((provider) => {
+          {['amigo', 'smeplug'].map((provider) => {
             const rawVal = balances?.[provider];
             const isError = typeof rawVal === 'string' && (rawVal.startsWith('CK Error') || rawVal.startsWith('Error') || isNaN(Number(rawVal)));
             const bal = isError ? 0 : Number(rawVal ?? 0);
