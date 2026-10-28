@@ -39,7 +39,7 @@ class RefreshRequest(BaseModel):
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
+    identifier: str
 
 
 class ForgotPasswordResponse(BaseModel):
@@ -47,8 +47,14 @@ class ForgotPasswordResponse(BaseModel):
     reset_token: Optional[str] = None
 
 
+class VerifyResetTokenRequest(BaseModel):
+    identifier: str
+    otp: str
+
+
 class ResetPasswordRequest(BaseModel):
-    token: str
+    identifier: str
+    otp: str
     new_password: str
 
     _password_len = validator("new_password", allow_reuse=True)(_validate_password_length)

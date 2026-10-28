@@ -89,6 +89,67 @@ def _get_base_email_template(title: str, preheader: str, content: str, action_ur
     """.strip()
 
 
+def _build_otp_email_html(otp: str) -> str:
+    content = f"<p>Hello,</p><p>We received a request to reset your password. Your verification code is:</p><h2 style='text-align: center; font-size: 32px; letter-spacing: 4px; color: #2563eb; background: #f1f5f9; padding: 16px; border-radius: 8px;'>{otp}</h2><p>This code expires in 15 minutes. If you didn't request a password reset, you can safely ignore this email.</p>"
+    return _get_base_email_template(
+        title="Your Verification Code",
+        preheader="Your MZDATA password reset code.",
+        content=content,
+        action_url="https://mzdata.org",
+        action_text="Open MZDATA"
+    )
+
+
+def send_password_reset_otp_email(to_email: str, otp: str) -> None:
+    settings = get_settings()
+    subject = f"Your MZDATA password reset code is {otp}"
+    html = _build_otp_email_html(otp)
+    to_email = _sanitize_email(to_email)
+
+    provider = (settings.email_provider or "console").lower()
+    if provider == "console":
+        print(f"[email][console] to={to_email} subject={subject} otp={otp}")
+        return
+
+    if provider == "resend":
+        _send_via_resend(
+            api_key=settings.resend_api_key,
+            email_from=_sanitize_email_from(settings.email_from),
+            to_email=to_email,
+            subject=subject,
+            html=html,
+        )
+        return
+
+    if provider == "brevo":
+        name, from_email = _parse_from(settings.email_from)
+        _send_via_brevo(
+            api_key=settings.brevo_api_key,
+            from_name=name,
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            html=html,
+        )
+        return
+
+    if provider == "smtp":
+        _send_via_smtp(
+            host=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_username,
+            password=settings.smtp_password,
+            use_tls=settings.smtp_use_tls,
+            email_from=_sanitize_email_from(settings.email_from),
+            to_email=to_email,
+            subject=subject,
+            html=html,
+        )
+        return
+
+    raise ValueError(f"Unsupported EMAIL_PROVIDER: {settings.email_provider}")
+
+
 def _build_reset_email_html(reset_link: str) -> str:
     content = "<p>Hello,</p><p>We received a request to reset your password. Click the button below to securely choose a new password.</p><p>If you didn't request a password reset, you can safely ignore this email.</p>"
     return _get_base_email_template(
