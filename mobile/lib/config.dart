@@ -16,6 +16,8 @@ class AppConfig {
   static String get iconAssetPath => brand.iconAssetPath;
   static String get supportDomain => brand.supportDomain;
   static String get supportEmail => brand.supportEmail;
+  static String get supportPhone => brand.supportPhone;
+  static String get supportWhatsApp => brand.supportWhatsApp;
   static String get topicName => brand.topicName;
   static String get prefixName => brand.prefixName;
   static String get whatsappChannelUrl => brand.whatsappChannelUrl;

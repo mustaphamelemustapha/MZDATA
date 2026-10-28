@@ -29,6 +29,8 @@ class BrandConfig {
   final String iconAssetPath;
   final String supportDomain;
   final String supportEmail;
+  final String supportPhone;
+  final String supportWhatsApp;
   final String topicName;
   final String prefixName;
   final String whatsappChannelUrl;
@@ -52,6 +54,8 @@ class BrandConfig {
     required this.iconAssetPath,
     required this.supportDomain,
     required this.supportEmail,
+    this.supportPhone = '09067054672',
+    this.supportWhatsApp = '2349067054672',
     required this.topicName,
     required this.prefixName,
     required this.whatsappChannelUrl,
@@ -86,6 +90,8 @@ class BrandConfig {
     iconAssetPath: 'assets/brand/mzdata-icon.png',
     supportDomain: 'mzdata.org',
     supportEmail: 'mzdatamzdata2@gmail.com',
+    supportPhone: '09067054672',
+    supportWhatsApp: '2349067054672',
     topicName: 'mzdata_users',
     prefixName: 'mzdata',
     whatsappChannelUrl: 'https://whatsapp.com/channel/0029VbE2NCI1t90almwOo81x',

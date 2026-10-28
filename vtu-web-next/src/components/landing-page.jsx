@@ -604,7 +604,10 @@ function FaqSection() {
               </div>
               <div className="flex flex-wrap gap-3">
                 <Button asChild className="h-11 rounded-full bg-primary px-5 text-primary-foreground hover:bg-primary/90">
-                  <a href="mailto:mzdatamzdata2@gmail.com">Email Support</a>
+                  <a href="https://wa.me/2349067054672" target="_blank" rel="noopener noreferrer">WhatsApp Support</a>
+                </Button>
+                <Button asChild variant="outline" className="h-11 rounded-full border-border bg-card px-5 text-foreground hover:bg-secondary">
+                  <a href="tel:09067054672">Call: 09067054672</a>
                 </Button>
                 <Button asChild variant="secondary" className="h-11 rounded-full border-border bg-card px-5 text-muted-foreground hover:bg-secondary">
                   <Link href="/login">Log in</Link>
@@ -629,6 +632,10 @@ function Footer() {
               MZDATA helps users buy airtime, data, and everyday utility services while keeping wallet funding and transaction records clear.
             </p>
             <div className="mt-5 flex items-center gap-3 text-sm text-slate-200">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              <a href="https://wa.me/2349067054672" target="_blank" rel="noopener noreferrer" className="hover:text-white">09067054672 (WhatsApp / Call)</a>
+            </div>
+            <div className="mt-2 flex items-center gap-3 text-sm text-slate-200">
               <span className="h-2 w-2 rounded-full bg-primary" />
               <a href="mailto:mzdatamzdata2@gmail.com" className="hover:text-white">mzdatamzdata2@gmail.com</a>
             </div>

@@ -1,3 +1,4 @@
+import '../config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'data_screen.dart';
@@ -259,7 +260,7 @@ class _SupportCard extends StatelessWidget {
   final bool isDark;
 
   Future<void> _launchSupport(BuildContext context) async {
-    final phone = '+2348141114647';
+    final phone = BrandConfig.current.supportWhatsApp;
     final url = Uri.parse('https://wa.me/${phone.replaceAll('+', '')}');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (context.mounted) {

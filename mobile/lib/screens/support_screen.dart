@@ -13,11 +13,23 @@ class SupportScreen extends StatelessWidget {
 
   Future<void> _launchWhatsApp(BuildContext context) async {
     final brand = BrandConfig.current;
-    final Uri url = Uri.parse("whatsapp://send?phone=2348141114647&text=Hello%20${Uri.encodeComponent(brand.appName)}%20Support");
+    final Uri url = Uri.parse("whatsapp://send?phone=" + brand.supportWhatsApp + "&text=Hello%20${Uri.encodeComponent(brand.appName)}%20Support");
     if (!await launchUrl(url)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not open WhatsApp. Make sure it is installed.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _launchPhone(BuildContext context) async {
+    final brand = BrandConfig.current;
+    final Uri url = Uri.parse("tel:${brand.supportPhone}");
+    if (!await launchUrl(url)) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open dialer.')),
         );
       }
     }
@@ -158,9 +170,23 @@ class SupportScreen extends StatelessWidget {
                           _SupportTile(
                             icon: Icons.chat_rounded,
                             iconColor: const Color(0xFF25D366),
-                            title: 'WhatsApp',
+                            title: 'WhatsApp (09067054672)',
                             buttonText: 'Message',
                             onTap: () => _launchWhatsApp(context),
+                          ),
+                          Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                            indent: 20,
+                            endIndent: 20,
+                          ),
+                          _SupportTile(
+                            icon: Icons.phone_rounded,
+                            iconColor: const Color(0xFF3B82F6),
+                            title: 'Call Support',
+                            buttonText: '09067054672',
+                            onTap: () => _launchPhone(context),
                           ),
                           Divider(
                             height: 1,
