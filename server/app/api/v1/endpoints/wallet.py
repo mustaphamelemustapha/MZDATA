@@ -487,94 +487,98 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
 
     # 4. Fetch/Create Aspfiy Reserved Account (Completely skipped for MELE DATA)
     is_mele = is_meledata_tenant(request)
-    if not is_mele and is_gateway_active(db, "asfiy", getattr(settings, "aspfiy_enabled", False)):
-        db_aspfiy = db.query(VirtualAccount).filter(
-            VirtualAccount.user_id == user.id,
-            VirtualAccount.provider == VirtualAccountProvider.ASPFIY,
-        ).all()
+    try:
+        if not is_mele and is_gateway_active(db, "asfiy", getattr(settings, "aspfiy_enabled", False)):
+            db_aspfiy = db.query(VirtualAccount).filter(
+                VirtualAccount.user_id == user.id,
+                VirtualAccount.provider == VirtualAccountProvider.ASPFIY,
+            ).all()
 
-        active_aspfiy = [
-            acc for acc in db_aspfiy
-            if acc.status == VirtualAccountStatus.ACTIVE and acc.account_number
-        ]
+            active_aspfiy = [
+                acc for acc in db_aspfiy
+                if acc.status == VirtualAccountStatus.ACTIVE and acc.account_number
+            ]
 
-        if active_aspfiy:
-            for db_acc in active_aspfiy:
-                all_accounts.append({
-                    "bank_name": db_acc.bank_name,
-                    "account_number": db_acc.account_number,
-                    "account_name": db_acc.account_name,
-                })
-        elif db_aspfiy:
-            # We already have an account record (pending or inactive/failed).
-            # Do NOT hammer Aspfiy on GET requests to prevent runaway account generation loops!
-            logger.info("Aspfiy account already recorded for user %s (status=%s); skipping auto-generation on GET.", user.id, db_aspfiy[0].status)
-        else:
-            try:
-                first = (user.full_name or "").strip().split(" ")[0] or "User"
-                last = " ".join((user.full_name or "").strip().split(" ")[1:]) or first
-                reference = f"{account_reference}_aspfiy_paga"
-            
-                resp = AspfiyService.create_reserved_account(
-                    email=user.email,
-                    first_name=first,
-                    last_name=last,
-                    phone=user.phone_number or "08000000000",
-                    reference=reference
-                )
-            
-                acc_info = AspfiyService.parse_reserved_account_response(resp)
-                if acc_info:
-                    db_acc = VirtualAccount(
-                        user_id=user.id,
-                        provider=VirtualAccountProvider.ASPFIY,
-                        account_number=acc_info["account_number"],
-                        account_name=acc_info["account_name"],
-                        bank_name=acc_info["bank_name"],
-                        bank_code="000",
-                        customer_reference=reference,
-                        reservation_reference=reference,
-                        status=VirtualAccountStatus.ACTIVE,
-                    )
-                    db.add(db_acc)
-                    db.commit()
-                    all_accounts.append(acc_info)
-                else:
-                    logger.warning("Aspfiy returned unparseable or empty account for user %s: %s", user.id, resp)
-                    # Cache failure to prevent retry loop on subsequent GET requests
-                    db.add(VirtualAccount(
-                        user_id=user.id,
-                        provider=VirtualAccountProvider.ASPFIY,
-                        account_number="",
-                        account_name="Failed",
-                        bank_name="Paga",
-                        bank_code="000",
-                        customer_reference=reference,
-                        reservation_reference=reference,
-                        status=VirtualAccountStatus.INACTIVE,
-                    ))
-                    db.commit()
-                    messages.append("Failed to reserve Aspfiy account: Invalid response format.")
-            except Exception as exc:
-                db.rollback()
-                logger.warning("Auto-generate Aspfiy account failed: %s", exc)
-                messages.append(f"Aspfiy: {exc}")
-                # Cache failure to prevent retry loop on subsequent GET requests
+            if active_aspfiy:
+                for db_acc in active_aspfiy:
+                    all_accounts.append({
+                        "bank_name": db_acc.bank_name,
+                        "account_number": db_acc.account_number,
+                        "account_name": db_acc.account_name,
+                    })
+            elif db_aspfiy:
+                # We already have an account record (pending or inactive/failed).
+                # Do NOT hammer Aspfiy on GET requests to prevent runaway account generation loops!
+                logger.info("Aspfiy account already recorded for user %s (status=%s); skipping auto-generation on GET.", user.id, db_aspfiy[0].status)
+            else:
                 try:
-                    db.add(VirtualAccount(
-                        user_id=user.id,
-                        provider=VirtualAccountProvider.ASPFIY,
-                        account_number="",
-                        account_name="Failed",
-                        bank_name="Paga",
-                        bank_code="000",
-                        customer_reference=f"{account_reference}_aspfiy_paga",
-                        reservation_reference=f"{account_reference}_aspfiy_paga",
-                        status=VirtualAccountStatus.INACTIVE,
-                    ))
-                    db.commit()
-                except Exception:
+                    first = (user.full_name or "").strip().split(" ")[0] or "User"
+                    last = " ".join((user.full_name or "").strip().split(" ")[1:]) or first
+                    reference = f"{account_reference}_aspfiy_paga"
+                
+                    resp = AspfiyService.create_reserved_account(
+                        email=user.email,
+                        first_name=first,
+                        last_name=last,
+                        phone=user.phone_number or "08000000000",
+                        reference=reference
+                    )
+                
+                    acc_info = AspfiyService.parse_reserved_account_response(resp)
+                    if acc_info:
+                        db_acc = VirtualAccount(
+                            user_id=user.id,
+                            provider=VirtualAccountProvider.ASPFIY,
+                            account_number=acc_info["account_number"],
+                            account_name=acc_info["account_name"],
+                            bank_name=acc_info["bank_name"],
+                            bank_code="000",
+                            customer_reference=reference,
+                            reservation_reference=reference,
+                            status=VirtualAccountStatus.ACTIVE,
+                        )
+                        db.add(db_acc)
+                        db.commit()
+                        all_accounts.append(acc_info)
+                    else:
+                        logger.warning("Aspfiy returned unparseable or empty account for user %s: %s", user.id, resp)
+                        # Cache failure to prevent retry loop on subsequent GET requests
+                        db.add(VirtualAccount(
+                            user_id=user.id,
+                            provider=VirtualAccountProvider.ASPFIY,
+                            account_number="",
+                            account_name="Failed",
+                            bank_name="Paga",
+                            bank_code="000",
+                            customer_reference=reference,
+                            reservation_reference=reference,
+                            status=VirtualAccountStatus.INACTIVE,
+                        ))
+                        db.commit()
+                        messages.append("Failed to reserve Aspfiy account: Invalid response format.")
+                except Exception as exc:
                     db.rollback()
+                    logger.warning("Auto-generate Aspfiy account failed: %s", exc)
+                    messages.append(f"Aspfiy: {exc}")
+                    # Cache failure to prevent retry loop on subsequent GET requests
+                    try:
+                        db.add(VirtualAccount(
+                            user_id=user.id,
+                            provider=VirtualAccountProvider.ASPFIY,
+                            account_number="",
+                            account_name="Failed",
+                            bank_name="Paga",
+                            bank_code="000",
+                            customer_reference=f"{account_reference}_aspfiy_paga",
+                            reservation_reference=f"{account_reference}_aspfiy_paga",
+                            status=VirtualAccountStatus.INACTIVE,
+                        ))
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+    except Exception as outer_aspfiy_err:
+        db.rollback()
+        logger.warning("Aspfiy account lookup skipped due to error: %s", outer_aspfiy_err)
 
     # For MELE DATA, purge/hide any historical or active Aspfiy/Paga accounts from returned accounts
     if is_mele:
