@@ -207,6 +207,7 @@ def ensure_tables():
     # Pending reconcile must run in both production (auto_create_tables=False)
     # and local bootstrap mode.
     start_pending_reconcile_worker()
+    _ensure_virtual_account_provider_enum()
     if not settings.auto_create_tables:
         _bootstrap_admins()
         _ensure_user_phone_column()
