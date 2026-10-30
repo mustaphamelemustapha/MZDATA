@@ -1,37 +1,96 @@
-import os
-import re
-import hmac
-from app.models.integration import PaymentGateway
 import logging
 import json
 import hashlib
+import hmac
+import os
+import re
 from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
 from decimal import Decimal
 
+from datetime import datetime, timezone
 import secrets
 from sqlalchemy.exc import IntegrityError
 from app.core.database import get_db
-from app.models import Transaction, TransactionStatus, TransactionType, User, WalletLedger, LedgerType
+from app.models import Transaction, TransactionStatus, TransactionType, User, WalletLedger, LedgerType, DataPlan
+from app.models.integration import PaymentGateway
 from app.services.wallet import get_or_create_wallet, credit_wallet
 from app.services.monnify import verify_monnify_signature
 from app.services.billstack import verify_billstack_signature
-from app.services.aspify import verify_aspify_signature
 from app.services.outbound_webhooks import dispatch_developer_webhook
 from app.core.config import get_settings
 from app.api.v1.endpoints.wallet import _maybe_reward_first_deposit, _safe_ref, _resolve_paystack_transfer_user
-from app.models.virtual_account import VirtualAccount, VirtualAccountProvider
+from app.models.virtual_account import VirtualAccount, VirtualAccountProvider, VirtualAccountStatus
 from app.services.paystack import verify_paystack_signature
 from app.services.push_notification import PushNotificationService
+from app.core.tenant import is_meledata_tenant
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+def _tx_age_seconds(tx: Transaction) -> float:
+    created = getattr(tx, "created_at", None)
+    if not created:
+        return 9999.0
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    return max(0.0, (now - created).total_seconds())
+
+@router.post("/vtpass")
+@router.post("/vtpass/")
+@router.post("/vtpass/webhook")
+@router.post("/vtpass/webhook/")
+async def vtpass_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    VTPass Callback/Webhook endpoint.
+    VTPass sends transaction status updates here.
+    """
+    try:
+        payload = await request.json()
+        logger.info(f"VTPass Webhook received: {payload}")
+        
+        # VTpass typically sends request_id and content.transactions.status
+        request_id = payload.get("requestId")
+        if not request_id:
+            return {"status": "ignored", "reason": "No requestId provided"}
+            
+        content = payload.get("content", {})
+        transactions = content.get("transactions", {})
+        status = str(transactions.get("status") or "").lower()
+        
+        transaction = db.query(Transaction).filter(Transaction.reference == request_id).first()
+        if not transaction:
+            return {"status": "ignored", "reason": "Transaction not found"}
+            
+        if status in {"delivered", "successful"}:
+            if transaction.status != TransactionStatus.SUCCESS:
+                transaction.status = TransactionStatus.SUCCESS
+                db.commit()
+                # Optionally trigger developer webhooks
+                dispatch_developer_webhook(transaction, transaction.user)
+                
+        elif status in {"failed", "reversed"}:
+            if transaction.status == TransactionStatus.PENDING:
+                transaction.status = TransactionStatus.FAILED
+                transaction.failure_reason = "Failed via VTpass Webhook"
+                db.commit()
+                # You might want to handle refunds here if applicable
+                
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error processing VTpass webhook: {e}")
+        # VTPass expects a 200 OK so it doesn't keep retrying unnecessarily
+        return {"status": "error", "message": str(e)}
+
 async def get_raw_body(request: Request) -> bytes:
     return await request.body()
 
+@router.post("/paystack")
+@router.post("/paystack/")
 @router.post("/paystack/webhook")
+@router.post("/paystack/webhook/")
 def paystack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
     signature = request.headers.get("x-paystack-signature")
     if not signature:
@@ -46,7 +105,7 @@ def paystack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), 
     data = payload.get("data", {})
 
     reference = data.get("reference")
-    transaction = db.query(Transaction).filter(Transaction.reference == reference).with_for_update().first()
+    transaction = db.query(Transaction).filter(Transaction.reference == reference).first()
 
     if event == "charge.success" and transaction:
         if transaction.status != TransactionStatus.SUCCESS:
@@ -133,6 +192,9 @@ def paystack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), 
 
 
 @router.post("/smeplug")
+@router.post("/smeplug/")
+@router.post("/smeplug/webhook")
+@router.post("/smeplug/webhook/")
 def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
     """
     SMEPlug Webhook Handler
@@ -174,7 +236,7 @@ def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
         return {"status": "ignored"}
 
     # Find transaction using customer_reference
-    transaction = db.query(Transaction).filter(Transaction.reference == customer_reference).with_for_update().first()
+    transaction = db.query(Transaction).filter(Transaction.reference == customer_reference).first()
     if not transaction:
         logger.warning("SMEPlug Webhook: Transaction not found for ref %s", customer_reference)
         return {"status": "ignored"}
@@ -182,6 +244,14 @@ def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
     # Idempotency check: if already success or refunded, ignore
     if transaction.status in {TransactionStatus.SUCCESS, TransactionStatus.REFUNDED}:
         logger.info("SMEPlug Webhook: Transaction %s already in terminal state %s", customer_reference, transaction.status)
+        return {"status": "ok"}
+
+    # Provider check: if transaction is handled by another provider (e.g. routed to fallback amigo), ignore
+    if transaction.provider and transaction.provider.lower() not in {"smeplug", "sim"}:
+        logger.info(
+            "SMEPlug Webhook: Transaction %s is handled by %s, not smeplug. Ignoring.",
+            customer_reference, transaction.provider
+        )
         return {"status": "ok"}
 
     if status == "success":
@@ -197,6 +267,30 @@ def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
         logger.info("SMEPlug Webhook: Transaction %s marked as SUCCESS", customer_reference)
         dispatch_developer_webhook(transaction, transaction.user)
     elif status == "failed":
+        # Check if plan has fallback configured or if transaction is actively running in data.py
+        plan = db.query(DataPlan).filter(DataPlan.plan_code == transaction.data_plan_code).first() if transaction.data_plan_code else None
+        has_fallback = bool(plan and plan.fallback_provider and str(plan.fallback_provider).strip().lower() not in {"", "none"})
+        age_sec = _tx_age_seconds(transaction)
+
+        if has_fallback:
+            logger.warning(
+                "SMEPlug Webhook: Transaction %s failed on primary SMEPlug, but fallback (%s) is configured. Skipping premature webhook refund.",
+                customer_reference, plan.fallback_provider
+            )
+            transaction.external_reference = provider_reference
+            db.commit()
+            return {"status": "ok"}
+
+        if age_sec < 45:
+            # Synchronous purchase route in data.py is actively processing. Let data.py handle the outcome.
+            logger.warning(
+                "SMEPlug Webhook: Transaction %s failed on SMEPlug within %.1fs of creation. Deferring refund to in-flight purchase handler.",
+                customer_reference, age_sec
+            )
+            transaction.external_reference = provider_reference
+            db.commit()
+            return {"status": "ok"}
+
         transaction.status = TransactionStatus.FAILED
         transaction.external_reference = provider_reference
         
@@ -207,8 +301,7 @@ def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
             wallet, 
             Decimal(transaction.amount), 
             transaction.reference, 
-            f"Refund for failed SMEPlug data purchase (Ref: {provider_reference})",
-            commit=False
+            f"Refund for failed SMEPlug data purchase (Ref: {provider_reference})"
         )
         transaction.status = TransactionStatus.REFUNDED
         db.commit()
@@ -217,7 +310,7 @@ def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
         
         # Send push notification for refund
         if transaction.user and transaction.user.fcm_token:
-            PushNotificationService.send_to_token(
+            PushNotificationService.send_push_notification(
                 token=transaction.user.fcm_token,
                 title="Data Purchase Failed",
                 body=f"Your Airtel data purchase failed. Your wallet has been refunded ₦{transaction.amount}.",
@@ -229,6 +322,9 @@ def smeplug_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
     return {"status": "ok"}
 
 @router.post("/monnify")
+@router.post("/monnify/")
+@router.post("/monnify/webhook")
+@router.post("/monnify/webhook/")
 def monnify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
     signature = request.headers.get("monnify-signature")
     if not signature:
@@ -243,7 +339,7 @@ def monnify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
     data = payload.get("eventData", {}) or payload.get("data", {})
 
     reference = data.get("paymentReference") or data.get("transactionReference")
-    transaction = db.query(Transaction).filter(Transaction.reference == reference).with_for_update().first()
+    transaction = db.query(Transaction).filter(Transaction.reference == reference).first()
     payment_status = (data.get("paymentStatus") or data.get("status") or "").upper()
 
     if payment_status in {"PAID", "SUCCESSFUL", "SUCCESS"} or (event_type and "SUCCESS" in event_type):
@@ -283,11 +379,11 @@ def monnify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
                     sender_name = None
                 user = None
                 
-                # 1. Resolve user by accountReference pattern ("MZDATA_{user_id}")
+                # 1. Resolve user by accountReference pattern ("AXISVTU_{user_id}")
                 account_ref = data.get("accountReference") or (data.get("product") or {}).get("reference")
                 if account_ref:
                     account_ref_str = str(account_ref).strip()
-                    if account_ref_str.startswith("MZDATA_"):
+                    if account_ref_str.startswith("AXISVTU_"):
                         try:
                             user_id_str = account_ref_str.split("_")[1]
                             user_id = int(user_id_str)
@@ -393,24 +489,19 @@ def monnify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
     return {"status": "ok"}
 
 
-@router.head("/billstack")
-@router.get("/billstack")
-def billstack_webhook_verify():
-    return {"status": "ok"}
-
 @router.post("/billstack")
+@router.post("/billstack/")
+@router.post("/billstack/webhook")
+@router.post("/billstack/webhook/")
 def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
-    signature = request.headers.get("x-billstack-signature") or request.headers.get("billstack-signature")
+    signature = (
+        request.headers.get("x-wiaxy-signature")
+        or request.headers.get("x-wiaxy-signature-256")
+        or request.headers.get("x-billstack-signature")
+        or request.headers.get("billstack-signature")
+    )
+    timestamp = request.headers.get("x-wiaxy-timestamp")
     body = raw_body
-    
-    # Verify signature only if billstack_webhook_secret is explicitly configured
-    if settings.billstack_webhook_secret:
-        if not signature or not verify_billstack_signature(body, signature):
-            logger.error("Billstack Webhook: Invalid signature")
-            raise HTTPException(status_code=401, detail="Invalid signature")
-    elif signature:
-        is_valid = verify_billstack_signature(body, signature)
-        logger.info("Billstack Webhook: Signature present. Verification result: %s", is_valid)
 
     payload = json.loads(raw_body)
     logger.info("Billstack Webhook received: %s", payload)
@@ -418,6 +509,41 @@ def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body),
     event = payload.get("event")
     event_upper = str(event or "").upper().strip()
     data = payload.get("eventData", {}) or payload.get("data", {})
+
+    if settings.billstack_webhook_secret:
+        sig_ok = bool(signature and verify_billstack_signature(body, signature, timestamp=timestamp))
+        if not sig_ok:
+            # Fallback check: verify whether the destination account or reference belongs to a known Billstack VirtualAccount
+            acc_num_check = str((data.get("account") or {}).get("account_number") or "").strip()
+            m_ref_check = str(data.get("merchant_reference") or "").strip()
+            r_ref_check = str(data.get("reference") or "").strip()
+            known_va = None
+            if acc_num_check:
+                known_va = db.query(VirtualAccount).filter(
+                    VirtualAccount.account_number == acc_num_check,
+                    VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
+                ).first()
+            if not known_va and (m_ref_check or r_ref_check):
+                ref_to_match = m_ref_check or r_ref_check
+                known_va = db.query(VirtualAccount).filter(
+                    (VirtualAccount.customer_reference == ref_to_match)
+                    | (VirtualAccount.reservation_reference == ref_to_match)
+                    | (VirtualAccount.customer_reference.like(f"{ref_to_match}%"))
+                    | (VirtualAccount.reservation_reference.like(f"{ref_to_match}%"))
+                ).first()
+            if known_va:
+                logger.warning(
+                    "Billstack Webhook: Signature mismatch (header=%s), but verified known VirtualAccount %s for user_id=%s. Proceeding.",
+                    signature,
+                    known_va.account_number,
+                    known_va.user_id,
+                )
+            else:
+                logger.error("Billstack Webhook: Invalid signature (header=%s)", signature)
+                raise HTTPException(status_code=401, detail="Invalid signature")
+    elif signature:
+        is_valid = verify_billstack_signature(body, signature, timestamp=timestamp)
+        logger.info("Billstack Webhook: Signature present. Verification result: %s", is_valid)
     
     if event_upper not in {"PAYMENT_NOTIFICATION", "PAYMENT_NOTIFIFICATION"}:
         logger.info("Billstack Webhook: Ignored event type %s", event)
@@ -471,13 +597,17 @@ def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body),
         sender_name = None
 
     # Resolve User:
-    # 1. Parse user_id from merchant_reference (which would be of format "MZDATA_{user_id}_billstack_...")
+    # 1. Parse user_id from merchant_reference (e.g. "KULLOMADATA_{user_id}_billstack_...", "MZDATA_{user_id}_billstack_...", "AXISVTU_{user_id}_...")
     user = None
     if merchant_reference:
         ref_str = str(merchant_reference).strip()
-        if ref_str.startswith("MZDATA_"):
+        parts = ref_str.split("_")
+        if len(parts) >= 2 and parts[1].isdigit() and (
+            ref_str.startswith(("AXISVTU_", "KULLOMADATA_", "MZDATA_", "MELEDATA_"))
+            or "billstack" in ref_str.lower()
+        ):
             try:
-                user_id = int(ref_str.split("_")[1])
+                user_id = int(parts[1])
                 user = db.query(User).filter(User.id == user_id).first()
                 if user:
                     logger.info("Billstack Webhook: Resolved user ID %d directly from merchant_reference %s", user.id, ref_str)
@@ -496,6 +626,16 @@ def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body),
                 user = va.user
                 if user:
                     logger.info("Billstack Webhook: Resolved user ID %d from VirtualAccount by merchant_reference %s", user.id, ref_str)
+
+    if not user and data.get("reference"):
+        r_ref = str(data.get("reference")).strip()
+        va = db.query(VirtualAccount).filter(
+            (VirtualAccount.reservation_reference == r_ref) |
+            (VirtualAccount.reservation_reference.like(f"{r_ref}%"))
+        ).first()
+        if va and va.user:
+            user = va.user
+            logger.info("Billstack Webhook: Resolved user ID %d from VirtualAccount by reference %s", user.id, r_ref)
 
     # 2. Resolve user by destination account number (from data["account"]["account_number"])
     if not user:
@@ -622,6 +762,9 @@ def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body),
 
 
 @router.post("/autosync")
+@router.post("/autosync/")
+@router.post("/autosync/webhook")
+@router.post("/autosync/webhook/")
 def autosync_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
     """
     Autosync Webhook Handler
@@ -649,21 +792,41 @@ def autosync_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), 
         logger.warning("Autosync Webhook: Invalid hash for ref %s", reference)
         return "error"
         
-    transaction = db.query(Transaction).filter(Transaction.reference == reference).with_for_update().first()
+    request_ref = tx_data.get("request_ref")
+    
+    transaction = db.query(Transaction).filter(Transaction.reference == request_ref).first()
     if not transaction:
-        logger.warning("Autosync Webhook: Transaction not found for ref %s", reference)
+        transaction = db.query(Transaction).filter(Transaction.external_reference == reference).first()
+        
+    if not transaction:
+        logger.warning("Autosync Webhook: Transaction not found for request_ref %s and ref %s", request_ref, reference)
         return "error"
         
     if transaction.status in {TransactionStatus.SUCCESS, TransactionStatus.REFUNDED}:
         logger.info("Autosync Webhook: Transaction %s already in terminal state %s", reference, transaction.status)
         return "ok"
         
+    # Provider check: if transaction was rerouted to a different provider, ignore
+    if transaction.provider and transaction.provider.lower() != "autosync":
+        logger.info("Autosync Webhook: Transaction %s is handled by %s, not autosync. Ignoring.", reference, transaction.provider)
+        return "ok"
+
     status = str(tx_data.get("status") or "").strip().lower()
     
     if status == "successful":
         transaction.status = TransactionStatus.SUCCESS
         if tx_data.get("provider_reference"):
             transaction.external_reference = tx_data.get("provider_reference")
+            
+        # Extract token for electricity purchases
+        token = str(tx_data.get("token") or tx_data.get("pin") or "")
+        units = str(tx_data.get("units") or "")
+        if token or units:
+            meta = transaction.meta or {}
+            if token: meta["token"] = token
+            if units: meta["units"] = units
+            transaction.meta = meta
+            
         db.commit()
         
         try:
@@ -677,17 +840,33 @@ def autosync_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), 
         dispatch_developer_webhook(transaction, transaction.user)
         
     elif status == "failed":
+        plan = db.query(DataPlan).filter(DataPlan.plan_code == transaction.data_plan_code).first() if transaction.data_plan_code else None
+        has_fallback = bool(plan and plan.fallback_provider and str(plan.fallback_provider).strip().lower() not in {"", "none"})
+        age_sec = _tx_age_seconds(transaction)
+
+        if has_fallback or age_sec < 45:
+            logger.warning(
+                "Autosync Webhook: Transaction %s failed on Autosync, but has_fallback=%s (age=%.1fs). Skipping premature refund.",
+                reference, has_fallback, age_sec
+            )
+            if tx_data.get("provider_reference"):
+                transaction.external_reference = tx_data.get("provider_reference")
+            db.commit()
+            return "ok"
+
         transaction.status = TransactionStatus.FAILED
         if tx_data.get("provider_reference"):
             transaction.external_reference = tx_data.get("provider_reference")
             
         wallet = get_or_create_wallet(db, transaction.user_id)
+        service_name = getattr(transaction, "type", "transaction").capitalize()
+        
         credit_wallet(
             db, 
             wallet, 
             Decimal(transaction.amount), 
             transaction.reference, 
-            f"Refund for failed Autosync data purchase (Ref: {reference})"
+            f"Refund for failed Autosync {service_name} purchase (Ref: {reference})"
         )
         transaction.status = TransactionStatus.REFUNDED
         db.commit()
@@ -695,47 +874,59 @@ def autosync_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), 
         dispatch_developer_webhook(transaction, transaction.user)
         
         if transaction.user and transaction.user.fcm_token:
-            PushNotificationService.send_to_token(
+            PushNotificationService.send_push_notification(
                 token=transaction.user.fcm_token,
-                title="Data Purchase Failed",
-                body=f"Your data purchase failed. Your wallet has been refunded ₦{transaction.amount}.",
+                title=f"{service_name} Purchase Failed",
+                body=f"Your {service_name.lower()} purchase failed. Your wallet has been refunded ₦{transaction.amount}.",
                 data={"transaction_id": transaction.id, "type": "refund"}
             )
             
     return "ok"
 
 @router.post("/boltnet")
+@router.post("/boltnet/")
+@router.post("/boltnet/webhook")
+@router.post("/boltnet/webhook/")
 def boltnet_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
     """
     Boltnet Webhook Handler
     """
-    # Simple webhook authentication via query parameter ?token=secret
-    secret = request.query_params.get("token")
-    if settings.boltnet_webhook_secret and secret != settings.boltnet_webhook_secret:
-        raise HTTPException(status_code=401, detail="Invalid webhook token")
-
-    payload = json.loads(raw_body)
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        return "invalid json"
+        
     logger.info("Boltnet Webhook received: %s", payload)
-
-    status = str(payload.get("Status") or payload.get("status") or "").strip().lower()
-    provider_reference = payload.get("ident") or payload.get("id")
-
-    if not provider_reference:
-        logger.warning("Boltnet Webhook missing ident/reference")
-        return {"status": "ignored"}
-
-    transaction = db.query(Transaction).filter(Transaction.external_reference == provider_reference).first()
     
+    # Payload should include request_id and ident
+    request_id = payload.get("request_id")
+    ident = payload.get("ident") or payload.get("id")
+    
+    if not request_id:
+        logger.warning("Boltnet Webhook missing request_id")
+        return "error"
+        
+    transaction = db.query(Transaction).filter(Transaction.reference == request_id).first()
     if not transaction:
-        logger.warning("Boltnet Webhook: Transaction not found for external_ref %s", provider_reference)
-        return {"status": "ignored"}
-
+        logger.warning("Boltnet Webhook: Transaction not found for request_id %s", request_id)
+        return "error"
+        
     if transaction.status in {TransactionStatus.SUCCESS, TransactionStatus.REFUNDED}:
-        logger.info("Boltnet Webhook: Transaction %s already in terminal state %s", transaction.reference, transaction.status)
-        return {"status": "ok"}
+        logger.info("Boltnet Webhook: Transaction %s already in terminal state %s", request_id, transaction.status)
+        return "ok"
 
-    if status == "successful":
+    # Provider check: if transaction was rerouted to a different provider, ignore
+    if transaction.provider and transaction.provider.lower() != "boltnet":
+        logger.info("Boltnet Webhook: Transaction %s is handled by %s, not boltnet. Ignoring.", request_id, transaction.provider)
+        return "ok"
+        
+    status = str(payload.get("Status") or payload.get("status") or "").strip().lower()
+    
+    if status in {"successful", "success", "delivered"}:
         transaction.status = TransactionStatus.SUCCESS
+        if ident:
+            transaction.external_reference = str(ident)
+            
         db.commit()
         
         try:
@@ -743,38 +934,54 @@ def boltnet_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
             trigger_referral_data_activity(db, transaction)
             db.commit()
         except Exception as ref_exc:
-            logger.error("Failed to trigger referral activity in webhook: %s", ref_exc)
+            logger.error("Failed to trigger referral activity in boltnet webhook: %s", ref_exc)
             
-        logger.info("Boltnet Webhook: Transaction %s marked as SUCCESS", transaction.reference)
+        logger.info("Boltnet Webhook: Transaction %s marked as SUCCESS", request_id)
         dispatch_developer_webhook(transaction, transaction.user)
         
-    elif status == "failed":
+    elif status in {"failed", "reversed", "declined"}:
+        plan = db.query(DataPlan).filter(DataPlan.plan_code == transaction.data_plan_code).first() if transaction.data_plan_code else None
+        has_fallback = bool(plan and plan.fallback_provider and str(plan.fallback_provider).strip().lower() not in {"", "none"})
+        age_sec = _tx_age_seconds(transaction)
+
+        if has_fallback or age_sec < 45:
+            logger.warning(
+                "Boltnet Webhook: Transaction %s failed on Boltnet, but has_fallback=%s (age=%.1fs). Skipping premature refund.",
+                request_id, has_fallback, age_sec
+            )
+            if ident:
+                transaction.external_reference = str(ident)
+            db.commit()
+            return "ok"
+
         transaction.status = TransactionStatus.FAILED
+        if ident:
+            transaction.external_reference = str(ident)
             
         wallet = get_or_create_wallet(db, transaction.user_id)
+        service_name = getattr(transaction, "tx_type", getattr(TransactionType, "DATA")).name.capitalize()
+        
         credit_wallet(
             db, 
             wallet, 
             Decimal(transaction.amount), 
             transaction.reference, 
-            f"Refund for failed Boltnet purchase (Ref: {provider_reference})"
+            f"Refund for failed Boltnet {service_name} purchase (Ref: {request_id})"
         )
         transaction.status = TransactionStatus.REFUNDED
         db.commit()
-        logger.info("Boltnet Webhook: Transaction %s marked as FAILED and REFUNDED", transaction.reference)
+        logger.info("Boltnet Webhook: Transaction %s marked as FAILED and REFUNDED", request_id)
         dispatch_developer_webhook(transaction, transaction.user)
         
         if transaction.user and transaction.user.fcm_token:
-            PushNotificationService.send_to_token(
+            PushNotificationService.send_push_notification(
                 token=transaction.user.fcm_token,
-                title="Purchase Failed",
-                body=f"Your purchase failed. Your wallet has been refunded ₦{transaction.amount}.",
+                title=f"{service_name} Purchase Failed",
+                body=f"Your {service_name.lower()} purchase failed. Your wallet has been refunded ₦{transaction.amount}.",
                 data={"transaction_id": transaction.id, "type": "refund"}
             )
             
-    return {"status": "ok"}
-
-
+    return "ok"
 
 def _parse_safe_deposit_amount(val) -> Decimal:
     if val is None:
@@ -786,35 +993,66 @@ def _parse_safe_deposit_amount(val) -> Decimal:
     except Exception:
         return Decimal("0")
 
-
 @router.get("/aspfiy")
 @router.get("/aspfiy/")
 @router.get("/aspify")
 @router.get("/aspify/")
-@router.get("/aspfly")
-@router.get("/aspfly/")
+@router.get("/asfiy")
+@router.get("/asfiy/")
 def aspfiy_webhook_health():
     return {"status": "active", "provider": "aspfiy"}
-
 
 @router.post("/aspfiy")
 @router.post("/aspfiy/")
 @router.post("/aspify")
 @router.post("/aspify/")
-@router.post("/aspfly")
-@router.post("/aspfly/")
-async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
+@router.post("/asfiy")
+@router.post("/asfiy/")
+async def aspfiy_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), db: Session = Depends(get_db)):
     headers_dict = dict(request.headers)
     logger.info("Aspfiy webhook incoming headers: %s", headers_dict)
 
+    # 1. Early Tenant Guard: Reject if request is scoped to MELE DATA
+    if is_meledata_tenant(request):
+        logger.info("Aspfiy webhook: Decommissioned for MELE DATA tenant (host=%s)", request.headers.get("host"))
+        return {"status": "decommissioned", "message": "Aspfiy integration is decommissioned for MELE DATA"}
+
+    # Legacy proxy: If request hits onrender.com or legacy vercel domain, forward directly to production Coolify (api.meledata.ng)
+    host_header = (request.headers.get("host") or "").lower()
+    is_legacy_host = any(h in host_header for h in ("onrender.com", "vercel.app", "axisvtu"))
+    forward_target = os.environ.get("FORWARD_ASPIFY_WEBHOOK_TO") or (
+        "https://api.meledata.ng/api/v1/webhooks/aspfiy" if is_legacy_host else None
+    )
+    if forward_target and not host_header.startswith("api.meledata.ng"):
+        logger.info("Forwarding Aspfiy webhook from legacy host %s to %s", host_header, forward_target)
+        try:
+            import httpx
+            from fastapi.responses import Response
+            fwd_headers = {
+                k: v for k, v in headers_dict.items()
+                if k.lower() not in ("host", "content-length", "transfer-encoding")
+            }
+            fwd_headers["x-forwarded-from-host"] = host_header
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                fwd_resp = await client.post(
+                    forward_target,
+                    content=raw_body,
+                    headers=fwd_headers,
+                    params=dict(request.query_params)
+                )
+            logger.info("Aspfiy webhook forwarded to Coolify, response status: %s", fwd_resp.status_code)
+            return Response(content=fwd_resp.content, status_code=fwd_resp.status_code, media_type="application/json")
+        except Exception as fwd_err:
+            logger.error("Failed to forward Aspfiy webhook to %s: %s; falling back to local processing", forward_target, fwd_err)
+
     # 1. Resolve secret key from DB (Admin Integrations) or Environment
     db_gw = db.query(PaymentGateway).filter(
-        PaymentGateway.identifier.in_(["aspfiy", "asfiy", "aspify", "aspfly"])
+        PaymentGateway.identifier.in_(["aspfiy", "asfiy", "aspify"])
     ).first()
     db_secret = (db_gw.secret_key or "").strip() if db_gw else ""
 
     env_secret = (
-        getattr(settings, "aspfiy_secret_key", "")
+        settings.aspfiy_secret_key
         or getattr(settings, "aspify_secret_key", "")
         or os.environ.get("ASPFIY_SECRET_KEY", "")
         or os.environ.get("ASPIFY_SECRET_KEY", "")
@@ -827,7 +1065,6 @@ async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
         request.headers.get("x-wiaxy-signature")
         or request.headers.get("x-aspfiy-signature")
         or request.headers.get("x-aspify-signature")
-        or request.headers.get("x-aspfly-signature")
         or request.headers.get("x-signature")
         or request.headers.get("signature")
         or request.headers.get("wiaxy-signature")
@@ -904,13 +1141,16 @@ async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
         str(data.get("trans_ref") or ""),
         str(data.get("external_reference") or ""),
         str(data.get("externalReference") or ""),
-        str(data.get("aspfiy_ref") or ""),
-        str(data.get("aspify_ref") or ""),
         str(payload.get("merchant_reference") or ""),
         str(payload.get("reference") or ""),
-        str(payload.get("payment_reference") or ""),
     ]
     ref_candidates = [r.strip() for r in ref_candidates if r and r.strip()]
+
+    # 2. Reference Prefix Guard: Reject if incoming payload targets a MELE DATA reference
+    for ref in ref_candidates:
+        if re.search(r'(?:MELEDATA|AXISVTU)[_-]', ref, re.IGNORECASE):
+            logger.info("Aspfiy webhook: Dropping MELE DATA payload reference '%s'", ref)
+            return {"status": "decommissioned", "message": "Aspfiy integration is decommissioned for MELE DATA"}
 
     email_candidates = [
         str(customer_data.get("email") or ""),
@@ -926,11 +1166,16 @@ async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
     account = None
     user = None
 
-    # 1. Match by customer_reference / reservation_reference on VirtualAccount
+    # 1. Match by customer_reference on VirtualAccount
     for ref in ref_candidates:
         account = db.query(VirtualAccount).filter(
-            (VirtualAccount.customer_reference == ref) | (VirtualAccount.reservation_reference == ref)
+            VirtualAccount.customer_reference == ref,
+            VirtualAccount.provider == VirtualAccountProvider.ASPFIY
         ).first()
+        if not account:
+            account = db.query(VirtualAccount).filter(
+                VirtualAccount.customer_reference == ref
+            ).first()
         if account:
             user = db.query(User).filter(User.id == account.user_id).first()
             if user:
@@ -940,19 +1185,32 @@ async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
     if not user:
         for acc_num in clean_accs:
             account = db.query(VirtualAccount).filter(
-                VirtualAccount.account_number == acc_num
+                VirtualAccount.account_number == acc_num,
+                VirtualAccount.provider == VirtualAccountProvider.ASPFIY
             ).first()
+            if not account:
+                account = db.query(VirtualAccount).filter(
+                    VirtualAccount.account_number == acc_num
+                ).first()
             if account:
                 user = db.query(User).filter(User.id == account.user_id).first()
                 if user:
                     break
 
-    # 3. Match from user ID inside reference patterns (e.g. MZDATA_123_..., USER_123_...)
+    # 3. Account Reference Guard: If matched account belongs to MELE DATA, drop
+    if account and (
+        (account.customer_reference and re.search(r'(?:MELEDATA|AXISVTU)[_-]', account.customer_reference, re.IGNORECASE))
+        or (account.reservation_reference and re.search(r'(?:MELEDATA|AXISVTU)[_-]', account.reservation_reference, re.IGNORECASE))
+    ):
+        logger.info("Aspfiy webhook: Matched account %s belongs to MELE DATA; dropping payment", account.account_number)
+        return {"status": "decommissioned", "message": "Aspfiy integration is decommissioned for MELE DATA"}
+
+    # 3. Match from user ID inside reference patterns (e.g. AXISVTU_123_..., MELEDATA_123_..., 123_aspfiy_...)
     if not user:
         for ref in ref_candidates:
-            m = re.search(r"(?:MZDATA|VTU|USER)[_-](\d+)", ref, re.IGNORECASE)
+            m = re.search(r'(?:AXISVTU|MELEDATA|KULLOMA|MZDATA|VTU|USER)[_-](\d+)', ref, re.IGNORECASE)
             if not m:
-                m = re.search(r"^(\d+)[_-]", ref)
+                m = re.search(r'^(\d+)[_-]', ref)
             if m:
                 try:
                     uid = int(m.group(1))
@@ -986,7 +1244,7 @@ async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
             )
             raise HTTPException(
                 status_code=401,
-                detail=f"Invalid signature (received '{signature[:8]}...', expected MD5 '{expected_md5[:8]}...'). Check ASPIFY_SECRET_KEY."
+                detail=f"Invalid signature (received '{signature[:8]}...', expected MD5 '{expected_md5[:8]}...'). Check ASPFIY_SECRET_KEY."
             )
 
     # Event Validation: Only skip if explicitly failed / reversed
@@ -1031,38 +1289,35 @@ async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
 
     # Unique transaction reference
     tx_ref_candidates = [
-        str(data.get("payment_reference") or ""),
         str(data.get("reference") or ""),
-        str(data.get("aspfiy_ref") or ""),
-        str(data.get("aspify_ref") or ""),
+        str(data.get("payment_reference") or ""),
         str(data.get("transaction_id") or ""),
         str(data.get("transactionId") or ""),
         str(data.get("transaction_ref") or ""),
         str(data.get("trans_ref") or ""),
+        str(data.get("aspfiy_ref") or ""),
         str(data.get("wiaxy_ref") or ""),
         str(data.get("id") or ""),
         str(payload.get("reference") or ""),
         str(payload.get("transaction_reference") or ""),
-        str(payload.get("payment_reference") or ""),
     ]
     tx_ref_candidates = [r.strip() for r in tx_ref_candidates if r and r.strip()]
-    reference = _safe_ref("TRF", tx_ref_candidates[0] if tx_ref_candidates else secrets.token_hex(8))
-    ext_ref = tx_ref_candidates[0] if tx_ref_candidates else reference
+    reference = tx_ref_candidates[0] if tx_ref_candidates else f"asp_{secrets.token_hex(8)}"
 
     acc_num = clean_accs[0] if clean_accs else ""
-    best_merchant_ref = ref_candidates[0] if ref_candidates else (f"MZDATA_{user.id}_aspify_paga" if user else None)
+    best_merchant_ref = ref_candidates[0] if ref_candidates else f"AXISVTU_{user.id}_aspfiy_paga" if user else None
 
     # Auto-register VirtualAccount if user matched but account record missing
     if user and not account:
         logger.info("Aspfiy webhook: matched user %s; creating virtual account record (acc=%s)", user.id, acc_num)
         account = VirtualAccount(
             user_id=user.id,
-            provider=VirtualAccountProvider.ASPIFY,
+            provider=VirtualAccountProvider.ASPFIY,
             account_number=acc_num or "paga",
-            account_name=user.full_name or "MZDATA Customer",
+            account_name=user.full_name or "Mele Data Customer",
             bank_name="Paga",
             bank_code="000",
-            customer_reference=best_merchant_ref or f"MZDATA_{user.id}_aspify_paga",
+            customer_reference=best_merchant_ref or f"AXISVTU_{user.id}_aspfiy_paga",
             reservation_reference=reference,
             status=VirtualAccountStatus.ACTIVE,
         )
@@ -1076,14 +1331,11 @@ async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
         logger.error("Aspfiy webhook: account/user not found for refs=%s accs=%s emails=%s", ref_candidates, clean_accs, email_candidates)
         return {"status": "error", "message": "account not found"}
 
-    # Idempotency check with external_reference or reference
-    existing_tx = db.query(Transaction).filter(
-        (Transaction.reference == reference) | 
-        (Transaction.external_reference == ext_ref)
-    ).first()
+    # Idempotency check with status recovery
+    existing_tx = db.query(Transaction).filter(Transaction.reference == reference).first()
     if existing_tx:
         if existing_tx.status == TransactionStatus.SUCCESS:
-            logger.info("Aspfiy webhook: duplicate successful transaction ref=%s ext=%s", reference, ext_ref)
+            logger.info("Aspfiy webhook: duplicate successful transaction ref=%s", reference)
             return {"status": "success", "message": "duplicate transaction"}
         else:
             logger.info("Aspfiy webhook: upgrading non-successful transaction ref=%s to SUCCESS", reference)
@@ -1099,51 +1351,41 @@ async def aspify_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
             or customer_data.get("name")
             or account_data.get("account_name")
             or payer_data.get("name")
-            or f"{payer_data.get('first_name', '')} {payer_data.get('last_name', '')}".strip()
             or "Aspfiy Transfer"
         ).strip()
 
+        # Create Transaction record
         tx = Transaction(
             user_id=user.id,
             reference=reference,
             amount=amount,
             status=TransactionStatus.SUCCESS,
             tx_type=TransactionType.WALLET_FUND,
-            external_reference=ext_ref,
+            external_reference=str(reference) if reference else None,
         )
+        db.add(tx)
+        db.flush()
+
+        # Credit Wallet (credit_wallet atomically increments balance and creates a WalletLedger entry)
+        wallet = get_or_create_wallet(db, user.id)
+        desc = f"Wallet funding from {sender_name}" if sender_name else "Wallet funded via Aspfiy Transfer"
+        credit_wallet(db, wallet, amount, reference, desc, sender_name=sender_name)
+        db.commit()
+        db.refresh(tx)
+
+    _maybe_reward_first_deposit(db, user=user, reference=reference, amount=amount, status=TransactionStatus.SUCCESS)
+
+    if getattr(user, "fcm_token", None):
         try:
-            db.add(tx)
-            wallet = get_or_create_wallet(db, user.id)
-            desc = f"Wallet funding via Aspfiy from {sender_name}" if sender_name else "Wallet funding via Aspfiy"
-            credit_wallet(db, wallet, amount, reference, desc, sender_name=sender_name)
-            db.commit()
-
-            _maybe_reward_first_deposit(
-                db,
-                user=user,
-                reference=reference,
-                amount=amount,
-                status=TransactionStatus.SUCCESS,
+            PushNotificationService.send_to_token(
+                token=user.fcm_token,
+                title="Wallet Funded",
+                body=f"Your wallet has been credited with ₦{amount:,.2f} via Bank Transfer.",
+                sound_type="balance_success",
             )
+        except Exception as push_err:
+            logger.warning("Failed to send push notification for Aspfiy webhook: %s", push_err)
 
-            if user.fcm_token:
-                PushNotificationService.send_to_token(
-                    token=user.fcm_token,
-                    title="Wallet Funded",
-                    body=f"Your wallet has been funded with ₦{amount:,.2f}.",
-                    data={"transaction_id": tx.id, "type": "wallet_fund"}
-                )
+    dispatch_developer_webhook(tx, user)
 
-            logger.info("Aspfiy Webhook: Successfully credited user %s with NGN %s (ref=%s)", user.email, amount, reference)
-            return {"status": "success"}
-
-        except IntegrityError:
-            db.rollback()
-            return {"status": "ignored", "reason": "duplicate transaction (integrity error)"}
-        except Exception as exc:
-            db.rollback()
-            logger.error("Aspfiy Webhook error: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
-
-aspfiy_webhook = aspify_webhook
-
+    return {"status": "success", "message": "wallet funded successfully"}

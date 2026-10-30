@@ -83,23 +83,55 @@ def upgrade_billstack_kyc(*, email: str, bvn: str) -> dict:
             raise ValueError(f"Billstack KYC upgrade failed: {detail}")
         return resp.json()
 
-def verify_billstack_signature(body: bytes, signature: str) -> bool:
+def _get_candidate_secrets() -> list[str]:
+    candidates: list[str] = []
+    for val in [
+        getattr(settings, "billstack_webhook_secret", ""),
+        getattr(settings, "billstack_api_key", ""),
+    ]:
+        v = (val or "").strip()
+        if v and v not in candidates:
+            candidates.append(v)
+
+    db = SessionLocal()
+    try:
+        db_settings = db.query(PaymentGateway).filter(
+            PaymentGateway.identifier.in_(["billstack", "BILLSTACK", "Billstack"])
+        ).first()
+        if db_settings:
+            for val in [db_settings.secret_key, db_settings.public_key, db_settings.contract_code]:
+                v = (val or "").strip()
+                if v and v not in candidates:
+                    candidates.append(v)
+    except Exception:
+        pass
+    finally:
+        db.close()
+    return candidates
+
+
+def verify_billstack_signature(body: bytes, signature: str, timestamp: str | None = None) -> bool:
     sig = (signature or "").strip()
     if not sig:
         return False
-    
-    candidates = []
-    if settings.billstack_webhook_secret:
-        candidates.append(settings.billstack_webhook_secret)
-    api_key = _get_api_key()
-    if api_key and api_key not in candidates:
-        candidates.append(api_key)
-        
+    sig_lower = sig.lower()
+
+    candidates = _get_candidate_secrets()
     for secret in candidates:
-        if sig == secret:
+        if sig == secret or sig_lower == secret.lower():
             return True
-        for algo in [hashlib.sha512, hashlib.sha256]:
-            computed = hmac.new(secret.encode(), body, algo).hexdigest()
-            if hmac.compare_digest(computed, sig):
+        # Billstack / Wiaxy standard webhook header: x-wiaxy-signature = md5(secret_key)
+        for digest_fn in [hashlib.md5, hashlib.sha256, hashlib.sha512]:
+            hashed_secret = digest_fn(secret.encode()).hexdigest().lower()
+            if hmac.compare_digest(hashed_secret, sig_lower):
                 return True
+        # HMAC over raw body (and optional timestamp.body)
+        payloads = [body]
+        if timestamp:
+            payloads.append(f"{timestamp}.".encode() + body)
+        for p in payloads:
+            for algo in [hashlib.sha512, hashlib.sha256, hashlib.md5]:
+                computed = hmac.new(secret.encode(), p, algo).hexdigest().lower()
+                if hmac.compare_digest(computed, sig_lower):
+                    return True
     return False
