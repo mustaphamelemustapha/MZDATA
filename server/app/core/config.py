@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     # Aspify settings
     aspify_base_url: str = "https://api-v1.aspfiy.com"
     aspify_secret_key: str = ""
+    aspfiy_secret_key: str = ""
+    aspfiy_base_url: str = "https://api-v1.aspfiy.com"
+    aspfiy_enabled: bool = False
+    aspfiy_webhook_url: str = "https://api.mzdata.org/api/v1/webhooks/aspfiy"
 
     pending_reconcile_enabled: bool = True
     pending_reconcile_interval_seconds: int = 25

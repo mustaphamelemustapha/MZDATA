@@ -872,11 +872,37 @@ def _ensure_virtual_account_provider_enum() -> None:
         dialect_name = getattr(engine.dialect, "name", "")
         if dialect_name == "postgresql":
             with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                for val in ["paystack", "monnify", "billstack", "aspfiy", "PAYSTACK", "MONNIFY", "BILLSTACK", "ASPFIY"]:
+                for val in ["paystack", "monnify", "billstack", "aspfiy", "aspify", "PAYSTACK", "MONNIFY", "BILLSTACK", "ASPFIY", "ASPIFY"]:
                     try:
                         conn.execute(text(f"ALTER TYPE virtualaccountprovider ADD VALUE IF NOT EXISTS '{val}'"))
                     except Exception as e:
                         logging.getLogger(__name__).debug("Enum value %s addition skipped/failed: %s", val, e)
-            logging.getLogger(__name__).info("Ensured all values in virtualaccountprovider ENUM.")
+                for s_val in ["active", "inactive", "ACTIVE", "INACTIVE"]:
+                    try:
+                        conn.execute(text(f"ALTER TYPE virtualaccountstatus ADD VALUE IF NOT EXISTS '{s_val}'"))
+                    except Exception as e:
+                        logging.getLogger(__name__).debug("Status enum value %s addition skipped/failed: %s", s_val, e)
+                for enum_name, vals in [
+                    ("announcementlevel", ["info", "success", "warning", "critical", "INFO", "SUCCESS", "WARNING", "CRITICAL"]),
+                    ("campaigntype", ["referral", "volume", "REFERRAL", "VOLUME"]),
+                    ("agentrewardstatus", ["pending", "credited", "failed", "PENDING", "CREDITED", "FAILED"]),
+                    ("disputestatus", ["open", "under_review", "resolved", "rejected", "OPEN", "UNDER_REVIEW", "RESOLVED", "REJECTED"]),
+                    ("pricingrole", ["user", "reseller", "agent", "ambassador", "admin", "USER", "RESELLER", "AGENT", "AMBASSADOR", "ADMIN"]),
+                ]:
+                    for v in vals:
+                        try:
+                            conn.execute(text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{v}'"))
+                        except Exception:
+                            pass
+                try:
+                    conn.execute(text("UPDATE virtual_accounts SET status = 'ACTIVE' WHERE status::text = 'active'"))
+                    conn.execute(text("UPDATE virtual_accounts SET status = 'INACTIVE' WHERE status::text = 'inactive'"))
+                    conn.execute(text("UPDATE virtual_accounts SET provider = 'BILLSTACK' WHERE provider::text = 'billstack'"))
+                    conn.execute(text("UPDATE virtual_accounts SET provider = 'MONNIFY' WHERE provider::text = 'monnify'"))
+                    conn.execute(text("UPDATE virtual_accounts SET provider = 'PAYSTACK' WHERE provider::text = 'paystack'"))
+                    conn.execute(text("UPDATE virtual_accounts SET provider = 'ASPFIY' WHERE provider::text IN ('aspfiy', 'aspify', 'ASPIFY')"))
+                except Exception as norm_err:
+                    logging.getLogger(__name__).debug("VirtualAccount enum normalization skipped: %s", norm_err)
+            logging.getLogger(__name__).info("Ensured all values in virtualaccountprovider and virtualaccountstatus ENUMs.")
     except Exception as exc:
         logging.getLogger(__name__).warning("Could not ensure virtualaccountprovider ENUM: %s", exc)

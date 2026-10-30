@@ -8,6 +8,7 @@ class VirtualAccountProvider(str, enum.Enum):
     MONNIFY = "monnify"
     PAYSTACK = "paystack"
     BILLSTACK = "billstack"
+    ASPFIY = "aspfiy"
     ASPIFY = "aspify"
 
 class VirtualAccountStatus(str, enum.Enum):

@@ -55,13 +55,13 @@ except ImportError:
         return "default"
 
 def is_gateway_active(db: Session, identifier: str, fallback_setting: bool) -> bool:
-    aliases = [identifier]
-    if identifier in ("asfiy", "aspfiy", "aspify"):
-        aliases = ["aspfiy", "asfiy", "aspify"]
+    aliases = [identifier, identifier.lower(), identifier.upper(), identifier.capitalize()]
+    if identifier.lower() in ("asfiy", "aspfiy", "aspify"):
+        aliases = ["aspfiy", "asfiy", "aspify", "ASPFIY", "ASFIY", "ASPIFY", "Aspfiy", "Asfiy", "Aspify"]
     gw = db.query(PaymentGateway).filter(PaymentGateway.identifier.in_(aliases)).first()
     if gw:
-        return gw.is_active
-    return fallback_setting
+        return bool(gw.is_active or fallback_setting)
+    return bool(fallback_setting)
 
 router = APIRouter()
 settings = get_settings()
@@ -385,7 +385,7 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
                 })
 
     # 3. Fetch/Create Billstack Reserved Accounts (9PSB & SAFEHAVEN)
-    if is_gateway_active(db, "billstack", settings.billstack_enabled):
+    if is_gateway_active(db, "billstack", bool(getattr(settings, "billstack_enabled", False) or getattr(settings, "billstack_api_key", ""))):
         db_billstack = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
             VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
@@ -424,19 +424,45 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
                     accounts = data.get("account") or []
                     reservation_ref = data.get("reference") or secrets.token_hex(8)
                     for acc in accounts:
-                        db_acc = VirtualAccount(
-                            user_id=user.id,
-                            provider=VirtualAccountProvider.BILLSTACK,
-                            account_number=acc["account_number"],
-                            account_name=acc["account_name"],
-                            bank_name=acc["bank_name"],
-                            bank_code=acc.get("bank_id", target_bank),
-                            customer_reference=f"{account_reference}_billstack_{bank_slug}",
-                            reservation_reference=reservation_ref,
-                            status=VirtualAccountStatus.ACTIVE,
-                        )
-                        db.add(db_acc)
-                        db_billstack.append(db_acc)
+                        acc_num = str(acc.get("account_number") or "").strip()
+                        if not acc_num:
+                            continue
+                        acc_bank_name = acc.get("bank_name") or target_bank
+                        acc_bank_code = str(acc.get("bank_id") or target_bank).strip()
+                        acc_bank_slug = acc_bank_name.lower().replace(" ", "_")
+                        acc_name = acc.get("account_name") or f"{user.full_name or 'User'}"
+
+                        existing_va = db.query(VirtualAccount).filter(
+                            (VirtualAccount.account_number == acc_num) |
+                            (
+                                (VirtualAccount.user_id == user.id)
+                                & (VirtualAccount.provider == VirtualAccountProvider.BILLSTACK)
+                                & (VirtualAccount.bank_code == acc_bank_code)
+                            )
+                        ).first()
+
+                        if existing_va:
+                            existing_va.user_id = user.id
+                            existing_va.account_name = acc_name
+                            existing_va.bank_name = acc_bank_name
+                            existing_va.bank_code = acc_bank_code
+                            existing_va.status = VirtualAccountStatus.ACTIVE
+                        else:
+                            unique_tok = secrets.token_hex(4)
+                            unique_cust_ref = f"{account_reference}_billstack_{acc_bank_slug}_{unique_tok}"
+                            unique_res_ref = f"{reservation_ref}_{acc_bank_slug}_{unique_tok}"
+                            db_acc = VirtualAccount(
+                                user_id=user.id,
+                                provider=VirtualAccountProvider.BILLSTACK,
+                                account_number=acc_num,
+                                account_name=acc_name,
+                                bank_name=acc_bank_name,
+                                bank_code=acc_bank_code,
+                                customer_reference=unique_cust_ref,
+                                reservation_reference=unique_res_ref,
+                                status=VirtualAccountStatus.ACTIVE,
+                            )
+                            db.add(db_acc)
                     db.commit()
                 else:
                     logger.warning("Billstack %s account generation failed for user %s: %s", target_bank, user.id, resp)
@@ -445,18 +471,23 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
                 logger.warning("Auto-generate Billstack %s account failed for user %s: %s", target_bank, user.id, exc)
                 messages.append(f"Billstack {target_bank}: {exc}")
 
-        for db_acc in db_billstack:
-            if db_acc.status == VirtualAccountStatus.ACTIVE and db_acc.account_number:
-                if not any(a["account_number"] == db_acc.account_number for a in all_accounts):
-                    all_accounts.append({
-                        "bank_name": db_acc.bank_name,
-                        "account_number": db_acc.account_number,
-                        "account_name": db_acc.account_name,
-                    })
+        fresh_billstack = db.query(VirtualAccount).filter(
+            VirtualAccount.user_id == user.id,
+            VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
+            VirtualAccount.status == VirtualAccountStatus.ACTIVE
+        ).all()
+
+        for db_acc in fresh_billstack:
+            if db_acc.account_number and not any(a["account_number"] == db_acc.account_number for a in all_accounts):
+                all_accounts.append({
+                    "bank_name": db_acc.bank_name,
+                    "account_number": db_acc.account_number,
+                    "account_name": db_acc.account_name,
+                })
 
     # 4. Fetch/Create Aspfiy Reserved Account (Completely skipped for MELE DATA)
     is_mele = is_meledata_tenant(request)
-    if not is_mele and is_gateway_active(db, "asfiy", settings.aspfiy_enabled):
+    if not is_mele and is_gateway_active(db, "asfiy", getattr(settings, "aspfiy_enabled", False)):
         db_aspfiy = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
             VirtualAccount.provider == VirtualAccountProvider.ASPFIY,
@@ -764,7 +795,7 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
         messages.append(f"Monnify: {exc}")
 
     # 3. Recreate / Update Billstack Reserved Accounts (9PSB & SAFEHAVEN)
-    if is_gateway_active(db, "billstack", settings.billstack_enabled):
+    if is_gateway_active(db, "billstack", bool(getattr(settings, "billstack_enabled", False) or getattr(settings, "billstack_api_key", ""))):
         db_billstack = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
             VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
@@ -811,19 +842,45 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
                     accounts = data.get("account") or []
                     reservation_ref = data.get("reference") or secrets.token_hex(8)
                     for acc in accounts:
-                        db_acc = VirtualAccount(
-                            user_id=user.id,
-                            provider=VirtualAccountProvider.BILLSTACK,
-                            account_number=acc["account_number"],
-                            account_name=acc["account_name"],
-                            bank_name=acc["bank_name"],
-                            bank_code=acc.get("bank_id", target_bank),
-                            customer_reference=f"{account_reference}_billstack_{bank_slug}",
-                            reservation_reference=reservation_ref,
-                            status=VirtualAccountStatus.ACTIVE,
-                        )
-                        db.add(db_acc)
-                        db_billstack.append(db_acc)
+                        acc_num = str(acc.get("account_number") or "").strip()
+                        if not acc_num:
+                            continue
+                        acc_bank_name = acc.get("bank_name") or target_bank
+                        acc_bank_code = str(acc.get("bank_id") or target_bank).strip()
+                        acc_bank_slug = acc_bank_name.lower().replace(" ", "_")
+                        acc_name = acc.get("account_name") or f"{user.full_name or 'User'}"
+
+                        existing_va = db.query(VirtualAccount).filter(
+                            (VirtualAccount.account_number == acc_num) |
+                            (
+                                (VirtualAccount.user_id == user.id)
+                                & (VirtualAccount.provider == VirtualAccountProvider.BILLSTACK)
+                                & (VirtualAccount.bank_code == acc_bank_code)
+                            )
+                        ).first()
+
+                        if existing_va:
+                            existing_va.user_id = user.id
+                            existing_va.account_name = acc_name
+                            existing_va.bank_name = acc_bank_name
+                            existing_va.bank_code = acc_bank_code
+                            existing_va.status = VirtualAccountStatus.ACTIVE
+                        else:
+                            unique_tok = secrets.token_hex(4)
+                            unique_cust_ref = f"{account_reference}_billstack_{acc_bank_slug}_{unique_tok}"
+                            unique_res_ref = f"{reservation_ref}_{acc_bank_slug}_{unique_tok}"
+                            db_acc = VirtualAccount(
+                                user_id=user.id,
+                                provider=VirtualAccountProvider.BILLSTACK,
+                                account_number=acc_num,
+                                account_name=acc_name,
+                                bank_name=acc_bank_name,
+                                bank_code=acc_bank_code,
+                                customer_reference=unique_cust_ref,
+                                reservation_reference=unique_res_ref,
+                                status=VirtualAccountStatus.ACTIVE,
+                            )
+                            db.add(db_acc)
                     db.commit()
                 else:
                     err_msg = resp.get("message") or "Unknown error"
@@ -850,14 +907,19 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
                             detail=f"This {('NIN' if nin else 'BVN')} is already registered or linked to an existing PalmPay account."
                         )
 
-        for db_acc in db_billstack:
-            if db_acc.status == VirtualAccountStatus.ACTIVE and db_acc.account_number:
-                if not any(a["account_number"] == db_acc.account_number for a in all_accounts):
-                    all_accounts.append({
-                        "bank_name": db_acc.bank_name,
-                        "account_number": db_acc.account_number,
-                        "account_name": db_acc.account_name,
-                    })
+        fresh_billstack = db.query(VirtualAccount).filter(
+            VirtualAccount.user_id == user.id,
+            VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
+            VirtualAccount.status == VirtualAccountStatus.ACTIVE
+        ).all()
+
+        for db_acc in fresh_billstack:
+            if db_acc.account_number and not any(a["account_number"] == db_acc.account_number for a in all_accounts):
+                all_accounts.append({
+                    "bank_name": db_acc.bank_name,
+                    "account_number": db_acc.account_number,
+                    "account_name": db_acc.account_name,
+                })
 
         # Upgrade KYC if BVN is provided
         if bvn:
@@ -872,7 +934,7 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
 
     # 4. Fetch/Create Aspfiy Reserved Account (Completely skipped for MELE DATA)
     is_mele = is_meledata_tenant(request)
-    if not is_mele and is_gateway_active(db, "asfiy", settings.aspfiy_enabled):
+    if not is_mele and is_gateway_active(db, "asfiy", getattr(settings, "aspfiy_enabled", False)):
         db_aspfiy = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
             VirtualAccount.provider == VirtualAccountProvider.ASPFIY,

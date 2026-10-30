@@ -488,7 +488,9 @@ def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body),
             # Query VirtualAccount table by customer_reference / reservation_reference
             va = db.query(VirtualAccount).filter(
                 (VirtualAccount.reservation_reference == ref_str) |
-                (VirtualAccount.customer_reference == ref_str)
+                (VirtualAccount.customer_reference == ref_str) |
+                (VirtualAccount.reservation_reference.like(f"{ref_str}%")) |
+                (VirtualAccount.customer_reference.like(f"{ref_str}%"))
             ).first()
             if va:
                 user = va.user
