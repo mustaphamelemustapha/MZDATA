@@ -907,3 +907,6 @@ def _ensure_virtual_account_provider_enum() -> None:
             logging.getLogger(__name__).info("Ensured all values in virtualaccountprovider and virtualaccountstatus ENUMs.")
     except Exception as exc:
         logging.getLogger(__name__).warning("Could not ensure virtualaccountprovider ENUM: %s", exc)
+
+
+_ensure_aspfiy_enum = _ensure_virtual_account_provider_enum
