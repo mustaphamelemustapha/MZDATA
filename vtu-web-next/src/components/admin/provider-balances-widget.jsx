@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Wallet, ServerCrash, RefreshCw, Settings2 } from 'lucide-react';
-import { adminGetProviderBalances } from '@/lib/api';
+import { adminGetProviderBalances, apiFetch } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -15,23 +15,90 @@ export function ProviderBalancesWidget() {
     setLoading(true);
     setError(false);
     try {
-      const res = await adminGetProviderBalances();
+      const [balRes, provRes] = await Promise.allSettled([
+        adminGetProviderBalances(),
+        apiFetch('/admin/integrations/providers'),
+      ]);
+
+      const res = balRes.status === 'fulfilled' ? balRes.value : null;
+      const integrationProviders = provRes.status === 'fulfilled' && Array.isArray(provRes.value)
+        ? provRes.value
+        : null;
+
+      // Helper to check if a provider is allowed to be shown on the admin homepage
+      const shouldShowProvider = (identifierOrName) => {
+        if (!integrationProviders) return true;
+        const key = String(identifierOrName || '').toLowerCase().trim();
+        const match = integrationProviders.find(
+          (p) =>
+            String(p.identifier || '').toLowerCase().trim() === key ||
+            String(p.name || '').toLowerCase().trim() === key
+        );
+        // If not in integrations or turned OFF (is_active === false), do NOT show on admin homepage
+        if (!match || !match.is_active) return false;
+        const cfg = match.additional_config && typeof match.additional_config === 'object' ? match.additional_config : {};
+        if ('show_balance_on_dashboard' in cfg && cfg.show_balance_on_dashboard === false) {
+          return false;
+        }
+        return true;
+      };
+
+      const findIntegrationMeta = (identifierOrName) => {
+        if (!integrationProviders) return null;
+        const key = String(identifierOrName || '').toLowerCase().trim();
+        return integrationProviders.find(
+          (p) =>
+            String(p.identifier || '').toLowerCase().trim() === key ||
+            String(p.name || '').toLowerCase().trim() === key
+        ) || null;
+      };
+
       if (Array.isArray(res?.providers)) {
-        setProviders(res.providers);
+        const filtered = res.providers.filter(
+          (p) => p.is_active !== false && p.show_balance_on_dashboard !== false && shouldShowProvider(p.identifier || p.name)
+        );
+        setProviders(filtered);
       } else if (res?.balances && typeof res.balances === 'object') {
-        const mapped = Object.entries(res.balances).map(([key, val]) => {
-          const isErr = typeof val === 'string' && (val.startsWith('CK Error') || val.startsWith('Error') || isNaN(Number(val)));
-          const numBal = isErr ? 0 : Number(val ?? 0);
-          return {
-            identifier: key,
-            name: key,
-            balance: isErr ? null : numBal,
-            error: isErr ? val : null,
-            low_balance_threshold: 5000,
-            is_low: !isErr && numBal < 5000,
-          };
-        });
+        const mapped = Object.entries(res.balances)
+          .filter(([key]) => shouldShowProvider(key))
+          .map(([key, val]) => {
+            const meta = findIntegrationMeta(key);
+            const rawThreshold = meta?.additional_config?.low_balance_threshold;
+            const threshold = rawThreshold !== undefined && rawThreshold !== null && rawThreshold !== '' && !isNaN(Number(rawThreshold))
+              ? Number(rawThreshold)
+              : 5000;
+            const isErr = typeof val === 'string' && (val.startsWith('CK Error') || val.startsWith('Error') || isNaN(Number(val)));
+            const numBal = isErr ? 0 : Number(val ?? 0);
+            return {
+              identifier: meta?.identifier || key,
+              name: meta?.name || key,
+              balance: isErr ? null : numBal,
+              error: isErr ? val : null,
+              low_balance_threshold: threshold,
+              is_low: !isErr && threshold > 0 && numBal < threshold,
+            };
+          });
         setProviders(mapped);
+      } else if (integrationProviders) {
+        // Fallback to active providers stored in integrations DB if balance endpoint returned empty
+        const activeShown = integrationProviders
+          .filter((p) => p.is_active && shouldShowProvider(p.identifier))
+          .map((p) => {
+            const rawThreshold = p?.additional_config?.low_balance_threshold;
+            const threshold = rawThreshold !== undefined && rawThreshold !== null && rawThreshold !== '' && !isNaN(Number(rawThreshold))
+              ? Number(rawThreshold)
+              : 5000;
+            const numBal = Number(p.balance ?? 0);
+            return {
+              identifier: p.identifier,
+              name: p.name,
+              balance: numBal,
+              error: null,
+              low_balance_threshold: threshold,
+              is_low: threshold > 0 && numBal < threshold,
+            };
+          });
+        setProviders(activeShown);
       } else {
         setError(true);
       }

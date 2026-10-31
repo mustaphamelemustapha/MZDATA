@@ -41,22 +41,50 @@ export default function IntegrationsPage() {
     load().catch(() => setLoading(false));
   }, [load]);
 
-  const hasExplicitDashboardChoice = providers.some(
-    (p) => p?.additional_config && typeof p.additional_config === 'object' && 'show_balance_on_dashboard' in p.additional_config
-  );
-
   const isShownOnDashboard = (prov) => {
+    if (!prov?.is_active) return false;
     const cfg = prov?.additional_config || {};
     if ('show_balance_on_dashboard' in cfg) {
       return Boolean(cfg.show_balance_on_dashboard);
     }
-    return hasExplicitDashboardChoice ? false : Boolean(prov?.is_active);
+    return true;
   };
 
   const getLowBalanceThreshold = (prov) => {
     const val = prov?.additional_config?.low_balance_threshold;
     const num = Number(val);
     return !isNaN(num) && val !== undefined && val !== null && val !== '' ? num : 5000;
+  };
+
+  const handleToggleProviderActive = async (prov) => {
+    setTogglingDashboardId(prov.id);
+    try {
+      const nextActive = !prov.is_active;
+      const currentCfg = prov?.additional_config && typeof prov.additional_config === 'object' ? prov.additional_config : {};
+      const updatedCfg = {
+        ...currentCfg,
+        show_balance_on_dashboard: nextActive ? (currentCfg.show_balance_on_dashboard ?? true) : false,
+        low_balance_threshold: getLowBalanceThreshold(prov),
+      };
+      await apiFetch(`/admin/integrations/providers/${prov.id}`, {
+        method: 'PUT',
+        body: {
+          name: prov.name,
+          identifier: prov.identifier,
+          base_url: prov.base_url,
+          api_key: prov.api_key,
+          api_secret: prov.api_secret,
+          is_active: nextActive,
+          supported_services: prov.supported_services || [],
+          additional_config: updatedCfg,
+        },
+      });
+      await load();
+    } catch (err) {
+      alert(err.message || 'Failed to update provider status');
+    } finally {
+      setTogglingDashboardId(null);
+    }
   };
 
   const handleToggleDashboardDisplay = async (prov) => {
@@ -75,7 +103,7 @@ export default function IntegrationsPage() {
         base_url: prov.base_url,
         api_key: prov.api_key,
         api_secret: prov.api_secret,
-        is_active: prov.is_active,
+        is_active: nextShow ? true : prov.is_active,
         supported_services: prov.supported_services || [],
         additional_config: updatedCfg,
       };
@@ -139,17 +167,18 @@ export default function IntegrationsPage() {
         ? editingProvider.additional_config
         : {};
       const thresholdNum = Number(editingProvider.low_balance_threshold);
+      const isActive = Boolean(editingProvider.is_active);
       const payload = {
         name: editingProvider.name,
         identifier: editingProvider.identifier,
         base_url: editingProvider.base_url,
         api_key: editingProvider.api_key,
         api_secret: editingProvider.api_secret,
-        is_active: Boolean(editingProvider.is_active),
+        is_active: isActive,
         supported_services: editingProvider.supported_services || [],
         additional_config: {
           ...existingCfg,
-          show_balance_on_dashboard: Boolean(editingProvider.show_balance_on_dashboard),
+          show_balance_on_dashboard: isActive ? Boolean(editingProvider.show_balance_on_dashboard) : false,
           low_balance_threshold: !isNaN(thresholdNum) && thresholdNum >= 0 ? thresholdNum : 5000,
         },
       };
@@ -314,7 +343,21 @@ export default function IntegrationsPage() {
                   );
                 },
               },
-              { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.is_active ? 'active' : 'inactive'} /> },
+              {
+                key: 'status',
+                label: 'Status',
+                render: (r) => (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleProviderActive(r)}
+                    disabled={togglingDashboardId === r.id}
+                    className="cursor-pointer transition-opacity hover:opacity-80 disabled:opacity-50"
+                    title={r.is_active ? 'Click to turn OFF provider (also hides from Admin page)' : 'Click to turn ON provider'}
+                  >
+                    <StatusBadge status={r.is_active ? 'active' : 'inactive'} />
+                  </button>
+                ),
+              },
               { key: 'actions', label: 'Actions', render: (r) => (
                 <div className="flex gap-2">
                   <Button 
@@ -431,19 +474,27 @@ export default function IntegrationsPage() {
                       id="prov-active"
                       className="h-4 w-4 accent-primary"
                       checked={Boolean(editingProvider.is_active)}
-                      onChange={e => setEditingProvider({...editingProvider, is_active: e.target.checked})}
+                      onChange={e => {
+                        const checked = e.target.checked;
+                        setEditingProvider({
+                          ...editingProvider,
+                          is_active: checked,
+                          show_balance_on_dashboard: checked ? editingProvider.show_balance_on_dashboard : false,
+                        });
+                      }}
                     />
                   </div>
                   <div className="flex items-center justify-between gap-2 border-t border-border/40 pt-2.5">
                     <div>
                       <label htmlFor="prov-show-dashboard" className="text-sm font-medium cursor-pointer block">Show Balance on Admin Page</label>
-                      <span className="text-[11px] text-muted-foreground">Display live wallet balance in the Admin Command Center widget</span>
+                      <span className="text-[11px] text-muted-foreground">Display live wallet balance in the Admin Command Center widget (automatically hidden when provider is off)</span>
                     </div>
                     <input
                       type="checkbox"
                       id="prov-show-dashboard"
                       className="h-4 w-4 accent-primary"
-                      checked={Boolean(editingProvider.show_balance_on_dashboard)}
+                      checked={Boolean(editingProvider.is_active && editingProvider.show_balance_on_dashboard)}
+                      disabled={!editingProvider.is_active}
                       onChange={e => setEditingProvider({...editingProvider, show_balance_on_dashboard: e.target.checked})}
                     />
                   </div>
