@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Union
+from typing import Optional
 from decimal import Decimal
 
 # Pydantic v1 since project uses Pydantic v1.x
@@ -8,8 +8,10 @@ class DeveloperStatusResponse(BaseModel):
     is_developer: bool
     developer_status: str
     api_public_key: Optional[str] = None
+    test_api_public_key: Optional[str] = None
     has_keys: bool
     api_secret_key: Optional[str] = None
+    test_api_secret_key: Optional[str] = None
     webhook_url: Optional[str] = None
     webhook_secret_prefix: Optional[str] = None
 
@@ -27,18 +29,74 @@ class DeveloperApplyRequest(BaseModel):
 class ApiKeyResponse(BaseModel):
     api_public_key: str
     api_secret_key: str
+    test_api_public_key: Optional[str] = None
+    test_api_secret_key: Optional[str] = None
 
 
-class DeveloperWalletBalanceResponse(BaseModel):
+from typing import List, Any
+
+class DeveloperWalletBalanceData(BaseModel):
     balance: Decimal
     currency: str = "NGN"
 
+class DeveloperWalletBalanceResponse(BaseModel):
+    status: bool
+    message: str
+    data: DeveloperWalletBalanceData
+
+class DeveloperDataPlanItem(BaseModel):
+    plan_id: int
+    plan_code: str
+    network: str
+    plan_name: str
+    data_size: str
+    validity: str
+    price: float
+
+class DeveloperDataPlansData(BaseModel):
+    plans: List[DeveloperDataPlanItem]
+
+class DeveloperDataPlansResponse(BaseModel):
+    status: bool
+    message: str
+    data: DeveloperDataPlansData
+
+class DeveloperDataStatusData(BaseModel):
+    reference: str
+    status: str
+    network: str
+    mobile_number: str
+    plan: Optional[str] = None
+    amount_charged: float
+    message: str
+    purchased_at: Optional[str] = None
+    queried_at: str
+    livemode: bool
+    mode: str
+
+class DeveloperDataStatusResponse(BaseModel):
+    status: bool
+    message: str
+    data: DeveloperDataStatusData
+
+
+from typing import Optional, Union
+from pydantic import root_validator
 
 class DeveloperDataPurchaseRequest(BaseModel):
     phone_number: str = Field(..., description="Recipient phone number")
     network: str = Field(..., description="MTN, GLO, AIRTEL, or 9MOBILE")
-    plan_id: Union[int, str] = Field(..., description="The numerical plan ID")
+    plan_id: Optional[Union[int, str]] = Field(None, description="The numerical plan ID")
+    plan_code: Optional[str] = Field(None, description="Plan code as alternative to plan_id")
     reference: str = Field(..., description="Unique developer transaction reference")
+
+    @root_validator(pre=True)
+    def check_plan_identifier(cls, values):
+        if not values.get("plan_id") and values.get("plan_code"):
+            values["plan_id"] = values["plan_code"]
+        if not values.get("plan_id"):
+            raise ValueError("Either 'plan_id' or 'plan_code' is required.")
+        return values
 
 
 class DeveloperAirtimePurchaseRequest(BaseModel):
