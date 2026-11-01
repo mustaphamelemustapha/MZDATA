@@ -153,19 +153,25 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
       return '9 Payment Service Bank (9PSB)';
     }
     if (lower.contains('safehaven') || lower.contains('safe haven')) {
-      return 'Safehaven MFB';
+      return 'Safehaven Microfinance Bank';
     }
-    if (lower.contains('moniepoint')) {
-      return 'Moniepoint MFB';
+    if (lower.contains('moniepoint') || lower.contains('monnify')) {
+      return 'Moniepoint Microfinance Bank';
     }
     if (lower.contains('palmpay')) {
       return 'PalmPay';
     }
-    if (lower.contains('paga') || lower.contains('aspfiy')) {
+    if (lower.contains('paga') || lower.contains('aspfiy') || lower.contains('aspify')) {
       return 'Paga';
     }
     if (lower.contains('titan') || lower.contains('paystack')) {
-      return 'Paystack-Titan';
+      return 'Titan Trust Bank';
+    }
+    if (lower.contains('wema')) {
+      return 'Wema Bank';
+    }
+    if (lower.contains('sterling')) {
+      return 'Sterling Bank';
     }
     return b;
   }
@@ -593,14 +599,14 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: textColor.withOpacity(0.06)),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: textColor.withOpacity(0.08)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -611,6 +617,7 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
         children: [
           // Bank Header
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 width: 38,
@@ -619,42 +626,129 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
                   color: const Color(0xFFEFF6FF),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.account_balance, color: Color(0xFF2563EB), size: 19),
+                child: const Icon(Icons.account_balance, color: Color(0xFF2563EB), size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  bankName,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'BANK NAME',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: textColor.withOpacity(0.55),
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      bankName,
+                      style: TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w900,
+                        color: textColor,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD1FAE5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'AUTOMATED',
                   style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: textColor,
-                    letterSpacing: -0.2,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF059669),
+                    letterSpacing: 0.5,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
+          Divider(color: textColor.withOpacity(0.08), height: 1),
+          const SizedBox(height: 14),
 
-          // Subtitle
+          // Account Number
           Text(
-            'Add money via mobile or internet banking',
-            style: TextStyle(color: textColor.withOpacity(0.55), fontSize: 13, fontWeight: FontWeight.w500),
+            'ACCOUNT NUMBER',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: textColor.withOpacity(0.55),
+              letterSpacing: 0.8,
+            ),
           ),
-          const SizedBox(height: 8),
-
-          // Big Account Number - NO SPACES
+          const SizedBox(height: 4),
           Text(
             _formatAccountNumber(accountNumber),
             style: TextStyle(
-              fontSize: 28,
+              fontSize: 27,
               fontWeight: FontWeight.w900,
-              letterSpacing: 0.5,
+              letterSpacing: 1.5,
               color: textColor,
+              fontFamily: 'monospace',
             ),
           ),
-          const SizedBox(height: 20),
+
+          // Account Name
+          if (accountName.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              'ACCOUNT NAME',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: textColor.withOpacity(0.55),
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              accountName,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: textColor.withOpacity(0.85),
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+
+          // Instructions for local customers
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: textColor.withOpacity(0.06)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, size: 14, color: textColor.withOpacity(0.6)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Select "$bankName" in your banking app and transfer to this account number.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: textColor.withOpacity(0.7),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // Action Buttons: Copy Number (Soft Blue) | Share Details (Vibrant Green)
           Row(
@@ -666,7 +760,7 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
                     height: 44,
                     decoration: BoxDecoration(
                       color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -694,7 +788,7 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
                     height: 44,
                     decoration: BoxDecoration(
                       color: const Color(0xFF10B981),
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
