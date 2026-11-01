@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -9,11 +9,11 @@ from sqlalchemy import text, inspect
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from app.api.v1.routes import router as api_router
 from app.core.config import get_settings, parse_cors_origins
+from app.core.exceptions import DeveloperAPIException
 import logging
 import time
 from urllib.parse import urlparse
 from app.core.database import Base, engine, SessionLocal
-from app.core.exceptions import DeveloperAPIException
 from app.core.logging import configure_logging
 from app.middlewares.rate_limit import limiter
 from app.models import User, UserRole, UserPricingOverride
@@ -46,6 +46,7 @@ async def sqlalchemy_timeout_handler(request, exc):
         content={"detail": "Service is busy. Please retry in a moment."},
     )
 
+
 @app.exception_handler(DeveloperAPIException)
 async def developer_api_exception_handler(request: Request, exc: DeveloperAPIException):
     return JSONResponse(
@@ -53,15 +54,16 @@ async def developer_api_exception_handler(request: Request, exc: DeveloperAPIExc
         content={"status": False, "message": exc.message}
     )
 
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    from fastapi.responses import JSONResponse
     if request.url.path.startswith("/api/v1/developer"):
         return JSONResponse(
             status_code=400,
             content={"status": False, "message": "Invalid request payload or missing required fields."}
         )
     # Default for non-developer routes
-    from fastapi.responses import JSONResponse
     return JSONResponse(
         status_code=422,
         content={"detail": exc.errors()}
@@ -83,20 +85,22 @@ allow_origins = list(
     dict.fromkeys(
         configured_origins
         + [
+            "https://kullomadata.com",
+            "https://www.kullomadata.com",
             "https://vtu-frontend-beta.vercel.app",
             "https://vtu-frontend-git-main-mmt-ech-globe.vercel.app",
-            "https://mzdata.vercel.app",
-            "https://mzdata.org",
-            "https://www.mzdata.org",
-            "https://mzdata.org",
-            "https://www.mzdata.org",
-            "https://mzdata.vercel.app",
+            "https://axisvtu.vercel.app",
+            "https://axisvtu.com",
+            "https://www.axisvtu.com",
+            "https://kullomadata.com",
+            "https://www.kullomadata.com",
+            "https://meledata.vercel.app",
             *([frontend_origin] if frontend_origin else []),
         ]
     )
 )
 allow_origin_regex = (
-    r"^https:\/\/(?:vtu-frontend|mzdata|mzdata)(?:-[A-Za-z0-9-]+)?\.vercel\.app$"
+    r"^https:\/\/(?:vtu-frontend|axisvtu|meledata|kullomadata)(?:-[A-Za-z0-9-]+)?\.(?:vercel\.app|com|ng)$"
     r"|^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$"
 )
 
@@ -154,7 +158,6 @@ if FORWARD_TARGET_URL:
 
             content = await resp.aread()
             await resp.aclose()
-
             return Response(
                 content=content,
                 status_code=resp.status_code,
@@ -211,14 +214,13 @@ def ensure_tables():
     if not settings.auto_create_tables:
         _bootstrap_admins()
         _ensure_user_phone_column()
+        _ensure_user_state_column()
         _ensure_user_security_pin_columns()
         _ensure_transaction_recipient_column()
         _ensure_data_plan_provider_columns()
-        _ensure_default_integrations()
         _ensure_data_plan_promo_columns()
         _ensure_data_plan_fallback_columns()
         _ensure_data_plan_data_type_column()
-        _ensure_data_plan_api_price_column()
         _ensure_data_plan_text_lengths()
         _ensure_transaction_provider_columns()
         _ensure_campaign_activated_at_column()
@@ -230,6 +232,16 @@ def ensure_tables():
         _ensure_user_webhook_columns()
         _ensure_user_profile_image_url_column()
         _ensure_user_pricing_overrides_table()
+        _ensure_referral_ambassador_columns()
+        _ensure_virtual_account_provider_enum()
+        _ensure_data_plan_dispatch_columns()
+        _ensure_system_settings_columns()
+        _ensure_default_integrations()
+        try:
+            from app.services.push_notification import PushNotificationService
+            PushNotificationService._initialize()
+        except Exception as e:
+            logging.getLogger(__name__).warning("Firebase Admin initialization on startup skipped: %s", e)
         return
 
     # Optional local fallback for fresh environments.
@@ -242,14 +254,13 @@ def ensure_tables():
         )
     _bootstrap_admins()
     _ensure_user_phone_column()
+    _ensure_user_state_column()
     _ensure_user_security_pin_columns()
     _ensure_transaction_recipient_column()
     _ensure_data_plan_provider_columns()
-    _ensure_default_integrations()
     _ensure_data_plan_promo_columns()
     _ensure_data_plan_fallback_columns()
     _ensure_data_plan_data_type_column()
-    _ensure_data_plan_api_price_column()
     _ensure_data_plan_text_lengths()
     _ensure_transaction_provider_columns()
     _ensure_campaign_is_agent_only_column()
@@ -261,6 +272,15 @@ def ensure_tables():
     _ensure_user_pricing_overrides_table()
     _ensure_referral_ambassador_columns()
     _ensure_virtual_account_provider_enum()
+    _ensure_promo_is_fixed_price_column()
+    _ensure_data_plan_dispatch_columns()
+    _ensure_system_settings_columns()
+    _ensure_default_integrations()
+    try:
+        from app.services.push_notification import PushNotificationService
+        PushNotificationService._initialize()
+    except Exception as e:
+        logging.getLogger(__name__).warning("Firebase Admin initialization on startup skipped: %s", e)
 
 
 @app.on_event("shutdown")
@@ -286,6 +306,21 @@ def _ensure_user_phone_column() -> None:
         logging.getLogger(__name__).info("Added users.phone_number column for phone login.")
     except Exception as exc:
         logging.getLogger(__name__).warning("Could not ensure phone_number column: %s", exc)
+
+
+def _ensure_user_state_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "state" in cols:
+            return
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN state VARCHAR(64)"))
+        logging.getLogger(__name__).info("Added users.state column.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure users.state column: %s", exc)
 
 
 def _ensure_user_security_pin_columns() -> None:
@@ -452,33 +487,9 @@ def _ensure_data_plan_data_type_column() -> None:
                 conn.execute(text(statement))
             if "data_type" not in cols:
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_plans_data_type ON data_plans (data_type)"))
-        logging.getLogger(__name__).info("Ensured data_plans.data_type column.")
+        logging.getLogger(__name__).info("Added data_plans data_type column.")
     except Exception as exc:
-        logging.getLogger(__name__).warning("Could not ensure data_plans.data_type column: %s", exc)
-
-
-def _ensure_data_plan_api_price_column() -> None:
-    try:
-        inspector = inspect(engine)
-        if not inspector.has_table("data_plans"):
-            return
-        cols = {c["name"] for c in inspector.get_columns("data_plans")}
-        with engine.begin() as conn:
-            if "api_price" not in cols:
-                conn.execute(text("ALTER TABLE data_plans ADD COLUMN api_price NUMERIC(12, 2) NULL"))
-        logging.getLogger(__name__).info("Ensured data_plans.api_price column.")
-    except Exception as exc:
-        logging.getLogger(__name__).warning("Could not ensure data_plans.api_price column: %s", exc)
-
-
-def _ensure_user_pricing_overrides_table() -> None:
-    try:
-        inspector = inspect(engine)
-        if not inspector.has_table("user_pricing_overrides"):
-            UserPricingOverride.__table__.create(engine, checkfirst=True)
-            logging.getLogger(__name__).info("Ensured user_pricing_overrides table exists.")
-    except Exception as exc:
-        logging.getLogger(__name__).warning("Could not ensure user_pricing_overrides table: %s", exc)
+        logging.getLogger(__name__).warning("Could not ensure data_plans data_type column: %s", exc)
 
 
 def _ensure_data_plan_text_lengths() -> None:
@@ -693,6 +704,16 @@ def _ensure_user_profile_image_url_column() -> None:
         logging.getLogger(__name__).warning("Could not ensure users profile_image_url column: %s", exc)
 
 
+def _ensure_user_pricing_overrides_table() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("user_pricing_overrides"):
+            UserPricingOverride.__table__.create(engine, checkfirst=True)
+            logging.getLogger(__name__).info("Ensured user_pricing_overrides table exists.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure user_pricing_overrides table: %s", exc)
+
+
 def _ensure_referral_ambassador_columns() -> None:
     try:
         inspector = inspect(engine)
@@ -710,163 +731,26 @@ def _ensure_referral_ambassador_columns() -> None:
     except Exception as exc:
         logging.getLogger(__name__).warning("Could not ensure referrals ambassador columns: %s", exc)
 
-
-
-
-def _ensure_default_integrations() -> None:
-    from app.models.integration import IntegrationProvider, PaymentGateway
-    from app.models.promo import PromoCode, UserPromo
-    from app.models.system_settings import SystemSettings
-    from app.core.database import engine, Base
-    
-    try:
-        Base.metadata.create_all(bind=engine, tables=[IntegrationProvider.__table__, PaymentGateway.__table__, PromoCode.__table__, UserPromo.__table__, SystemSettings.__table__])
-    except Exception as exc:
-        logging.getLogger(__name__).warning("Could not auto-create integration tables: %s", exc)
-
+def _ensure_promo_is_fixed_price_column() -> None:
     db = SessionLocal()
     try:
-        providers_spec = [
-            {
-                "name": "SMEPlug",
-                "identifier": "smeplug",
-                "base_url": str(settings.smeplug_base_url),
-                "api_key": settings.smeplug_api_key or "",
-                "is_active": bool(settings.smeplug_api_key),
-                "supported_services": ["data"],
-            },
-            {
-                "name": "Amigo",
-                "identifier": "amigo",
-                "base_url": getattr(settings, "amigo_base_url", "https://amigo.ng/api"),
-                "api_key": getattr(settings, "amigo_api_key", "") or "",
-                "is_active": bool(getattr(settings, "amigo_api_key", "")),
-                "supported_services": ["data"],
-            },
-            {
-                "name": "ClubKonnect",
-                "identifier": "clubkonnect",
-                "base_url": str(settings.clubkonnect_base_url),
-                "api_key": settings.clubkonnect_api_key or "",
-                "is_active": bool(settings.clubkonnect_api_key or settings.clubkonnect_enabled),
-                "supported_services": ["airtime", "cable", "electricity", "data"],
-            },
-            {
-                "name": "AutoSync",
-                "identifier": "autosync",
-                "base_url": str(settings.autosync_base_url),
-                "api_key": settings.autosync_api_key or "",
-                "is_active": bool(settings.autosync_api_key),
-                "supported_services": ["airtime", "data"],
-            },
-            {
-                "name": "BoltNet",
-                "identifier": "boltnet",
-                "base_url": str(getattr(settings, "boltnet_base_url", "https://api.boltnet.com.ng")),
-                "api_key": getattr(settings, "boltnet_api_key", "") or "",
-                "is_active": bool(getattr(settings, "boltnet_api_key", "")),
-                "supported_services": ["data"],
-            },
-            {
-                "name": "VTPass",
-                "identifier": "vtpass",
-                "base_url": str(settings.vtpass_base_url),
-                "api_key": settings.vtpass_api_key or "",
-                "is_active": bool(settings.vtpass_enabled or settings.vtpass_api_key),
-                "supported_services": ["airtime", "cable", "electricity"],
-            },
-        ]
-
-        for spec in providers_spec:
-            existing = db.query(IntegrationProvider).filter(IntegrationProvider.identifier == spec["identifier"]).first()
-            if not existing:
-                prov = IntegrationProvider(**spec)
-                db.add(prov)
-            else:
-                if not existing.api_key and spec["api_key"]:
-                    existing.api_key = spec["api_key"]
-                    existing.is_active = True
-                if not existing.base_url and spec["base_url"]:
-                    existing.base_url = spec["base_url"]
-
-        gateways_spec = [
-            {
-                "name": "Monnify",
-                "identifier": "monnify",
-                "public_key": settings.monnify_api_key or "",
-                "secret_key": settings.monnify_secret_key or "",
-                "contract_code": settings.monnify_contract_code or "",
-                "is_active": bool(settings.monnify_secret_key),
-            },
-            {
-                "name": "Paystack",
-                "identifier": "paystack",
-                "secret_key": settings.paystack_secret_key or "",
-                "is_active": bool(settings.paystack_secret_key),
-            },
-            {
-                "name": "Billstack",
-                "identifier": "billstack",
-                "secret_key": getattr(settings, "billstack_api_key", "") or "",
-                "is_active": bool(getattr(settings, "billstack_enabled", False)),
-            },
-            {
-                "name": "Aspfiy",
-                "identifier": "aspfiy",
-                "secret_key": getattr(settings, "aspify_secret_key", "") or "",
-                "is_active": bool(getattr(settings, "aspify_secret_key", "")),
-            },
-        ]
-
-        for g_spec in gateways_spec:
-            existing_gw = db.query(PaymentGateway).filter(PaymentGateway.identifier == g_spec["identifier"]).first()
-            if not existing_gw:
-                gw = PaymentGateway(**g_spec)
-                db.add(gw)
-            else:
-                if not existing_gw.secret_key and g_spec["secret_key"]:
-                    existing_gw.secret_key = g_spec["secret_key"]
-                    existing_gw.is_active = True
-
-        db.commit()
-        logging.getLogger(__name__).info("Ensured default integration providers and payment gateways for MZDATA.")
-    except Exception as exc:
-        db.rollback()
-        logging.getLogger(__name__).warning("Could not ensure default integrations: %s", exc)
+        engine = db.get_bind()
+        if engine.dialect.name == "sqlite":
+            with engine.connect() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE promo_codes ADD COLUMN is_fixed_price BOOLEAN DEFAULT 0 NOT NULL"))
+                    conn.commit()
+                except Exception as e:
+                    pass
+        elif engine.dialect.name == "postgresql":
+            with engine.connect() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE promo_codes ADD COLUMN is_fixed_price BOOLEAN DEFAULT FALSE NOT NULL"))
+                    conn.commit()
+                except Exception as e:
+                    pass
     finally:
         db.close()
-
-
-@app.get("/healthz")
-@app.head("/healthz")
-def healthz():
-    # Liveness: process is up.
-    return {
-        "status": "ok",
-        "uptime_seconds": int(max(0, time.time() - _started_at)),
-        "service": settings.app_name,
-    }
-
-
-@app.get("/readyz")
-def readyz():
-    # Readiness: database is reachable.
-    db = SessionLocal()
-    try:
-        db.execute(text("SELECT 1"))
-        return {
-            "status": "ready",
-            "uptime_seconds": int(max(0, time.time() - _started_at)),
-        }
-    except Exception as exc:
-        logging.getLogger(__name__).warning("Readiness DB check failed: %s", exc)
-        return JSONResponse(
-            status_code=503,
-            content={"status": "not_ready", "detail": "database_unavailable"},
-        )
-    finally:
-        db.close()
-
 
 def _ensure_virtual_account_provider_enum() -> None:
     try:
@@ -910,3 +794,253 @@ def _ensure_virtual_account_provider_enum() -> None:
 
 
 _ensure_aspfiy_enum = _ensure_virtual_account_provider_enum
+
+
+def _ensure_data_plan_dispatch_columns() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("data_plans"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("data_plans")}
+        statements: list[str] = []
+        
+        if "dispatch_count" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN dispatch_count INTEGER NOT NULL DEFAULT 1")
+        if "dispatch_plan_id" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN dispatch_plan_id VARCHAR(64)")
+        if "api_price" not in cols:
+            statements.append("ALTER TABLE data_plans ADD COLUMN api_price NUMERIC(12, 2) DEFAULT NULL")
+
+        if not statements:
+            return
+
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+        logging.getLogger(__name__).info("Added data_plans dispatch columns.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure data_plans dispatch columns: %s", exc)
+
+
+def _ensure_system_settings_columns() -> None:
+    try:
+        from app.models.system_settings import SystemSettings
+        SystemSettings.__table__.create(bind=engine, checkfirst=True)
+        inspector = inspect(engine)
+        if not inspector.has_table("system_settings_config"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("system_settings_config")}
+        statements: list[str] = []
+        
+        if "maintenance_message" not in cols:
+            statements.append("ALTER TABLE system_settings_config ADD COLUMN maintenance_message TEXT DEFAULT 'Mele Data is currently undergoing scheduled server upgrades. Services will resume shortly.'")
+        if "min_app_version" not in cols:
+            statements.append("ALTER TABLE system_settings_config ADD COLUMN min_app_version VARCHAR(50) DEFAULT '1.0.0'")
+        if "latest_app_version" not in cols:
+            statements.append("ALTER TABLE system_settings_config ADD COLUMN latest_app_version VARCHAR(50) DEFAULT '1.0.0'")
+        if "play_store_url" not in cols:
+            statements.append("ALTER TABLE system_settings_config ADD COLUMN play_store_url VARCHAR(255) DEFAULT 'https://play.google.com/store/apps/details?id=com.mmtech.axisvtu'")
+        if "app_store_url" not in cols:
+            statements.append("ALTER TABLE system_settings_config ADD COLUMN app_store_url VARCHAR(255) DEFAULT 'https://apps.apple.com/app/meledata'")
+        if "release_notes" not in cols:
+            statements.append("ALTER TABLE system_settings_config ADD COLUMN release_notes TEXT")
+
+        if not statements:
+            return
+
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+        logging.getLogger(__name__).info("Added system_settings_config columns for app updates and maintenance.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure system_settings_config columns: %s", exc)
+
+
+def _ensure_default_integrations() -> None:
+    from app.models.integration import IntegrationProvider, PaymentGateway
+    db = SessionLocal()
+    try:
+        providers_spec = [
+            {
+                "name": "SMEPlug",
+                "identifier": "smeplug",
+                "base_url": settings.smeplug_base_url,
+                "api_key": settings.smeplug_api_key or "",
+                "is_active": bool(settings.smeplug_api_key),
+                "supported_services": ["data"],
+            },
+            {
+                "name": "Amigo",
+                "identifier": "amigo",
+                "base_url": settings.amigo_base_url,
+                "api_key": settings.amigo_api_key or "",
+                "is_active": bool(settings.amigo_api_key),
+                "supported_services": ["data"],
+            },
+            {
+                "name": "ClubKonnect",
+                "identifier": "clubkonnect",
+                "base_url": settings.clubkonnect_base_url,
+                "api_key": settings.clubkonnect_api_key or "",
+                "is_active": bool(settings.clubkonnect_api_key or settings.clubkonnect_enabled),
+                "supported_services": ["cable", "electricity", "data"],
+            },
+            {
+                "name": "AutoSync",
+                "identifier": "autosync",
+                "base_url": settings.autosync_base_url,
+                "api_key": settings.autosync_api_key or "",
+                "is_active": bool(settings.autosync_api_key),
+                "supported_services": ["data"],
+            },
+            {
+                "name": "BoltNet",
+                "identifier": "boltnet",
+                "base_url": getattr(settings, "boltnet_base_url", "https://boltnet.com/api"),
+                "api_key": getattr(settings, "boltnet_api_key", "") or "",
+                "is_active": bool(getattr(settings, "boltnet_api_key", "")),
+                "supported_services": ["data"],
+            },
+            {
+                "name": "VTPass",
+                "identifier": "vtpass",
+                "base_url": settings.vtpass_base_url,
+                "api_key": settings.vtpass_api_key or "",
+                "is_active": bool(settings.vtpass_enabled or settings.vtpass_api_key),
+                "supported_services": ["cable", "electricity"],
+            },
+            {
+                "name": "Telecom Abode",
+                "identifier": "telecom_abode",
+                "base_url": getattr(settings, "telecom_abode_base_url", "https://telecomabode.com.ng/api"),
+                "api_key": getattr(settings, "telecom_abode_api_key", "") or "",
+                "is_active": bool(getattr(settings, "telecom_abode_api_key", "") or getattr(settings, "telecom_abode_enabled", False)),
+                "supported_services": ["airtime", "data", "cable"],
+            },
+            {
+                "name": "Mele Data",
+                "identifier": "meledata",
+                "base_url": getattr(settings, "meledata_base_url", "https://api.meledata.ng/api/v1"),
+                "api_key": getattr(settings, "meledata_api_key", "") or "",
+                "is_active": bool(getattr(settings, "meledata_api_key", "")),
+                "supported_services": ["airtime", "data"],
+            },
+        ]
+
+        for spec in providers_spec:
+            existing = db.query(IntegrationProvider).filter(IntegrationProvider.identifier == spec["identifier"]).first()
+            if not existing:
+                prov = IntegrationProvider(**spec)
+                db.add(prov)
+            else:
+                if spec["api_key"]:
+                    existing.api_key = spec["api_key"]
+                    existing.is_active = True
+                if spec["base_url"] and not existing.base_url:
+                    existing.base_url = spec["base_url"]
+                existing.supported_services = spec["supported_services"]
+
+        # Ensure meledata base_url has /api/v1 and api_key uses live prefix in database
+        mele_prov = db.query(IntegrationProvider).filter(IntegrationProvider.identifier == "meledata").first()
+        if mele_prov:
+            if mele_prov.base_url:
+                clean_mele_url = mele_prov.base_url.strip().rstrip("/")
+                for bad_host in ("https://www.meledata.ng", "https://meledata.ng", "http://www.meledata.ng", "http://meledata.ng"):
+                    if clean_mele_url.lower().startswith(bad_host):
+                        clean_mele_url = "https://api.meledata.ng" + clean_mele_url[len(bad_host):]
+                        break
+                if clean_mele_url.endswith("/developer"):
+                    clean_mele_url = clean_mele_url[:-10].rstrip("/")
+                if not clean_mele_url.endswith("/api/v1"):
+                    clean_mele_url = f"{clean_mele_url}/api/v1"
+                mele_prov.base_url = clean_mele_url
+            if mele_prov.api_key:
+                k = mele_prov.api_key.strip()
+                if k.startswith("mele_test_pub_"):
+                    mele_prov.api_key = "mele_pub_" + k[len("mele_test_pub_"):]
+                elif k.startswith("mele_test_"):
+                    mele_prov.api_key = "mele_live_" + k[len("mele_test_"):]
+            db.commit()
+
+        gateways_spec = [
+            {
+                "name": "Monnify",
+                "identifier": "monnify",
+                "public_key": settings.monnify_api_key or "",
+                "secret_key": settings.monnify_secret_key or "",
+                "contract_code": settings.monnify_contract_code or "",
+                "is_active": bool(settings.monnify_secret_key),
+            },
+            {
+                "name": "Paystack",
+                "identifier": "paystack",
+                "secret_key": settings.paystack_secret_key or "",
+                "is_active": bool(settings.paystack_secret_key),
+            },
+            {
+                "name": "Billstack",
+                "identifier": "billstack",
+                "secret_key": getattr(settings, "billstack_api_key", "") or "",
+                "is_active": bool(getattr(settings, "billstack_enabled", False) or getattr(settings, "billstack_api_key", "")),
+            },
+            {
+                "name": "Aspfiy",
+                "identifier": "aspfiy",
+                "secret_key": getattr(settings, "aspfiy_secret_key", "") or "",
+                "is_active": bool(getattr(settings, "aspfiy_enabled", False)),
+            },
+        ]
+
+        for g_spec in gateways_spec:
+            existing_gw = db.query(PaymentGateway).filter(PaymentGateway.identifier == g_spec["identifier"]).first()
+            if not existing_gw:
+                gw = PaymentGateway(**g_spec)
+                db.add(gw)
+            else:
+                if not existing_gw.secret_key and g_spec["secret_key"]:
+                    existing_gw.secret_key = g_spec["secret_key"]
+                    existing_gw.is_active = True
+
+        # Cleanse any legacy Render/Vercel URLs stored in the database
+        for gw in db.query(PaymentGateway).all():
+            if gw.webhook_url and any(bad in gw.webhook_url for bad in ("onrender.com", "vercel.app", "axisvtu")):
+                gw.webhook_url = "https://api.meledata.ng/api/v1/webhooks/aspfiy"
+
+        db.commit()
+        logging.getLogger(__name__).info("Ensured default integration providers and payment gateways.")
+    except Exception as exc:
+        db.rollback()
+        logging.getLogger(__name__).warning("Could not ensure default integrations: %s", exc)
+    finally:
+        db.close()
+
+
+@app.get("/healthz")
+@app.head("/healthz")
+def healthz():
+    # Liveness: process is up.
+    return {
+        "status": "ok",
+        "uptime_seconds": int(max(0, time.time() - _started_at)),
+        "service": settings.app_name,
+    }
+
+
+@app.get("/readyz")
+def readyz():
+    # Readiness: database is reachable.
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        return {
+            "status": "ready",
+            "uptime_seconds": int(max(0, time.time() - _started_at)),
+        }
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Readiness DB check failed: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "detail": "database_unavailable"},
+        )
+    finally:
+        db.close()

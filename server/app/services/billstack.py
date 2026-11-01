@@ -47,9 +47,18 @@ def generate_billstack_virtual_account(
         "phone": (phone or "08012345678").strip(),
         "bank": bank,
     }
-    if id_type and id_number:
-        payload["idType"] = id_type
-        payload["idNumber"] = id_number
+    if id_number:
+        clean_id = str(id_number).strip()
+        payload["bvn"] = clean_id
+        payload["licenseNumber"] = clean_id
+        payload["idNumber"] = clean_id
+        if id_type:
+            payload["idType"] = id_type
+            if id_type.lower() == "nin":
+                payload["nin"] = clean_id
+                payload["identityType"] = "personal_nin"
+            else:
+                payload["identityType"] = "personal"
 
     logger.info("Generating Billstack account for %s. Bank: %s, Ref: %s", email, bank, reference)
     with httpx.Client(timeout=20) as client:
@@ -62,7 +71,7 @@ def generate_billstack_virtual_account(
             raise ValueError(f"Billstack generate account failed: {detail}")
         return resp.json()
 
-def upgrade_billstack_kyc(*, email: str, bvn: str) -> dict:
+def upgrade_billstack_kyc(*, email: str, bvn: str, nin: str | None = None) -> dict:
     url = "https://api.billstack.co/v2/thirdparty/upgradeVirtualAccount/"
     headers = {
         "Content-Type": "application/json",
@@ -72,6 +81,8 @@ def upgrade_billstack_kyc(*, email: str, bvn: str) -> dict:
         "customer": email,
         "bvn": bvn,
     }
+    if nin:
+        payload["nin"] = nin
     logger.info("Upgrading Billstack virtual account KYC for email: %s", email)
     with httpx.Client(timeout=20) as client:
         resp = client.post(url, json=payload, headers=headers)
