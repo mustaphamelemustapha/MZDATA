@@ -88,18 +88,24 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
       final List raw = res['accounts'] ?? [];
 
       if (raw.isNotEmpty) {
-        final accounts = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        var accounts = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        if (BrandConfig.current.brand == AppBrand.meleData) {
+          accounts = accounts.where((acc) {
+            final name = (acc['bank_name'] ?? '').toString().toLowerCase();
+            return !name.contains('paga') && !name.contains('aspfiy');
+          }).toList();
+        }
 
-        // Priority sort: 9PSB -> Safehaven -> Moniepoint -> PalmPay -> Paga
+        // Priority order: 1. PalmPay, 2. Moniepoint, 3. Safehaven, 4. Paystack, 5. 9PSB
         accounts.sort((a, b) {
           final aName = (a['bank_name'] ?? '').toString().toLowerCase();
           final bName = (b['bank_name'] ?? '').toString().toLowerCase();
           int score(String n) {
-            if (n.contains('9psb') || n.contains('9 payment')) return 1;
-            if (n.contains('safehaven') || n.contains('safe haven')) return 2;
-            if (n.contains('moniepoint')) return 3;
-            if (n.contains('palmpay')) return 4;
-            if (n.contains('paga') || n.contains('aspfiy')) return 5;
+            if (n.contains('palmpay')) return 1;
+            if (n.contains('moniepoint') || n.contains('monnify')) return 2;
+            if (n.contains('safehaven') || n.contains('safe haven')) return 3;
+            if (n.contains('paystack') || n.contains('titan')) return 4;
+            if (n.contains('9psb') || n.contains('9 payment')) return 5;
             return 6;
           }
           return score(aName).compareTo(score(bName));
@@ -289,11 +295,12 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
         final raw = e.toString().replaceAll("Exception:", "").trim();
         final lower = raw.toLowerCase();
         String friendly;
-        if (lower.contains('already') ||
-            lower.contains('exist') ||
-            lower.contains('duplicate') ||
-            lower.contains('linked') ||
-            lower.contains('registered')) {
+        if (!lower.contains('verification failed') &&
+            (lower.contains('already') ||
+                lower.contains('exist') ||
+                lower.contains('duplicate') ||
+                lower.contains('linked') ||
+                lower.contains('registered'))) {
           friendly = 'This $idTypeLabel is already registered or linked to an existing account. Please enter a different $idTypeLabel.';
         } else {
           friendly = raw.isNotEmpty ? raw : 'Failed to create $targetBankName account. Please verify your $idTypeLabel.';
@@ -718,9 +725,10 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
   // STEP 1: ACCOUNT NUMBER PICKER (Screenshot 2)
   // ==========================================
   Widget _buildAccountPickerStep(bool isDark, Color cardColor, Color textColor) {
+    final isMeleData = BrandConfig.current.brand == AppBrand.meleData;
     final has9psb = _hasBank('9psb') || _hasBank('9 payment');
     final hasSafehaven = _hasBank('safehaven');
-    final hasPaga = _hasBank('paga') || _hasBank('aspfiy');
+    final hasPaga = !isMeleData && (_hasBank('paga') || _hasBank('aspfiy'));
     final hasNoBvnGroup = has9psb || hasSafehaven || hasPaga;
 
     final hasMoniepoint = _hasBank('moniepoint');
@@ -849,21 +857,23 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
                       }
                     },
                   ),
-                  _buildDivider(textColor),
-                  _buildPickerOptionRow(
-                    textColor: textColor,
-                    bankName: 'Paga',
-                    subName: 'Paga (Instant)',
-                    isOwned: hasPaga,
-                    isSelected: false,
-                    onTap: () {
-                      if (hasPaga) {
-                        _goToPage(0);
-                      } else {
-                        _handleCreateWithoutId('paga');
-                      }
-                    },
-                  ),
+                  if (!isMeleData) ...[
+                    _buildDivider(textColor),
+                    _buildPickerOptionRow(
+                      textColor: textColor,
+                      bankName: 'Paga',
+                      subName: 'Paga (Instant)',
+                      isOwned: hasPaga,
+                      isSelected: false,
+                      onTap: () {
+                        if (hasPaga) {
+                          _goToPage(0);
+                        } else {
+                          _handleCreateWithoutId('paga');
+                        }
+                      },
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 16),
