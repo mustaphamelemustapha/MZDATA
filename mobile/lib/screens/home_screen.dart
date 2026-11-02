@@ -1,6 +1,7 @@
 import '../config.dart';
 
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:ui';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -187,13 +188,35 @@ class _HomeScreenState extends State<HomeScreen> {
     return isExplicitPopup || (hasImage && raw != false && raw != 0 && raw != 'false' && raw != '0');
   }
 
+  bool _isAnnouncementOutdatedUpdateNotice(Map<String, dynamic> a) {
+    final title = (a['title'] ?? '').toString().toLowerCase();
+    final message = (a['message'] ?? a['text'] ?? '').toString().toLowerCase();
+    final link = (a['button_link'] ?? '').toString().toLowerCase();
+    final isUpdateNotice = title.contains('update') ||
+        message.contains('update your app') ||
+        link.contains('play.google.com') ||
+        link.contains('apps.apple.com') ||
+        link == 'store';
+
+    if (isUpdateNotice) {
+      final session = context.read<SessionController>();
+      // If user is already on latest version and no update is required or optional, suppress update announcement!
+      if (!session.optionalUpdateAvailable && !session.updateRequired) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void _checkStartupPopup() {
     if (_hasShownStartupPopup || _announcements == null || _announcements!.isEmpty) return;
     final session = context.read<SessionController>();
     if (session.isLocked) return;
     try {
       final popup = _announcements!.firstWhere(
-        (a) => _isAnnouncementPopup(a) && !_dismissedAnnouncementIds.contains(a['id']?.toString()),
+        (a) => _isAnnouncementPopup(a) &&
+               !_dismissedAnnouncementIds.contains(a['id']?.toString()) &&
+               !_isAnnouncementOutdatedUpdateNotice(a),
         orElse: () => {},
       );
       if (popup.isNotEmpty) {
@@ -1014,6 +1037,29 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openAnnouncementLink(String rawLink) async {
     String link = rawLink.trim();
     if (link.isEmpty) return;
+
+    // Smart store detection: automatically routes to Play Store on Android and App Store on iOS
+    final isStoreLink = link.contains('play.google.com') ||
+        link.contains('apps.apple.com') ||
+        link.toLowerCase() == 'store';
+
+    if (isStoreLink) {
+      final session = context.read<SessionController>();
+      if (Platform.isIOS) {
+        link = session.appStoreUrl.isNotEmpty
+            ? session.appStoreUrl
+            : (AppConfig.appStoreLink.isNotEmpty
+                ? AppConfig.appStoreLink
+                : 'https://apps.apple.com/ng/app/mele-data/id6779367547');
+      } else {
+        link = session.playStoreUrl.isNotEmpty
+            ? session.playStoreUrl
+            : (AppConfig.playStoreLink.isNotEmpty
+                ? AppConfig.playStoreLink
+                : 'https://play.google.com/store/apps/details?id=com.mmtech.axisvtu');
+      }
+    }
+
     if (!link.startsWith('http://') &&
         !link.startsWith('https://') &&
         !link.startsWith('tel:') &&
@@ -1140,7 +1186,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final title = announcement['title']?.toString() ?? '';
     final message = (announcement['message'] ?? announcement['text'] ?? '').toString().trim();
     
-    if (message.isEmpty || _dismissedAnnouncementIds.contains(id)) {
+    if (message.isEmpty || _dismissedAnnouncementIds.contains(id) || _isAnnouncementOutdatedUpdateNotice(announcement)) {
       return const SizedBox.shrink();
     }
 

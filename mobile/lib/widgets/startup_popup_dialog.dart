@@ -1,5 +1,7 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../config.dart';
 
 class StartupPopupDialog extends StatelessWidget {
   final Map<String, dynamic> announcement;
@@ -17,6 +19,24 @@ class StartupPopupDialog extends StatelessWidget {
   static Future<void> _launchLink(String rawLink) async {
     String link = rawLink.trim();
     if (link.isEmpty) return;
+
+    // Smart store detection: auto route to Play Store on Android and App Store on iOS
+    final isStoreLink = link.contains('play.google.com') ||
+        link.contains('apps.apple.com') ||
+        link.toLowerCase() == 'store';
+
+    if (isStoreLink) {
+      if (Platform.isIOS) {
+        link = AppConfig.appStoreLink.isNotEmpty
+            ? AppConfig.appStoreLink
+            : 'https://apps.apple.com/ng/app/mele-data/id6779367547';
+      } else {
+        link = AppConfig.playStoreLink.isNotEmpty
+            ? AppConfig.playStoreLink
+            : 'https://play.google.com/store/apps/details?id=com.mmtech.axisvtu';
+      }
+    }
+
     if (!link.startsWith('http://') &&
         !link.startsWith('https://') &&
         !link.startsWith('tel:') &&
