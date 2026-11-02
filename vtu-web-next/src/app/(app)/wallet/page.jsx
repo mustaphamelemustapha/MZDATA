@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Copy, RefreshCw, Wallet2, ChevronLeft, ChevronRight, Landmark } from 'lucide-react';
+import { Check, Copy, RefreshCw, Wallet2, ChevronLeft, ChevronRight, Landmark, Sparkles, Plus, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { formatDateTime, formatMoney, formatBankDisplayName, getBankAppSearchHint, formatAccountNumber, sortFundingAccounts, getBankStyle } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/page-header';
+import { LinkBvnNinModal } from '@/components/link-bvn-nin-modal';
 
 export default function WalletPage() {
   const [wallet, setWallet] = useState(null);
@@ -14,6 +15,8 @@ export default function WalletPage() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [showKycModal, setShowKycModal] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -39,8 +42,6 @@ export default function WalletPage() {
     load().catch(() => {});
   }, [load]);
 
-  const [copied, setCopied] = useState(false);
-
   const sortedAccounts = useMemo(() => sortFundingAccounts(accounts), [accounts]);
   const activeAccount = sortedAccounts[activeIndex] || sortedAccounts[0];
 
@@ -59,10 +60,19 @@ export default function WalletPage() {
         title="Balance, transfer details, and ledger"
         description="A focused wallet workspace with the information the user needs to fund accounts and review movements."
         actions={(
-          <Button variant="secondary" onClick={() => load()} className="border-white/10 bg-background/50 text-muted-foreground hover:bg-card hover:text-foreground backdrop-blur-sm">
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setShowKycModal(true)}
+              className="rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-sm hover:bg-primary/90 gap-1.5 h-9"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Link NIN / BVN
+            </Button>
+            <Button variant="secondary" onClick={() => load()} className="border-white/10 bg-background/50 text-muted-foreground hover:bg-card hover:text-foreground backdrop-blur-sm h-9">
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Refresh
+            </Button>
+          </div>
         )}
       />
 
@@ -227,14 +237,54 @@ export default function WalletPage() {
                 </div>
               );
             })() : (
-              <div className="rounded-[1.5rem] border border-dashed border-border/50 bg-secondary/30 p-6 text-sm text-muted-foreground text-center backdrop-blur-sm">
-                Dedicated accounts will appear here once generated.
+              /* No Accounts Yet CTA */
+              <div className="rounded-[1.5rem] border border-dashed border-border/60 bg-secondary/30 p-6 text-center backdrop-blur-sm space-y-3">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <Landmark className="h-6 w-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-foreground">Activate Virtual Accounts</h4>
+                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                    Link your NIN or BVN to generate automated 24/7 PalmPay, Moniepoint and Titan accounts.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => setShowKycModal(true)}
+                  className="rounded-xl bg-primary text-xs font-bold gap-1.5 h-10 px-5 shadow-sm"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Add NIN / BVN &amp; Activate
+                </Button>
               </div>
             )}
+
+            {/* Quick Action to Add NIN/BVN if user wants more accounts */}
+            {sortedAccounts.length > 0 && (
+              <div className="rounded-2xl border border-border/60 bg-secondary/30 p-3.5 flex items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0">
+                  <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-primary" />
+                    Need PalmPay or Moniepoint?
+                  </div>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    Link your NIN or BVN to add more bank transfer rails.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowKycModal(true)}
+                  className="h-8 text-xs font-bold rounded-xl border-primary/30 text-primary hover:bg-primary/10 shrink-0"
+                >
+                  Link ID
+                </Button>
+              </div>
+            )}
+
             <div className="mt-4 p-5 border border-primary/10 rounded-[1.5rem] bg-primary/5 text-[11px] text-foreground/80 leading-relaxed flex gap-3 items-start backdrop-blur-sm">
               <span className="text-base select-none mt-0.5">🔒</span>
               <span>
-                <strong>Privacy Guarantee:</strong> We do <strong>NOT</strong> store or keep your BVN or NIN. Identity verification is securely routed directly to our CBN-licensed banking partners to automatically generate your personalized funding accounts.
+                <strong>Privacy Guarantee:</strong> We do <strong>NOT</strong> store your raw BVN or NIN in plaintext. Identity verification is securely routed directly to CBN-licensed banking partners to automatically generate your personalized funding accounts.
               </span>
             </div>
           </CardContent>
@@ -262,6 +312,17 @@ export default function WalletPage() {
         </CardContent>
       </Card>
     </div>
+
+    {/* Link BVN / NIN Modal */}
+    <LinkBvnNinModal
+      open={showKycModal}
+      onClose={() => setShowKycModal(false)}
+      onSuccess={(newAccounts) => {
+        setAccounts(newAccounts);
+        setActiveIndex(0);
+        load();
+      }}
+    />
     </div>
   );
 }

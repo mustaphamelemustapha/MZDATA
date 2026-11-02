@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Check, CircleDollarSign, Copy, Gift, Landmark, Package2, RefreshCw, Sparkles, Smartphone, Zap, Tv2, GraduationCap } from 'lucide-react';
+import { ArrowRight, Check, CircleDollarSign, Copy, Gift, Landmark, Package2, RefreshCw, Sparkles, Smartphone, Zap, Tv2, GraduationCap, ShieldCheck } from 'lucide-react';
 import { apiFetch, getProfile } from '@/lib/api';
 import { formatDateTime, formatMoney, formatBankDisplayName, getBankAppSearchHint, formatAccountNumber, sortFundingAccounts, getBankStyle } from '@/lib/format';
 import { quickActions } from '@/lib/nav';
@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { MetricCard } from '@/components/metric-card';
 import { PageHeader } from '@/components/page-header';
 import { buildReferralUrl } from '@/lib/site';
+import { LinkBvnNinModal } from '@/components/link-bvn-nin-modal';
 
 function emptyOrRows(value) {
   return Array.isArray(value) ? value : [];
@@ -76,6 +77,7 @@ export default function DashboardPage() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [copiedAccountId, setCopiedAccountId] = useState(null);
+  const [showKycModal, setShowKycModal] = useState(false);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) {
@@ -187,14 +189,25 @@ export default function DashboardPage() {
       </div>
 
       <div className="space-y-4">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between px-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between px-2">
           <div>
             <h2 className="text-[17px] font-bold tracking-tight text-foreground">Instant Top-up Accounts</h2>
             <p className="text-xs text-muted-foreground">Transfer to any of these dedicated bank accounts from your banking app or POS — your balance updates automatically within seconds.</p>
           </div>
-          <Link href="/wallet" className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 self-start sm:self-auto">
-            Wallet &amp; Ledger <ArrowRight className="h-3 w-3" />
-          </Link>
+          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowKycModal(true)}
+              className="h-8 gap-1.5 rounded-lg border-primary/30 bg-primary/5 text-xs font-semibold text-primary hover:bg-primary/10 shadow-none"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Link NIN / BVN
+            </Button>
+            <Link href="/wallet" className="text-xs font-semibold text-primary hover:underline flex items-center gap-1">
+              Wallet &amp; Ledger <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
         </div>
 
         {sortedFundingAccounts.length > 0 ? (
@@ -290,8 +303,19 @@ export default function DashboardPage() {
             })}
           </div>
         ) : (
-          <div className="rounded-[1.25rem] border border-dashed border-border/60 bg-card/40 p-8 text-center text-sm text-muted-foreground">
-            {bankTransfer?.message || 'No wallet transfer accounts available right now. Tap to refresh or contact support.'}
+          <div className="rounded-[1.25rem] border border-dashed border-primary/30 bg-primary/5 p-8 text-center text-sm">
+            <p className="font-semibold text-foreground">Dedicated Virtual Accounts Not Generated</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {bankTransfer?.message || 'Link your NIN or BVN once to instantly get your dedicated PalmPay, Moniepoint, and Paystack Titan bank accounts.'}
+            </p>
+            <Button
+              size="sm"
+              onClick={() => setShowKycModal(true)}
+              className="mt-4 gap-1.5 rounded-xl font-bold shadow-sm"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              Link NIN / BVN &amp; Activate Accounts
+            </Button>
           </div>
         )}
       </div>
@@ -440,6 +464,12 @@ export default function DashboardPage() {
         </Card>
 
       </div>
+
+      <LinkBvnNinModal
+        open={showKycModal}
+        onClose={() => setShowKycModal(false)}
+        onSuccess={() => load(true)}
+      />
     </div>
   );
 }
