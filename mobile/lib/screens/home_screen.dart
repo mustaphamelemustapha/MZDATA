@@ -999,10 +999,94 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildAnnouncementBanner(Map<String, dynamic> announcement) {
-    final id = announcement['id']?.toString() ?? announcement['message']?.toString() ?? '';
+  void _showAnnouncementDialog(Map<String, dynamic> announcement) {
     final title = announcement['title']?.toString() ?? 'Announcement';
     final message = (announcement['message'] ?? announcement['text'] ?? '').toString();
+    final buttonLabel = announcement['button_label']?.toString() ?? '';
+    final buttonLink = announcement['button_link']?.toString() ?? '';
+    final hasButton = buttonLabel.isNotEmpty && buttonLink.isNotEmpty;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          title: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.campaign_rounded, color: Color(0xFF2563EB), size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title.isNotEmpty ? title : 'Announcement',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            message,
+            style: TextStyle(
+              fontSize: 13.5,
+              height: 1.5,
+              color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
+            ),
+          ),
+          actions: [
+            if (hasButton)
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  final uri = Uri.tryParse(buttonLink);
+                  if (uri != null) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2563EB),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: Text(
+                  buttonLabel,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: TextButton.styleFrom(
+                foregroundColor: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+              ),
+              child: const Text('Dismiss', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAnnouncementBanner(Map<String, dynamic> announcement) {
+    final id = announcement['id']?.toString() ?? announcement['message']?.toString() ?? '';
+    final title = announcement['title']?.toString() ?? '';
+    final message = (announcement['message'] ?? announcement['text'] ?? '').toString().trim();
     
     if (message.isEmpty || _dismissedAnnouncementIds.contains(id)) {
       return const SizedBox.shrink();
@@ -1011,158 +1095,163 @@ class _HomeScreenState extends State<HomeScreen> {
     final buttonLabel = announcement['button_label']?.toString() ?? '';
     final buttonLink = announcement['button_link']?.toString() ?? '';
     final hasButton = buttonLabel.isNotEmpty && buttonLink.isNotEmpty;
-
     final level = (announcement['level'] ?? 'info').toString().toLowerCase();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Default color maps for 'info'
-    List<Color> gradientColors = const [
-      Color(0xFF60A5FA), // Blue 400
-      Color(0xFF3B82F6), // Blue 500
-    ];
-    Color textPrimaryColor = const Color(0xFF1E3A8A); // Blue 900
-    Color textSecondaryColor = const Color(0xFF1E40AF); // Blue 800
-    IconData iconData = Icons.info_outline_rounded;
-    Color iconColor = const Color(0xFF1E3A8A);
-    Color closeBtnBg = const Color(0xFF1E3A8A).withOpacity(0.08);
-    Color shadowColor = const Color(0xFF3B82F6).withOpacity(0.18);
+    final List<Color> iconGradient;
+    final Color accentColor;
+    final IconData iconData;
 
-    if (level == 'success') {
-      gradientColors = const [
-        Color(0xFF34D399), // Emerald 400
-        Color(0xFF10B981), // Emerald 500
-      ];
-      textPrimaryColor = const Color(0xFF064E3B); // Emerald 950
-      textSecondaryColor = const Color(0xFF065F46); // Emerald 900
-      iconData = Icons.check_circle_outline_rounded;
-      iconColor = const Color(0xFF064E3B);
-      closeBtnBg = const Color(0xFF064E3B).withOpacity(0.08);
-      shadowColor = const Color(0xFF10B981).withOpacity(0.18);
-    } else if (level == 'warning') {
-      gradientColors = const [
-        Color(0xFFFBBF24), // Amber 400
-        Color(0xFFF59E0B), // Amber 500
-      ];
-      textPrimaryColor = const Color(0xFF451A03); // Amber 950
-      textSecondaryColor = const Color(0xFF78350F); // Amber 900
+    if (level == 'warning') {
+      iconGradient = const [Color(0xFFF59E0B), Color(0xFFD97706)];
+      accentColor = const Color(0xFFD97706);
       iconData = Icons.warning_amber_rounded;
-      iconColor = const Color(0xFF451A03);
-      closeBtnBg = const Color(0xFF451A03).withOpacity(0.08);
-      shadowColor = const Color(0xFFF59E0B).withOpacity(0.18);
     } else if (level == 'critical') {
-      gradientColors = const [
-        Color(0xFFF87171), // Red 400
-        Color(0xFFEF4444), // Red 500
-      ];
-      textPrimaryColor = const Color(0xFF7F1D1D); // Red 950
-      textSecondaryColor = const Color(0xFF991B1B); // Red 900
-      iconData = Icons.gpp_bad_outlined;
-      iconColor = const Color(0xFF7F1D1D);
-      closeBtnBg = const Color(0xFF7F1D1D).withOpacity(0.08);
-      shadowColor = const Color(0xFFEF4444).withOpacity(0.18);
+      iconGradient = const [Color(0xFFEF4444), Color(0xFFDC2626)];
+      accentColor = const Color(0xFFDC2626);
+      iconData = Icons.error_outline_rounded;
+    } else if (level == 'success') {
+      iconGradient = const [Color(0xFF10B981), Color(0xFF059669)];
+      accentColor = const Color(0xFF10B981);
+      iconData = Icons.check_circle_outline_rounded;
+    } else {
+      // Default info
+      iconGradient = const [Color(0xFF3B82F6), Color(0xFF1D4ED8)];
+      accentColor = const Color(0xFF2563EB);
+      iconData = Icons.campaign_rounded;
     }
-    
+
+    final displayTitle = (title.isNotEmpty && title.toLowerCase() != 'announcement') ? title : '';
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 20),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradientColors,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+          width: 1.2,
         ),
-        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: shadowColor,
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            if (!hasButton) ...[
-              Icon(
-                iconData,
-                color: iconColor,
-                size: 20,
-              ),
-              const SizedBox(width: 12),
-            ],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (title.isNotEmpty && title != 'Announcement')
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: textPrimaryColor,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14,
-                        letterSpacing: -0.2,
-                      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _showAnnouncementDialog(announcement),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Glowing Icon Squircle
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: iconGradient,
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                  if (title.isNotEmpty && title != 'Announcement') const SizedBox(height: 4),
-                  Text(
-                    message,
-                    style: TextStyle(
-                      color: textSecondaryColor,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                      height: 1.4,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: accentColor.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Icon(iconData, color: Colors.white, size: 16),
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // Text
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (displayTitle.isNotEmpty)
+                        Text(
+                          displayTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                      Text(
+                        message,
+                        maxLines: displayTitle.isNotEmpty ? 1 : 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                          fontWeight: FontWeight.w500,
+                          fontSize: 11.5,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                if (hasButton) ...[
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () async {
+                      final uri = Uri.tryParse(buttonLink);
+                      if (uri != null) {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        buttonLabel,
+                        style: TextStyle(
+                          color: accentColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ),
                 ],
-              ),
-            ),
-            if (hasButton) ...[
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: () async {
-                  final uri = Uri.tryParse(buttonLink);
-                  if (uri != null) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
-                style: TextButton.styleFrom(
-                  backgroundColor: textPrimaryColor.withOpacity(0.15),
-                  foregroundColor: textPrimaryColor,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+
+                const SizedBox(width: 6),
+                // Close button
+                GestureDetector(
+                  onTap: () => _dismissAnnouncement(id),
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                      size: 14,
+                    ),
                   ),
                 ),
-                child: Text(
-                  buttonLabel,
-                  style: TextStyle(
-                    color: textPrimaryColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () => _dismissAnnouncement(id),
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: closeBtnBg,
-                ),
-                child: Icon(
-                  Icons.close_rounded,
-                  color: iconColor,
-                  size: 16,
-                ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
