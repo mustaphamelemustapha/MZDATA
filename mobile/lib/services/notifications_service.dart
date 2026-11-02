@@ -8,8 +8,8 @@ class NotificationsService {
 
   ApiClient get _client => ApiClient(baseUrl: AppConfig.baseUrl, token: token);
 
-  Future<List<dynamic>> getBroadcasts() async {
-    final data = await _client.get('/notifications/broadcast');
+  Future<List<dynamic>> getBroadcasts({bool forceRefresh = false}) async {
+    final data = await _client.get('/notifications/broadcast', forceRefresh: forceRefresh);
     final list = data['data'] ?? data['items'] ?? data['notifications'];
     return list is List ? list : [];
   }

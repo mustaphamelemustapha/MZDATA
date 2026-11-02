@@ -180,11 +180,20 @@ class _HomeScreenState extends State<HomeScreen> {
     await prefs.setStringList('dismissed_announcements', _dismissedAnnouncementIds.toList());
   }
 
+  bool _isAnnouncementPopup(Map<String, dynamic> a) {
+    final raw = a['is_popup'];
+    final isExplicitPopup = raw == true || raw == 1 || raw == 'true' || raw == '1';
+    final hasImage = (a['image_url'] ?? '').toString().trim().isNotEmpty;
+    return isExplicitPopup || (hasImage && raw != false && raw != 0 && raw != 'false' && raw != '0');
+  }
+
   void _checkStartupPopup() {
     if (_hasShownStartupPopup || _announcements == null || _announcements!.isEmpty) return;
+    final session = context.read<SessionController>();
+    if (session.isLocked) return;
     try {
       final popup = _announcements!.firstWhere(
-        (a) => a['is_popup'] == true && !_dismissedAnnouncementIds.contains(a['id']?.toString()),
+        (a) => _isAnnouncementPopup(a) && !_dismissedAnnouncementIds.contains(a['id']?.toString()),
         orElse: () => {},
       );
       if (popup.isNotEmpty) {
@@ -192,8 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             StartupPopupDialog.show(context, popup).then((_) {
-              // Optionally mark as dismissed if we want 'once ever' behavior
-              // But user asked for option 1 (once per session), so we don't save to prefs.
+              // Dialog dismissed
             });
           }
         });
@@ -275,6 +283,10 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       
       _activeToken = token;
+    }
+
+    if (!session.isLocked && _announcements != null && _announcements!.isNotEmpty) {
+      _checkStartupPopup();
     }
 
     final user = session.user ?? {};
@@ -540,7 +552,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _walletFuture = service.getWallet(forceRefresh: true);
     _accountsFuture = service.getBankAccounts(forceRefresh: forceRefresh);
     _transactionsFuture = txService.getTransactions(forceRefresh: true);
-    _notificationsFuture = _loadNotifications(token);
+    _notificationsFuture = _loadNotifications(token, forceRefresh: forceRefresh);
     _walletFuture!.then((data) {
       if (!mounted || dashboardKey != _activeDashboardKey) return;
       setState(() {
@@ -636,7 +648,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ) ??
         token;
     setState(() {
-      _reloadDashboard(token, dashboardKey);
+      _reloadDashboard(token, dashboardKey, forceRefresh: true);
     });
     try {
       await Future.wait([
@@ -653,9 +665,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _loadNotifications(String token) async {
+  Future<List<Map<String, dynamic>>> _loadNotifications(String token, {bool forceRefresh = false}) async {
     try {
-      final rows = await NotificationsService(token: token).getBroadcasts();
+      final rows = await NotificationsService(token: token).getBroadcasts(forceRefresh: forceRefresh);
       return rows
           .whereType<Map>()
           .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
@@ -999,9 +1011,25 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _openAnnouncementLink(String rawLink) async {
+    String link = rawLink.trim();
+    if (link.isEmpty) return;
+    if (!link.startsWith('http://') &&
+        !link.startsWith('https://') &&
+        !link.startsWith('tel:') &&
+        !link.startsWith('mailto:')) {
+      link = 'https://$link';
+    }
+    final uri = Uri.tryParse(link);
+    if (uri != null) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   void _showAnnouncementDialog(Map<String, dynamic> announcement) {
     final title = announcement['title']?.toString() ?? 'Announcement';
     final message = (announcement['message'] ?? announcement['text'] ?? '').toString();
+    final imageUrl = (announcement['image_url'] ?? '').toString().trim();
     final buttonLabel = announcement['button_label']?.toString() ?? '';
     final buttonLink = announcement['button_link']?.toString() ?? '';
     final hasButton = buttonLabel.isNotEmpty && buttonLink.isNotEmpty;
@@ -1040,12 +1068,32 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          content: Text(
-            message,
-            style: TextStyle(
-              fontSize: 13.5,
-              height: 1.5,
-              color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (imageUrl.isNotEmpty) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.network(
+                      imageUrl,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Text(
+                  message,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    height: 1.5,
+                    color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
+                  ),
+                ),
+              ],
             ),
           ),
           actions: [
@@ -1053,10 +1101,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ElevatedButton(
                 onPressed: () async {
                   Navigator.pop(ctx);
-                  final uri = Uri.tryParse(buttonLink);
-                  if (uri != null) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
+                  await _openAnnouncementLink(buttonLink);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2563EB),
@@ -1065,9 +1110,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                child: Text(
-                  buttonLabel,
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      buttonLabel,
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.arrow_outward_rounded, size: 14),
+                  ],
                 ),
               ),
             TextButton(
@@ -1211,25 +1263,31 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (hasButton) ...[
                   const SizedBox(width: 8),
                   GestureDetector(
-                    onTap: () async {
-                      final uri = Uri.tryParse(buttonLink);
-                      if (uri != null) {
-                        await launchUrl(uri, mode: LaunchMode.externalApplication);
-                      }
-                    },
+                    onTap: () => _openAnnouncementLink(buttonLink),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
                       decoration: BoxDecoration(
                         color: accentColor.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        buttonLabel,
-                        style: TextStyle(
-                          color: accentColor,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                        border: Border.all(
+                          color: accentColor.withValues(alpha: 0.3),
+                          width: 1,
                         ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            buttonLabel,
+                            style: TextStyle(
+                              color: accentColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          Icon(Icons.arrow_outward_rounded, size: 11, color: accentColor),
+                        ],
                       ),
                     ),
                   ),

@@ -75,7 +75,9 @@ class AdminService {
       'is_popup': isPopup,
       'image_url': imageUrl,
     };
-    return _client.post('/notifications/broadcast/admin', body);
+    final res = await _client.post('/notifications/broadcast/admin', body);
+    ApiClient.invalidate('/notifications/broadcast');
+    return res;
   }
 
   /// Update an existing broadcast announcement
@@ -103,7 +105,9 @@ class AdminService {
     if (buttonLink != null) body['button_link'] = buttonLink;
     if (isPopup != null) body['is_popup'] = isPopup;
     if (imageUrl != null) body['image_url'] = imageUrl;
-    return _client.patch('/notifications/broadcast/admin/$id', body);
+    final res = await _client.patch('/notifications/broadcast/admin/$id', body);
+    ApiClient.invalidate('/notifications/broadcast');
+    return res;
   }
 
   /// List all reward campaigns
