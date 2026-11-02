@@ -67,6 +67,20 @@ class _HomeScreenState extends State<HomeScreen> {
   List<dynamic>? _cachedTransactionsData;
   List<Map<String, dynamic>>? _announcements;
 
+  List<Map<String, dynamic>> _getCachedBankAccountsList() {
+    final raw = (_cachedAccountsData?['accounts'] as List?) ?? [];
+    final isMeleData = BrandConfig.current.brand == AppBrand.meleData;
+    return List<Map<String, dynamic>>.from(
+      raw.map((i) => Map<String, dynamic>.from(i as Map)),
+    ).where((acc) {
+      if (isMeleData) {
+        final name = (acc['bank_name'] ?? '').toString().toLowerCase();
+        return !name.contains('paga') && !name.contains('aspfiy');
+      }
+      return true;
+    }).toList();
+  }
+
   static bool _hasShownStartupPopup = false;
 
   Set<String> _dismissedAnnouncementIds = {};
@@ -1909,7 +1923,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             final accountHolderName = (activeAccount['account_name'] ?? '').toString().trim();
 
                             return GestureDetector(
-                              onTap: () => FundWalletSheet.show(context),
+                              onTap: () => FundWalletSheet.show(context, initialAccounts: accounts),
                               child: Container(
                                 width: double.infinity,
                                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -2137,7 +2151,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           children: [
                             Expanded(
                               child: GestureDetector(
-                                onTap: () => FundWalletSheet.show(context),
+                                onTap: () => FundWalletSheet.show(context, initialAccounts: _getCachedBankAccountsList()),
                                 child: Container(
                                   height: 42,
                                   decoration: BoxDecoration(

@@ -8,15 +8,19 @@ import '../services/wallet_service.dart';
 import '../state/session.dart';
 
 class FundWalletSheet extends StatefulWidget {
-  const FundWalletSheet({super.key});
+  final List<Map<String, dynamic>>? initialAccounts;
 
-  static void show(BuildContext context) {
+  const FundWalletSheet({super.key, this.initialAccounts});
+
+  static List<Map<String, dynamic>>? _cachedAccounts;
+
+  static void show(BuildContext context, {List<Map<String, dynamic>>? initialAccounts}) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => const FundWalletSheet(),
+      builder: (context) => FundWalletSheet(initialAccounts: initialAccounts),
     );
   }
 
@@ -28,7 +32,7 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
   // Page controller for razor-sharp, smooth 60fps horizontal transitions
   late final PageController _pageController;
 
-  bool _loading = true;
+  bool _loading = false;
   bool _creating = false;
   String? _error;
   List<Map<String, dynamic>> _accounts = [];
@@ -46,7 +50,21 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: 0, keepPage: false);
-    _loadAccounts();
+
+    // Instant 0ms cache-first hydration
+    final passed = widget.initialAccounts;
+    if (passed != null && passed.isNotEmpty) {
+      _accounts = List.from(passed);
+      FundWalletSheet._cachedAccounts = _accounts;
+      _loading = false;
+    } else if (FundWalletSheet._cachedAccounts != null && FundWalletSheet._cachedAccounts!.isNotEmpty) {
+      _accounts = List.from(FundWalletSheet._cachedAccounts!);
+      _loading = false;
+    } else {
+      _loading = true;
+    }
+
+    _loadAccounts(silent: _accounts.isNotEmpty);
     _idController.addListener(() {
       if (_inputError != null) {
         setState(() => _inputError = null);
@@ -84,7 +102,7 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
     }
 
     try {
-      final res = await WalletService(token: token).getBankAccounts(forceRefresh: true);
+      final res = await WalletService(token: token).getBankAccounts(forceRefresh: !silent);
       final List raw = res['accounts'] ?? [];
 
       if (raw.isNotEmpty) {
@@ -111,6 +129,8 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
           return score(aName).compareTo(score(bName));
         });
 
+        FundWalletSheet._cachedAccounts = accounts;
+
         if (mounted) {
           setState(() {
             _accounts = accounts;
@@ -121,7 +141,9 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
       } else {
         if (mounted) {
           setState(() {
-            _accounts = [];
+            if (_accounts.isEmpty) {
+              _accounts = [];
+            }
             _loading = false;
             _error = null;
           });
@@ -131,7 +153,9 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = 'Failed to load account details.';
+          if (_accounts.isEmpty) {
+            _error = 'Failed to load account details.';
+          }
         });
       }
     }
@@ -174,6 +198,34 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
       return 'Sterling Bank';
     }
     return b;
+  }
+
+  String _getBankAppSearchHint(String rawBank) {
+    final lower = rawBank.toLowerCase();
+    if (lower.contains('safehaven') || lower.contains('safe haven')) {
+      return 'In your bank app, select "Safe Haven MFB"';
+    }
+    if (lower.contains('9psb') || lower.contains('9 payment')) {
+      return 'In your bank app, select "9PSB" or "9 Payment Service Bank"';
+    }
+    if (lower.contains('moniepoint') || lower.contains('monnify')) {
+      return 'In your bank app, select "Moniepoint MFB"';
+    }
+    if (lower.contains('palmpay')) {
+      return 'In your bank app, select "PalmPay"';
+    }
+    if (lower.contains('titan') || lower.contains('paystack')) {
+      return 'In your bank app, select "Titan Trust Bank"';
+    }
+    return 'In your bank app, select "$rawBank"';
+  }
+
+  String _formatAccountNumberDisplay(String value) {
+    final clean = value.replaceAll(RegExp(r'\s+'), '').trim();
+    if (clean.length == 10) {
+      return '${clean.substring(0, 3)}  ${clean.substring(3, 6)}  ${clean.substring(6)}';
+    }
+    return clean;
   }
 
   void _copyToClipboard(String text) {
@@ -678,24 +730,44 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
           const SizedBox(height: 14),
 
           // Account Number
-          Text(
-            'ACCOUNT NUMBER',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              color: textColor.withOpacity(0.55),
-              letterSpacing: 0.8,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'ACCOUNT NUMBER',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: textColor.withOpacity(0.55),
+                  letterSpacing: 0.8,
+                ),
+              ),
+              Text(
+                'Tap to copy',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF2563EB),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 4),
-          Text(
-            _formatAccountNumber(accountNumber),
-            style: TextStyle(
-              fontSize: 27,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1.5,
-              color: textColor,
-              fontFamily: 'monospace',
+          InkWell(
+            onTap: () => _copyToClipboard(accountNumber),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                _formatAccountNumberDisplay(accountNumber),
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.8,
+                  color: textColor,
+                  fontFamily: 'monospace',
+                ),
+              ),
             ),
           ),
 
@@ -725,23 +797,23 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
 
           // Instructions for local customers
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: textColor.withOpacity(0.06)),
             ),
             child: Row(
               children: [
-                Icon(Icons.info_outline_rounded, size: 14, color: textColor.withOpacity(0.6)),
+                const Icon(Icons.lightbulb_outline_rounded, size: 16, color: Color(0xFFD97706)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Select "$bankName" in your banking app and transfer to this account number.',
+                    _getBankAppSearchHint(rawBank),
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 11.5,
                       fontWeight: FontWeight.w600,
-                      color: textColor.withOpacity(0.7),
+                      color: textColor.withOpacity(0.80),
                     ),
                   ),
                 ),
