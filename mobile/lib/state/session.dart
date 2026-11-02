@@ -225,7 +225,7 @@ class SessionController extends ChangeNotifier {
     try {
       // 1. Load security preference and cached profile locally FIRST (sub-millisecond)
       final prefs = await SharedPreferences.getInstance();
-      final identifier = prefs.getString(lastIdentifierKey) ?? prefs.getString('mzdata_last_identifier') ?? prefs.getString('axisvtu_last_identifier_v1');
+      final identifier = prefs.getString(lastIdentifierKey);
       await prefs.remove('axisvtu_developer_mode_v1');
       final cachedDevJson = prefs.getString(_devStatusJsonKey);
       if (cachedDevJson != null && cachedDevJson.isNotEmpty) {
@@ -234,7 +234,7 @@ class SessionController extends ChangeNotifier {
         } catch (_) {}
       }
       
-      final lastUserJson = prefs.getString(_lastUserJsonKey) ?? prefs.getString('mzdata_last_user_v1');
+      final lastUserJson = prefs.getString(_lastUserJsonKey);
       if (lastUserJson != null && lastUserJson.isNotEmpty) {
         try {
           _lastUser = jsonDecode(lastUserJson) as Map<String, dynamic>;
@@ -253,7 +253,7 @@ class SessionController extends ChangeNotifier {
         } catch (_) {}
       }
 
-      // 2. Load security preference locally (default to 'smart' so users aren't locked on every brief pause)
+      // 2. Load security preference locally (default to 'max' for maximum client security)
       final userIdent = identifier ??
           _lastUser?['email']?.toString() ??
           _lastUser?['phone_number']?.toString() ??
@@ -262,11 +262,11 @@ class SessionController extends ChangeNotifier {
           ? (prefs.getString(_getUserPrefKey(userIdent.trim())) ?? prefs.getString(_securityPrefKey))
           : prefs.getString(_securityPrefKey);
 
-      _securityPreference ??= 'smart';
+      _securityPreference ??= 'max';
 
       // 3. Read stored secure token locally
       try {
-        _token = await _secureStorage.read(key: _tokenKey) ?? await _secureStorage.read(key: 'mzdata_secure_token_v1');
+        _token = await _secureStorage.read(key: _tokenKey);
       } catch (e) {
         debugPrint('[Session] Secure storage read failed: $e');
         _token = null;
@@ -513,7 +513,7 @@ class SessionController extends ChangeNotifier {
     try {
       await _secureStorage.delete(key: _tokenKey);
       final prefs = await SharedPreferences.getInstance();
-      final identifier = prefs.getString(lastIdentifierKey) ?? prefs.getString('mzdata_last_identifier') ?? prefs.getString('axisvtu_last_identifier_v1');
+      final identifier = prefs.getString(lastIdentifierKey);
       await prefs.remove(_getUserPrefKey(identifier));
       await prefs.remove(_devStatusJsonKey);
       // Clear any stored transaction PIN for the logged‑out user
@@ -619,7 +619,7 @@ class SessionController extends ChangeNotifier {
   /// Returns the saved identifier for biometric quick-login, if any.
   Future<String?> getBiometricUser() async {
     try {
-      return await _secureStorage.read(key: _biometricUserKey) ?? await _secureStorage.read(key: 'mzdata_biometric_user');
+      return await _secureStorage.read(key: _biometricUserKey);
     } catch (_) {
       return null;
     }
@@ -637,7 +637,7 @@ class SessionController extends ChangeNotifier {
   /// If [targetIdentifier] is provided, it guarantees that biometric login only logs into that user.
   Future<bool> loginWithBiometrics({String? targetIdentifier}) async {
     try {
-      final savedUser = await _secureStorage.read(key: _biometricUserKey) ?? await _secureStorage.read(key: 'mzdata_biometric_user');
+      final savedUser = await _secureStorage.read(key: _biometricUserKey);
 
       // CRITICAL: If a specific target identifier was requested, verify that the saved
       // credentials actually match this account. Never log a user into someone else's account!
@@ -648,7 +648,7 @@ class SessionController extends ChangeNotifier {
         }
       }
 
-      final bioToken = await _secureStorage.read(key: _biometricTokenKey) ?? await _secureStorage.read(key: 'mzdata_biometric_token_v1');
+      final bioToken = await _secureStorage.read(key: _biometricTokenKey);
       if (bioToken == null || bioToken.isEmpty) {
         debugPrint('[Session] No biometric token found.');
         return false;
@@ -678,12 +678,22 @@ class SessionController extends ChangeNotifier {
       }
 
       // If token failed/expired, try to perform a full re-login using securely stored credentials!
-      final savedPass = await _secureStorage.read(key: _biometricPasswordKey) ?? await _secureStorage.read(key: 'mzdata_biometric_password');
+      final savedPass = await _secureStorage.read(key: _biometricPasswordKey);
 
       if (savedUser != null && savedUser.isNotEmpty && savedPass != null && savedPass.isNotEmpty) {
         debugPrint('[Session] Re-authenticating with saved biometric credentials.');
         final loginSuccess = await _loginSilent(savedUser, savedPass);
         if (loginSuccess) {
+          return true;
+        }
+      }
+
+      // If biometric password is not available, check if we have a cached PIN to silently refresh the session
+      final cachedPin = await BiometricService.getPin();
+      if (cachedPin != null && cachedPin.isNotEmpty) {
+        debugPrint('[Session] Re-authenticating session using cached PIN.');
+        final pinSuccess = await loginWithPin(cachedPin, targetIdentifier: targetIdentifier ?? savedUser);
+        if (pinSuccess) {
           return true;
         }
       }
@@ -695,6 +705,55 @@ class SessionController extends ChangeNotifier {
     } catch (e) {
       debugPrint('[Session] loginWithBiometrics unexpected error: $e');
       _token = null;
+      return false;
+    }
+  }
+
+  /// Authenticates using the user's 4-digit PIN and mints a fresh long-lived session token.
+  Future<bool> loginWithPin(String pin, {String? targetIdentifier}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final identifier = targetIdentifier ??
+        prefs.getString(lastIdentifierKey) ??
+        _lastUser?['phone_number']?.toString() ??
+        _lastUser?['email']?.toString() ??
+        _lastUser?['phone']?.toString();
+
+    if (identifier == null || identifier.trim().isEmpty) {
+      debugPrint('[Session] loginWithPin failed: No cached user identifier');
+      return false;
+    }
+
+    try {
+      final res = await AuthService().pinLogin(identifier: identifier.trim(), pin: pin);
+      final newToken = _extractToken(res);
+      final newUser = _extractUser(res);
+
+      if (newToken != null && newToken.isNotEmpty) {
+        _token = newToken;
+        if (newUser != null && _hasMeaningfulProfile(newUser)) {
+          _user = newUser;
+          _lastUser = newUser;
+        } else {
+          final fetched = await _fetchMe(_token!);
+          if (fetched != null) {
+            _user = fetched;
+            _lastUser = fetched;
+          }
+        }
+
+        await _secureStorage.write(key: _tokenKey, value: _token!);
+        await _secureStorage.write(key: _biometricTokenKey, value: _token!);
+        await BiometricService.savePin(pin);
+
+        _isLocked = false;
+        _setError(null);
+        notifyListeners();
+        debugPrint('[Session] Successfully re-authenticated session via PIN!');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('[Session] loginWithPin failed: $e');
       return false;
     }
   }

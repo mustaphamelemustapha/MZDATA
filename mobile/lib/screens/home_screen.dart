@@ -1612,6 +1612,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
                       sliver: SliverList(
                         delegate: SliverChildListDelegate([
+                          // In-App Admin Announcement Banner directly above the wallet section
+                          if (_announcements != null && _announcements!.isNotEmpty) ...[
+                            for (final ann in _announcements!)
+                              _buildAnnouncementBanner(ann),
+                          ],
                           // Hero Balance Card (Amigo Lite Polish)
                           Container(
                     width: double.infinity,
@@ -1901,7 +1906,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         : (bankNameLower.contains('palmpay')
                                             ? 'PalmPay'
                                             : (bankNameLower.contains('titan') || bankNameLower.contains('paystack'))
-                                                ? 'Titan Trust Bank'
+                                                ? 'Paystack Titan'
                                                 : (bankNameLower.contains('paga') || bankNameLower.contains('aspfiy') || bankNameLower.contains('aspify'))
                                                     ? 'Paga'
                                                     : (bankNameLower.contains('wema')
@@ -1919,7 +1924,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         : (bankNameLower.contains('9psb') || bankNameLower.contains('9 payment'))
                                             ? '9PSB'
                                             : (bankNameLower.contains('titan') || bankNameLower.contains('paystack'))
-                                                ? 'Titan'
+                                                ? 'Paystack Titan'
                                                 : rawBankName.split(' ').first;
 
                             final Color badgeBg;
@@ -1941,6 +1946,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               badgeBg = isDark ? const Color(0xFF4C0519) : const Color(0xFFFFF1F2);
                               badgeBorder = isDark ? const Color(0xFF9F1239) : const Color(0xFFFECDD3);
                               badgeText = isDark ? const Color(0xFFFDA4AF) : const Color(0xFFBE123C);
+                            } else if (bankNameLower.contains('titan') || bankNameLower.contains('paystack')) {
+                              badgeBg = isDark ? const Color(0xFF082F49) : const Color(0xFFF0F9FF);
+                              badgeBorder = isDark ? const Color(0xFF0284C7) : const Color(0xFFBAE6FD);
+                              badgeText = isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7);
                             } else {
                               badgeBg = isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9);
                               badgeBorder = isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1);
@@ -4025,7 +4034,7 @@ class _TopUpSheetState extends State<_TopUpSheet> {
                           : rawLower.contains('palmpay')
                               ? 'PalmPay'
                               : (rawLower.contains('titan') || rawLower.contains('paystack'))
-                                  ? 'Titan Trust Bank'
+                                  ? 'Paystack Titan'
                                   : (rawLower.contains('paga') || rawLower.contains('aspfiy') || rawLower.contains('aspify'))
                                       ? 'Paga'
                                       : (rawLower.contains('wema')

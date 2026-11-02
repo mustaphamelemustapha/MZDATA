@@ -244,7 +244,7 @@ class _WalletScreenState extends State<WalletScreen> {
     if (lower.contains('safehaven') || lower.contains('safe haven')) return 'Safe Haven';
     if (lower.contains('9psb') || lower.contains('9 payment')) return '9PSB';
     if (lower.contains('moniepoint') || lower.contains('monnify')) return 'Moniepoint';
-    if (lower.contains('titan') || lower.contains('paystack')) return 'Titan Trust';
+    if (lower.contains('titan') || lower.contains('paystack')) return 'Paystack Titan';
     if (lower.contains('wema')) return 'Wema';
     if (lower.contains('sterling')) return 'Sterling';
     return raw.split(' ').first;
@@ -930,7 +930,7 @@ class _WalletScreenState extends State<WalletScreen> {
                             : rawLower.contains('palmpay')
                                 ? 'PalmPay'
                                 : (rawLower.contains('titan') || rawLower.contains('paystack'))
-                                    ? 'Titan Trust Bank'
+                                    ? 'Paystack Titan'
                                     : (rawLower.contains('paga') || rawLower.contains('aspfiy') || rawLower.contains('aspify'))
                                         ? 'Paga'
                                         : rawLower.contains('wema')
@@ -1637,7 +1637,7 @@ class _BankCard extends StatelessWidget {
       return 'In your bank app, select "PalmPay"';
     }
     if (lower.contains('titan') || lower.contains('paystack')) {
-      return 'In your bank app, select "Titan Trust Bank"';
+      return 'In your bank app, select "Paystack-Titan" or "Titan Trust"';
     }
     return 'In your bank app, select "$raw"';
   }

@@ -121,18 +121,17 @@ class _AppEntryGateState extends State<AppEntryGate> with WidgetsBindingObserver
     if (state == AppLifecycleState.resumed) {
       if (session.isAuthenticated) {
         session.refreshBalance();
-        // Only lock if Maximum Security is active AND the user was away for > 60 seconds
-        // Prevents annoying auto-lock when briefly switching apps to copy a number or check an OTP
+        // Maximum security: whenever app security is on, user must authenticate on return
         if (session.securityPreference == 'max' && _pausedAt != null) {
-          final elapsed = DateTime.now().difference(_pausedAt!);
-          if (elapsed.inSeconds >= 60) {
-            session.lock();
-          }
+          session.lock();
         }
         _pausedAt = null;
       }
-    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden || state == AppLifecycleState.inactive) {
       _pausedAt = DateTime.now();
+      if (session.isAuthenticated && session.securityPreference == 'max') {
+        session.lock();
+      }
     }
   }
 
