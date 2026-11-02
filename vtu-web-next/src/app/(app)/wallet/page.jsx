@@ -342,17 +342,19 @@ export default function WalletPage() {
       }}
     />
 
-    {/* Bank Withdrawal Modal (Mele Data) */}
-    <WithdrawModal
-      open={showWithdrawModal}
-      onClose={() => setShowWithdrawModal(false)}
-      onSuccess={() => {
-        load();
-      }}
-      onOpenKyc={() => setShowKycModal(true)}
-      walletBalance={wallet?.balance || 0}
-      userProfile={profile}
-    />
+    {/* Bank Withdrawal Modal (Exclusively for Mele Data) */}
+    {isMeleData && (
+      <WithdrawModal
+        open={showWithdrawModal}
+        onClose={() => setShowWithdrawModal(false)}
+        onSuccess={() => {
+          load();
+        }}
+        onOpenKyc={() => setShowKycModal(true)}
+        walletBalance={wallet?.balance || 0}
+        userProfile={profile}
+      />
+    )}
     </div>
   );
 }

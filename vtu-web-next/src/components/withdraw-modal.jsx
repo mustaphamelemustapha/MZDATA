@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { getActiveBrand } from '@/lib/brand';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -50,6 +51,9 @@ export function WithdrawModal({
   const [submitError, setSubmitError] = useState('');
   const [receipt, setReceipt] = useState(null);
   const [copiedRef, setCopiedRef] = useState(false);
+
+  const brand = getActiveBrand();
+  const isMeleData = brand?.key === 'meledata';
 
   // Check KYC status
   const isKycVerified = Boolean(
@@ -219,7 +223,7 @@ export function WithdrawModal({
     }
   };
 
-  if (!open) return null;
+  if (!open || !isMeleData) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -614,3 +618,4 @@ export function WithdrawModal({
     </div>
   );
 }
+
