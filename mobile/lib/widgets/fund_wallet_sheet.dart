@@ -771,8 +771,8 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
                           'Copy Number',
                           style: TextStyle(
                             color: Color(0xFF2563EB),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
                           ),
                         ),
                       ],
@@ -799,8 +799,8 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
                           'Share Details',
                           style: TextStyle(
                             color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
                           ),
                         ),
                       ],

@@ -870,17 +870,30 @@ class _WalletScreenState extends State<WalletScreen> {
                 }
 
                 final rawAccounts = (accountsData['accounts'] as List?) ?? const [];
+                final isMeleData = BrandConfig.current.brand == AppBrand.meleData;
                 final accounts = List<Map<String, dynamic>>.from(
                   rawAccounts.map((item) => Map<String, dynamic>.from(item as Map))
-                );
+                ).where((acc) {
+                  if (isMeleData) {
+                    final name = (acc['bank_name'] ?? '').toString().toLowerCase();
+                    return !name.contains('paga') && !name.contains('aspfiy');
+                  }
+                  return true;
+                }).toList();
 
-                // Sort: prioritize Moniepoint first
+                // Sort: 1. PalmPay, 2. Moniepoint, 3. Safehaven, 4. Paystack, 5. 9PSB
                 accounts.sort((a, b) {
                   final aName = (a['bank_name'] ?? '').toString().toLowerCase();
                   final bName = (b['bank_name'] ?? '').toString().toLowerCase();
-                  if (aName.contains('moniepoint') && !bName.contains('moniepoint')) return -1;
-                  if (!aName.contains('moniepoint') && bName.contains('moniepoint')) return 1;
-                  return 0;
+                  int bankScore(String n) {
+                    if (n.contains('palmpay')) return 1;
+                    if (n.contains('moniepoint') || n.contains('monnify')) return 2;
+                    if (n.contains('safehaven') || n.contains('safe haven')) return 3;
+                    if (n.contains('paystack') || n.contains('titan')) return 4;
+                    if (n.contains('9psb') || n.contains('9 payment')) return 5;
+                    return 6;
+                  }
+                  return bankScore(aName).compareTo(bankScore(bName));
                 });
 
                 if (accounts.isEmpty) {
@@ -1820,6 +1833,20 @@ class _BankCard extends StatelessWidget {
               ),
             ),
           ] else ...[
+            Center(
+              child: Text(
+                'ACCOUNT NUMBER',
+                style: TextStyle(
+                  color: useWhiteText
+                      ? Colors.white.withValues(alpha: 0.6)
+                      : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.0,
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: onCopyAccount,
@@ -1835,7 +1862,7 @@ class _BankCard extends StatelessWidget {
                           maxLines: 1,
                           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                                 color: useWhiteText ? Colors.white : Colors.black87,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w900,
                                 letterSpacing: compact ? 2.8 : 4.4,
                                 fontFeatures: const [FontFeature.tabularFigures()],
                                 height: 1.1,
@@ -1848,10 +1875,10 @@ class _BankCard extends StatelessWidget {
                   SizedBox(width: compact ? 6 : 8),
                   Container(
                     decoration: BoxDecoration(
-                      color: accentColor.withValues(alpha: useWhiteText ? 0.14 : 0.10),
+                      color: accentColor.withValues(alpha: useWhiteText ? 0.18 : 0.12),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: accentColor.withValues(alpha: useWhiteText ? 0.12 : 0.08),
+                        color: accentColor.withValues(alpha: useWhiteText ? 0.20 : 0.12),
                       ),
                     ),
                     child: IconButton(
@@ -1870,18 +1897,49 @@ class _BankCard extends StatelessWidget {
                 ],
               ),
             ),
-            SizedBox(height: compact ? 6 : 12),
+            SizedBox(height: compact ? 8 : 12),
+            Center(
+              child: Text(
+                'ACCOUNT NAME',
+                style: TextStyle(
+                  color: useWhiteText
+                      ? Colors.white.withValues(alpha: 0.55)
+                      : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+            const SizedBox(height: 1),
             Text(
               accountName,
               textAlign: TextAlign.center,
               maxLines: compact ? 1 : 2,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: useWhiteText ? Colors.white.withValues(alpha: 0.85) : Colors.black87,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
+                    color: useWhiteText ? Colors.white.withValues(alpha: 0.9) : Colors.black87,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
                     letterSpacing: 0.1,
                   ),
+            ),
+            Container(
+              margin: EdgeInsets.only(top: compact ? 8 : 10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: useWhiteText ? 0.12 : 0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Select "$bankName" in your banking app and transfer to this account number.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: useWhiteText ? Colors.white70 : Colors.black87,
+                ),
+              ),
             ),
             if (onShareAccount != null) ...[
               SizedBox(height: compact ? 6 : 8),

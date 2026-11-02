@@ -14,12 +14,14 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.middlewares.rate_limit import limiter
 from app.models import User, UserRole
-from app.schemas.auth import RegisterRequest, LoginRequest, TokenPair, RefreshRequest, Message, ForgotPasswordRequest, ForgotPasswordResponse, VerifyResetTokenRequest, ResetPasswordRequest, ChangePasswordRequest, UpdateMeRequest, EmailVerification, LookupRequest, FCMTokenRequest
+from app.schemas.auth import RegisterRequest, LoginRequest, PinLoginRequest, TokenPair, RefreshRequest, Message, ForgotPasswordRequest, ForgotPasswordResponse, ResetPasswordRequest, VerifyResetTokenRequest, ChangePasswordRequest, UpdateMeRequest, EmailVerification, LookupRequest, FCMTokenRequest
 from app.schemas.user import UserOut
 from app.dependencies import get_current_user
 from app.services.wallet import get_or_create_wallet
 from app.services.email import send_password_reset_email, send_password_reset_otp_email, send_transaction_pin_reset_email, send_welcome_email
 from app.services.referrals import ensure_user_referral_code, attach_signup_referral
+from app.services.transaction_pin import set_pin, verify_pin_for_user
+from app.models.system_settings import SystemSettings
 
 settings = get_settings()
 router = APIRouter()
@@ -54,6 +56,12 @@ def _normalize_phone(value: str | None) -> str | None:
     digits = "".join(ch for ch in raw if ch.isdigit())
     if not digits:
         return None
+    if digits.startswith("234") and len(digits) >= 13:
+        return f"0{digits[3:13]}"
+    if digits.startswith("0") and len(digits) == 11:
+        return digits
+    if len(digits) == 10:
+        return f"0{digits}"
     return digits
 
 
@@ -76,9 +84,13 @@ def register(request: Request, payload: RegisterRequest, background_tasks: Backg
         role=UserRole.CUSTOMER,
         is_verified=False,
         phone_number=normalized_phone,
+        state=payload.state,
     )
     user.verification_token = secrets.token_urlsafe(32)
     user.verification_token_expires_at = _utcnow() + timedelta(days=2)
+
+    if payload.pin:
+        set_pin(user, payload.pin)
 
     db.add(user)
     ensure_user_referral_code(db, user)
@@ -114,6 +126,34 @@ def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)
     )
 
 
+@router.post("/pin-login", response_model=TokenPair)
+@limiter.limit("10/minute")
+def pin_login(request: Request, payload: PinLoginRequest, db: Session = Depends(get_db)):
+    identifier = (payload.identifier or "").strip()
+    user = None
+    if "@" in identifier:
+        user = db.query(User).filter(User.email == identifier).first()
+    else:
+        phone = _normalize_phone(identifier)
+        if phone:
+            user = db.query(User).filter(User.phone_number == phone).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User is inactive")
+
+    ok, err_msg = verify_pin_for_user(user, payload.pin)
+    if not ok:
+        db.commit()
+        raise HTTPException(status_code=401, detail=err_msg or "Incorrect PIN, try again.")
+
+    db.commit()
+    return TokenPair(
+        access_token=create_access_token(str(user.id), user.role.value),
+        refresh_token=create_refresh_token(str(user.id), user.role.value),
+    )
+
+
 @router.post("/lookup")
 @limiter.limit("20/minute")
 def lookup_user(request: Request, payload: LookupRequest, db: Session = Depends(get_db)):
@@ -127,7 +167,7 @@ def lookup_user(request: Request, payload: LookupRequest, db: Session = Depends(
             user = db.query(User).filter(User.phone_number == phone).first()
     if not user:
         return {"exists": False}
-    return {"exists": True, "full_name": user.full_name, "email": user.email, "phone_number": user.phone_number}
+    return {"exists": True}
 
 
 @router.post("/refresh", response_model=TokenPair)
@@ -245,7 +285,7 @@ def me(user: User = Depends(get_current_user)):
 
 @router.patch("/me", response_model=UserOut)
 def update_me(payload: UpdateMeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if payload.full_name is None and payload.phone_number is None:
+    if payload.full_name is None and payload.phone_number is None and payload.state is None:
         raise HTTPException(status_code=400, detail="Nothing to update")
 
     if payload.full_name is not None:
@@ -272,6 +312,9 @@ def update_me(payload: UpdateMeRequest, db: Session = Depends(get_db), user: Use
             if existing:
                 raise HTTPException(status_code=400, detail="Phone number already registered")
             user.phone_number = phone
+
+    if payload.state is not None:
+        user.state = payload.state
 
     db.commit()
     db.refresh(user)
@@ -318,57 +361,37 @@ def delete_me(
     user.verification_token = None
     user.verification_token_expires_at = None
     db.commit()
-    return {"message": "Account deleted successfully."}
-
-
-@router.get("/setup-admin")
-def setup_admin(db: Session = Depends(get_db)):
-    from app.models import User, UserRole
-    from app.core.security import hash_password
-    import secrets
-
-    email = "admin@mzdata.com"
-    password = "AdminPassword123!"
-    
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        existing.role = UserRole.ADMIN
-        existing.hashed_password = hash_password(password)
-        existing.is_active = True
-        db.commit()
-        return {"msg": f"Updated existing user {email} to admin and reset password."}
-
-    # Generate a dummy referral code for the admin
-    from app.services.referrals import generate_referral_code
-    
-    new_admin = User(
-        email=email,
-        phone_number="08000000000",
-        hashed_password=hash_password(password),
-        role=UserRole.ADMIN,
-        is_active=True,
-        full_name="MzData Admin",
-        referral_code=generate_referral_code()
-    )
-    db.add(new_admin)
-    db.commit()
-    
-    # create wallet
-    from app.services.wallet import get_or_create_wallet
-    get_or_create_wallet(db, new_admin.id)
-    
-    return {"msg": f"Successfully created admin user {email} / {password}."}
+    return Message(message="Account deleted successfully")
 
 
 @router.get("/app-config")
-def app_config():
+def app_config(request: Request, db: Session = Depends(get_db)):
+    try:
+        cfg = db.query(SystemSettings).first()
+    except Exception as exc:
+        db.rollback()
+        logging.getLogger(__name__).warning("SystemSettings query failed: %s", exc)
+        cfg = None
+
+    from app.core.tenant import get_tenant_brand
+    brand = get_tenant_brand(request)
+    default_name = "KULLOMA DATA" if brand == "kullomadata" else ("MZ DATA" if brand == "mzdata" else settings.app_name)
+    default_msg = f"{default_name} is currently undergoing scheduled server upgrades. Services will resume shortly."
+    default_phone = "+2348034283352" if brand == "kullomadata" else "+2348141114647"
+    default_whatsapp = "+2348034283352" if brand == "kullomadata" else "+2348141114647"
+
     return {
-        "min_app_version": settings.min_app_version,
-        "latest_app_version": settings.latest_app_version,
-        "play_store_url": settings.play_store_url,
-        "app_store_url": settings.app_store_url,
-        "support_phone": "09067054672",
-        "support_whatsapp": "2349067054672",
+        "app_name": getattr(cfg, "app_name", None) or default_name,
+        "min_app_version": getattr(cfg, "min_app_version", None) or settings.min_app_version,
+        "latest_app_version": getattr(cfg, "latest_app_version", None) or settings.latest_app_version,
+        "play_store_url": getattr(cfg, "play_store_url", None) or ("https://play.google.com/store/apps/details?id=com.kullomadata.app" if brand == "kullomadata" else settings.play_store_url),
+        "app_store_url": getattr(cfg, "app_store_url", None) or settings.app_store_url,
+        "maintenance_mode": bool(getattr(cfg, "maintenance_mode", False)),
+        "maintenance_message": getattr(cfg, "maintenance_message", None) or default_msg,
+        "release_notes": getattr(cfg, "release_notes", None) or "",
+        "announcement_banner": getattr(cfg, "announcement_banner", None),
+        "support_phone": getattr(cfg, "support_phone", None) or default_phone,
+        "support_whatsapp": getattr(cfg, "support_whatsapp", None) or default_whatsapp,
     }
 
 
@@ -433,3 +456,20 @@ def acknowledge_agent_upgrade(
     user.agent_upgrade_seen = True
     db.commit()
     return Message(message="Agent upgrade notification marked as seen.")
+
+
+@router.api_route("/setup-admin", methods=["GET", "POST"], response_model=Message)
+def setup_admin(
+    email: str,
+    secret: str,
+    db: Session = Depends(get_db)
+):
+    if secret != "kulloma2026":
+        raise HTTPException(status_code=403, detail="Invalid secret")
+    clean_email = email.strip().lower()
+    user = db.query(User).filter((User.email == email) | (User.email == clean_email)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.role = UserRole.ADMIN
+    db.commit()
+    return Message(message=f"Success! User ID: {user.id}, {user.email} is an ADMIN.")

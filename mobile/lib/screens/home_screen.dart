@@ -451,8 +451,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _launchSupport() async {
-    final phone = BrandConfig.current.supportWhatsApp;
-    final url = Uri.parse('https://wa.me/${phone.replaceAll('+', '')}');
+    final phone = AppConfig.supportWhatsApp;
+    final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final url = Uri.parse('https://wa.me/$cleanPhone');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -524,7 +525,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final txService = TransactionsService(token: token);
     _walletFuture = service.getWallet(forceRefresh: true);
     _accountsFuture = service.getBankAccounts(forceRefresh: forceRefresh);
-    _transactionsFuture = txService.getTransactions(forceRefresh: forceRefresh);
+    _transactionsFuture = txService.getTransactions(forceRefresh: true);
     _notificationsFuture = _loadNotifications(token);
     _walletFuture!.then((data) {
       if (!mounted || dashboardKey != _activeDashboardKey) return;
@@ -1190,7 +1191,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(
               icon,
               size: 20,
-              color: primary ? Theme.of(context).colorScheme.onPrimary : (isDark ? Colors.white : const Color(0xFF0F172A)),
+              color: primary ? Colors.white : (isDark ? Colors.white : Colors.black87),
             ),
             const SizedBox(width: 8),
             Text(
@@ -1198,7 +1199,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 14,
-                color: primary ? Theme.of(context).colorScheme.onPrimary : (isDark ? Colors.white : const Color(0xFF0F172A)),
+                color: primary ? Colors.white : (isDark ? Colors.white : Colors.black87),
               ),
             ),
           ],
@@ -1365,63 +1366,71 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            image: profileImageUrl != null && profileImageUrl.isNotEmpty
-                                ? DecorationImage(
-                                    image: NetworkImage(profileImageUrl),
-                                    fit: BoxFit.cover,
-                                  )
-                                : null,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          child: profileImageUrl != null && profileImageUrl.isNotEmpty ? null : Center(
-                            child: Text(
-                              initials,
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.onPrimary,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              image: profileImageUrl != null && profileImageUrl.isNotEmpty
+                                  ? DecorationImage(
+                                      image: NetworkImage(profileImageUrl),
+                                      fit: BoxFit.cover,
+                                    )
+                                  : null,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            child: profileImageUrl != null && profileImageUrl.isNotEmpty ? null : Center(
+                              child: Text(
+                                initials,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Hi, ${name.split(" ").first}',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: isDark ? Colors.white : const Color(0xFF0F172A),
-                              ),
-                            ),
-                            Row(
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  isDeveloper
-                                      ? '${AppConfig.appName} Developer'
-                                      : isAgent
-                                          ? '${AppConfig.appName} Agent'
-                                          : isAdmin
-                                              ? '${AppConfig.appName} Admin'
-                                              : AppConfig.appName,
+                                  'Hi, ${name.split(" ").first}',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
                                   style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: isDark ? Colors.white : const Color(0xFF0F172A),
                                   ),
                                 ),
-                                const SizedBox(width: 4),
-                                Icon(
-                                  Icons.verified_rounded,
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        isDeveloper
+                                            ? '${AppConfig.appName} Developer'
+                                            : isAgent
+                                                ? '${AppConfig.appName} Agent'
+                                                : isAdmin
+                                                    ? '${AppConfig.appName} Admin'
+                                                    : AppConfig.appName,
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.verified_rounded,
                                   size: 13,
                                   color: isAgent
                                       ? const Color(0xFFF59E0B)
@@ -1512,8 +1521,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
+                  ),
+                ),
+                    const SizedBox(width: 8),
                     Row(
                       children: [
                         Container(
@@ -1609,8 +1621,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             Container(
                               width: 6,
                               height: 6,
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.primary,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF2563EB),
                                 shape: BoxShape.circle,
                               ),
                             ),
@@ -1780,13 +1792,87 @@ class _HomeScreenState extends State<HomeScreen> {
                               );
                             }
                             
-                            final accounts = List<Map<String, dynamic>>.from(rawAccounts.map((i) => Map<String, dynamic>.from(i as Map)));
+                            final isMeleData = BrandConfig.current.brand == AppBrand.meleData;
+                            final accounts = List<Map<String, dynamic>>.from(
+                              rawAccounts.map((i) => Map<String, dynamic>.from(i as Map))
+                            ).where((acc) {
+                              if (isMeleData) {
+                                final name = (acc['bank_name'] ?? '').toString().toLowerCase();
+                                return !name.contains('paga') && !name.contains('aspfiy');
+                              }
+                              return true;
+                            }).toList();
+
+                            if (accounts.isEmpty) {
+                              return GestureDetector(
+                                onTap: _showAccountActivationDialog,
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.55) : const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: isDark ? const Color(0xFF334155).withValues(alpha: 0.75) : const Color(0xFFE2E8F0),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: const Icon(Icons.account_balance_rounded, size: 18, color: Color(0xFFD97706)),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              'Activate Virtual Account',
+                                              style: TextStyle(
+                                                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'Tap to link BVN/NIN for automated funding',
+                                              style: TextStyle(
+                                                color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                                                fontWeight: FontWeight.w500,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(Icons.chevron_right_rounded, color: isDark ? Colors.white54 : const Color(0xFF64748B), size: 20),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }
+
+                            // Priority order: 1. PalmPay, 2. Moniepoint, 3. Safehaven, 4. Paystack, 5. 9PSB
                             accounts.sort((a, b) {
                               final aName = (a['bank_name'] ?? '').toString().toLowerCase();
                               final bName = (b['bank_name'] ?? '').toString().toLowerCase();
-                              if (aName.contains('moniepoint') && !bName.contains('moniepoint')) return -1;
-                              if (!aName.contains('moniepoint') && bName.contains('moniepoint')) return 1;
-                              return 0;
+                              int bankScore(String n) {
+                                if (n.contains('palmpay')) return 1;
+                                if (n.contains('moniepoint') || n.contains('monnify')) return 2;
+                                if (n.contains('safehaven') || n.contains('safe haven')) return 3;
+                                if (n.contains('paystack') || n.contains('titan')) return 4;
+                                if (n.contains('9psb') || n.contains('9 payment')) return 5;
+                                return 6;
+                              }
+                              return bankScore(aName).compareTo(bankScore(bName));
                             });
 
                             final activeAccount = accounts.first;
@@ -1809,6 +1895,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                                         : (bankNameLower.contains('sterling')
                                                             ? 'Sterling Bank'
                                                             : rawBankName)));
+                            final bankSearchHint = (bankNameLower.contains('safehaven') || bankNameLower.contains('safe haven'))
+                                ? 'In your bank app, select "Safe Haven MFB"'
+                                : (bankNameLower.contains('9psb') || bankNameLower.contains('9 payment'))
+                                    ? 'In your bank app, select "9PSB" or "9 Payment Service Bank"'
+                                    : (bankNameLower.contains('moniepoint') || bankNameLower.contains('monnify'))
+                                        ? 'In your bank app, select "Moniepoint MFB"'
+                                        : (bankNameLower.contains('palmpay'))
+                                            ? 'In your bank app, select "PalmPay"'
+                                            : 'In your bank app, select "$displayBankName"';
                             final accountNumber = (activeAccount['account_number'] ?? '').toString().trim();
                             final formattedNumber = _formatAccountNumber(accountNumber);
                             final accountHolderName = (activeAccount['account_name'] ?? '').toString().trim();
@@ -1903,14 +1998,28 @@ class _HomeScreenState extends State<HomeScreen> {
                                           ),
                                         ),
                                         Expanded(
-                                          child: Text(
-                                            displayBankName,
-                                            style: TextStyle(
-                                              fontSize: 13.5,
-                                              fontWeight: FontWeight.w800,
-                                              color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                              height: 1.2,
-                                            ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                displayBankName,
+                                                style: TextStyle(
+                                                  fontSize: 13.5,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                                  height: 1.2,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                bankSearchHint,
+                                                style: TextStyle(
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB),
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
@@ -1967,7 +2076,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                   Icon(
                                                     Icons.copy_rounded,
                                                     size: 13,
-                                                    color: Theme.of(context).colorScheme.primary,
+                                                    color: isDark ? Colors.white : const Color(0xFF2563EB),
                                                   ),
                                                   const SizedBox(width: 5),
                                                   Text(
@@ -1975,7 +2084,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                     style: TextStyle(
                                                       fontSize: 12,
                                                       fontWeight: FontWeight.w800,
-                                                      color: Theme.of(context).colorScheme.primary,
+                                                      color: isDark ? Colors.white : const Color(0xFF2563EB),
                                                     ),
                                                   ),
                                                 ],
@@ -1986,18 +2095,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ],
                                     ),
 
-                                    // Row 4: Account Name if present
+                                    // Row 4: Account Name (if available)
                                     if (accountHolderName.isNotEmpty) ...[
                                       const SizedBox(height: 6),
                                       Row(
                                         children: [
                                           Text(
-                                            'NAME: ',
+                                            'ACCOUNT NAME: ',
                                             style: TextStyle(
                                               fontSize: 9.5,
                                               fontWeight: FontWeight.w800,
                                               color: isDark ? Colors.white54 : const Color(0xFF64748B),
-                                              letterSpacing: 0.5,
+                                              letterSpacing: 0.4,
                                             ),
                                           ),
                                           Expanded(
@@ -2019,10 +2128,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                             );
-                                  ],
-                                ),
-                              ),
-                            );
                           },
                         ),
 
@@ -2036,25 +2141,25 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Container(
                                   height: 42,
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.primary,
+                                    color: const Color(0xFF1E64F8),
                                     borderRadius: BorderRadius.circular(21),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+                                        color: const Color(0xFF1E64F8).withValues(alpha: 0.25),
                                         blurRadius: 8,
                                         offset: const Offset(0, 3),
                                       ),
                                     ],
                                   ),
                                   alignment: Alignment.center,
-                                  child: Row(
+                                  child: const Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.add_rounded, color: Theme.of(context).colorScheme.onPrimary, size: 18),
-                                      const SizedBox(width: 6),
+                                      Icon(Icons.add_rounded, color: Colors.white, size: 18),
+                                      SizedBox(width: 6),
                                       Text(
                                         'Add Money',
-                                        style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontWeight: FontWeight.w700, fontSize: 13),
+                                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
                                       ),
                                     ],
                                   ),
@@ -2068,18 +2173,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Container(
                                   height: 42,
                                   decoration: BoxDecoration(
-                                    color: isDark ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15) : const Color(0xFFF1F5F9),
+                                    color: isDark ? const Color(0xFF1E64F8).withValues(alpha: 0.15) : const Color(0xFFEEF4FF),
                                     borderRadius: BorderRadius.circular(21),
                                   ),
                                   alignment: Alignment.center,
-                                  child: Row(
+                                  child: const Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.send_rounded, size: 16, color: isDark ? Theme.of(context).colorScheme.primary : const Color(0xFF0F172A)),
-                                      const SizedBox(width: 6),
+                                      Icon(Icons.send_rounded, size: 16, color: Color(0xFF1E64F8)),
+                                      SizedBox(width: 6),
                                       Text(
                                         'Transfer',
-                                        style: TextStyle(color: isDark ? Theme.of(context).colorScheme.primary : const Color(0xFF0F172A), fontWeight: FontWeight.w700, fontSize: 13),
+                                        style: TextStyle(color: Color(0xFF1E64F8), fontWeight: FontWeight.w700, fontSize: 13),
                                       ),
                                     ],
                                   ),
@@ -2171,10 +2276,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       width: 32,
                       height: 32,
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                        color: const Color(0xFF2563EB).withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(Icons.group_add_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
+                      child: const Icon(Icons.group_add_rounded, size: 16, color: Color(0xFF2563EB)),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -2213,8 +2318,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         }
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                        backgroundColor: const Color(0xFF2563EB),
+                        foregroundColor: Colors.white,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         minimumSize: const Size(0, 36),
@@ -2242,10 +2347,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 TextButton(
                   onPressed: () => widget.onNavigateTab?.call(2),
-                  style: TextButton.styleFrom(
-                    foregroundColor: isDark ? Theme.of(context).colorScheme.primary : const Color(0xFF047857),
-                    textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                  ),
                   child: const Text('View All'),
                 ),
               ],
@@ -2367,11 +2468,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   TextButton(
                     onPressed: _launchSupport,
                     style: TextButton.styleFrom(
-                      backgroundColor: isDark ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15) : const Color(0xFFF1F5F9),
-                      foregroundColor: isDark ? Theme.of(context).colorScheme.primary : const Color(0xFF0F172A),
+                      backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: const Text('Chat now', style: TextStyle(fontWeight: FontWeight.w800)),
+                    child: const Text('Chat now', style: TextStyle(fontWeight: FontWeight.w900)),
                   ),
                 ],
               ),
@@ -2379,7 +2479,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 40),
             Center(
               child: Text(
-                '${AppConfig.appName} v1.2.0 • SECURE & TRUSTED',
+                '${AppConfig.appName} v${AppConfig.appVersion} • SECURE & TRUSTED',
                 style: TextStyle(
                   color: muted.withValues(alpha: 0.4),
                   fontSize: 10,
@@ -3982,10 +4082,11 @@ class _TopUpSheetState extends State<_TopUpSheet> {
                               fontSize: 30,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 2,
+                              fontFamily: 'monospace',
                             ),
                           ),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 12),
                         Text(
                           'ACCOUNT NAME',
                           style: TextStyle(
@@ -3995,31 +4096,25 @@ class _TopUpSheetState extends State<_TopUpSheet> {
                             fontSize: 10,
                           ),
                         ),
-                        const SizedBox(height: 3),
+                        const SizedBox(height: 2),
                         Text(
                           accName.toString(),
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 12),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            "Select '$bank' in your banking app",
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
+                            'Select "$bank" in your bank app and transfer to this number.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: muted),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
                       ],
                     ),
                   ),

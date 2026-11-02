@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Check, CircleDollarSign, Copy, Gift, Landmark, Package2, RefreshCw, Sparkles, Smartphone, Zap, Tv2, GraduationCap } from 'lucide-react';
 import { apiFetch, getProfile } from '@/lib/api';
-import { formatDateTime, formatMoney } from '@/lib/format';
+import { formatDateTime, formatMoney, formatBankDisplayName, getBankAppSearchHint, formatAccountNumber, sortFundingAccounts, getBankStyle } from '@/lib/format';
 import { quickActions } from '@/lib/nav';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +28,7 @@ const actionDetails = {
   },
   '/services': {
     kicker: 'Catalog',
-    description: 'Browse available MZDATA services from one organized page.',
+    description: 'Browse available VTU services from one organized page.',
     cta: 'Open services',
     tone: 'from-sky-500/14 via-sky-500/7 to-transparent border-sky-300/70',
     iconTone: 'bg-sky-500 text-white shadow-sky-500/20',
@@ -67,20 +67,58 @@ export default function DashboardPage() {
   const router = useRouter();
   const profile = getProfile();
   const [summary, setSummary] = useState(null);
+  const [fastWallet, setFastWallet] = useState(null);
   const [referrals, setReferrals] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
+
   const [refreshing, setRefreshing] = useState(false);
-  const [copiedAccount, setCopiedAccount] = useState(false);
+  const [copiedAccountId, setCopiedAccountId] = useState(null);
 
   const load = useCallback(async (quiet = false) => {
-    if (quiet) setRefreshing(true); else setLoading(true);
+    if (!quiet) {
+      try {
+        const cachedDash = localStorage.getItem('cached_dashboard');
+        const cachedRefs = localStorage.getItem('cached_referrals');
+        const cachedWallet = localStorage.getItem('cached_wallet');
+        let hasCache = false;
+        if (cachedDash) { setSummary(JSON.parse(cachedDash)); hasCache = true; }
+        if (cachedRefs) { setReferrals(JSON.parse(cachedRefs)); }
+        if (cachedWallet) { setFastWallet(JSON.parse(cachedWallet)); hasCache = true; }
+        
+        if (hasCache) {
+          setLoading(false);
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+      } catch (e) {
+        setLoading(true);
+      }
+    } else {
+      setRefreshing(true);
+    }
+
+    apiFetch('/wallet/me').then(val => {
+      setFastWallet(val);
+      localStorage.setItem('cached_wallet', JSON.stringify(val));
+    }).catch(() => {});
+
     try {
       const [dash, refs] = await Promise.allSettled([
         apiFetch('/dashboard/summary'),
         apiFetch('/referrals/me'),
       ]);
-      if (dash.status === 'fulfilled') setSummary(dash.value);
-      if (refs.status === 'fulfilled') setReferrals(refs.value);
+      if (dash.status === 'fulfilled') {
+        setSummary(dash.value);
+        localStorage.setItem('cached_dashboard', JSON.stringify(dash.value));
+      }
+      if (refs.status === 'fulfilled') {
+        setReferrals(refs.value);
+        localStorage.setItem('cached_referrals', JSON.stringify(refs.value));
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -91,36 +129,43 @@ export default function DashboardPage() {
     load().catch(() => {});
   }, [load]);
 
-  const wallet = summary?.wallet || {};
-  const txs = emptyOrRows(summary?.transactions).slice(0, 6);
+  const wallet = fastWallet || summary?.wallet || {};
+  const txs = emptyOrRows(summary?.transactions);
+  
+  const paginatedTransactions = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return txs.slice(start, start + itemsPerPage);
+  }, [txs, currentPage]);
+
+  const totalPages = Math.ceil(txs.length / itemsPerPage);
   const announcements = emptyOrRows(summary?.announcements).slice(0, 3);
   const bankTransfer = summary?.bank_transfer_accounts || {};
-  const primaryFundingAccount = bankTransfer?.accounts?.[0] || null;
+  const sortedFundingAccounts = useMemo(() => sortFundingAccounts(bankTransfer?.accounts || []), [bankTransfer?.accounts]);
+  const primaryFundingAccount = sortedFundingAccounts[0] || null;
   const referralCode = referrals?.referral_code || profile?.referral_code || '—';
   const referralLink = buildReferralUrl(referrals?.referral_code || profile?.referral_code || '');
   const quickStats = useMemo(() => [
-    { label: 'Wallet balance', value: `₦${formatMoney(wallet.balance || 0)}`, detail: 'Live available balance', icon: CircleDollarSign, tone: 'brand' },
-    { label: 'Rewards earned', value: `₦${formatMoney(referrals?.total_earned ?? 0)}`, detail: 'Referral revenue', icon: Gift, tone: 'violet' },
-  ], [wallet.balance, referrals?.total_earned]);
+    { label: 'Wallet balance', value: wallet.balance !== undefined ? `₦${formatMoney(wallet.balance || 0)}` : '₦...', detail: 'Live available balance', icon: CircleDollarSign, tone: 'brand' },
+    { label: 'Rewards earned', value: loading && !referrals ? '₦...' : `₦${formatMoney(referrals?.total_earned ?? 0)}`, detail: 'Referral revenue', icon: Gift, tone: 'violet' },
+  ], [wallet.balance, referrals?.total_earned, loading, referrals]);
 
-  const copyFundingAccount = useCallback(async () => {
-    const accountNumber = primaryFundingAccount?.account_number;
+  const copyFundingAccount = useCallback(async (accountNumber) => {
     if (!accountNumber) return;
     try {
       await navigator.clipboard.writeText(String(accountNumber));
-      setCopiedAccount(true);
-      window.setTimeout(() => setCopiedAccount(false), 1800);
+      setCopiedAccountId(accountNumber);
+      window.setTimeout(() => setCopiedAccountId(null), 1800);
     } catch {
-      setCopiedAccount(false);
+      setCopiedAccountId(null);
     }
-  }, [primaryFundingAccount?.account_number]);
+  }, []);
 
   return (
     <div className="space-y-6 pb-8">
       <PageHeader
         eyebrow="Dashboard"
         title={`Good to see you, ${String(profile?.full_name || profile?.email || 'User').split(' ')[0]}`}
-        description="A calm command center for MZDATA operations, balances, and referral activity."
+        description="A calm command center for your operations, balances, and referral activity."
         actions={(
           <>
             <Button variant="secondary" onClick={() => load(true)} className="border-border bg-card text-muted-foreground hover:bg-secondary">
@@ -141,76 +186,127 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <Card className="overflow-hidden border-primary/25 bg-gradient-to-br from-primary/10 via-card to-card shadow-[0_24px_70px_rgba(234,115,69,0.10)]">
-        <CardContent className="grid gap-5 p-5 md:grid-cols-[1fr_auto] md:items-center sm:p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl bg-primary text-primary-foreground shadow-lg shadow-blue-500/20">
-              <Landmark className="h-6 w-6" />
-            </div>
-            <div className="min-w-0">
-              <div className="axis-label text-primary">Fund your wallet</div>
-              <h2 className="mt-2 text-xl font-semibold tracking-tight text-foreground md:text-2xl">Dedicated funding account</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Transfer to this account to fund your MZDATA wallet. Copy the account number and send money from your bank app.
-              </p>
-            </div>
+      <div className="space-y-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between px-2">
+          <div>
+            <h2 className="text-[17px] font-bold tracking-tight text-foreground">Instant Top-up Accounts</h2>
+            <p className="text-xs text-muted-foreground">Transfer to any of these dedicated bank accounts from your banking app or POS — your balance updates automatically within seconds.</p>
           </div>
+          <Link href="/wallet" className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 self-start sm:self-auto">
+            Wallet &amp; Ledger <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
 
-          {primaryFundingAccount ? (
-            <div className="w-full rounded-3xl border border-border bg-card/85 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.06)] md:min-w-[390px] md:max-w-[520px]">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Account number</div>
-                  <div className="mt-2 break-all font-mono text-3xl font-semibold tracking-[0.16em] text-foreground sm:text-4xl">
-                    {primaryFundingAccount.account_number}
+        {sortedFundingAccounts.length > 0 ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {sortedFundingAccounts.map((acc, i) => {
+              const bankName = formatBankDisplayName(acc.bank_name);
+              const searchHint = getBankAppSearchHint(acc.bank_name);
+              const formattedAccNum = formatAccountNumber(acc.account_number);
+              const style = getBankStyle(acc.bank_name);
+              const isCopied = copiedAccountId === acc.account_number;
+
+              return (
+                <div
+                  key={acc.account_number}
+                  className="group relative flex flex-col justify-between rounded-[1.25rem] border border-border/50 bg-gradient-to-br from-card/85 via-card/50 to-card/30 backdrop-blur-xl p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+                >
+                  {/* Bank Header */}
+                  <div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold shadow-inner ${style.iconBg}`}>
+                          <Landmark className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Bank Name</div>
+                          <div className="text-[15px] font-extrabold text-foreground tracking-tight leading-tight">
+                            {bankName}
+                          </div>
+                        </div>
+                      </div>
+                      {i === 0 ? (
+                        <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-black tracking-wider px-2 py-0.5 shadow-none">
+                          RECOMMENDED
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] font-bold text-muted-foreground border-border/60">
+                          AUTOMATED
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* Local Bank App Search Hint */}
+                    <div className="mt-3 rounded-lg bg-secondary/50 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground flex items-center gap-1.5 border border-border/40">
+                      <span className="text-primary font-bold">ℹ️</span>
+                      <span className="truncate">{searchHint}</span>
+                    </div>
+
+                    {/* Account Number */}
+                    <div className="mt-4">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Account Number</div>
+                      <div className="mt-1 font-mono text-2xl font-black tracking-[0.14em] text-foreground select-all">
+                        {formattedAccNum}
+                      </div>
+                    </div>
+
+                    {/* Account Name */}
+                    {acc.account_name && (
+                      <div className="mt-2 text-[11px] text-muted-foreground">
+                        Account Name: <span className="font-bold text-foreground/90">{acc.account_name}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions & Instant Badge */}
+                  <div className="mt-5 pt-3 border-t border-border/40 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Instant Auto-Credit
+                    </span>
+                    <Button
+                      variant={isCopied ? "default" : "secondary"}
+                      size="sm"
+                      className={`rounded-xl px-4 h-9 font-bold text-xs transition-all ${
+                        isCopied ? 'bg-emerald-600 hover:bg-emerald-600 text-white' : 'hover:bg-primary hover:text-primary-foreground'
+                      }`}
+                      onClick={() => copyFundingAccount(acc.account_number)}
+                    >
+                      {isCopied ? (
+                        <>
+                          <Check className="mr-1.5 h-3.5 w-3.5" />
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="mr-1.5 h-3.5 w-3.5" />
+                          Copy Number
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </div>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="h-11 w-11 shrink-0 border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
-                  onClick={copyFundingAccount}
-                  aria-label="Copy funding account number"
-                  title="Copy account number"
-                >
-                  {copiedAccount ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="min-w-0 rounded-2xl border border-border bg-secondary p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Bank</div>
-                  <div className="mt-1 text-sm font-semibold text-foreground">{primaryFundingAccount.bank_name || 'Bank account'}</div>
-                </div>
-                <div className="min-w-0 rounded-2xl border border-border bg-secondary p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Account name</div>
-                  <div className="mt-1 break-words text-sm font-semibold text-foreground">{primaryFundingAccount.account_name || 'MZDATA Wallet'}</div>
-                </div>
-              </div>
-              <div className="mt-3 text-xs font-medium text-primary">
-                {copiedAccount ? 'Account number copied.' : 'Tap copy, then transfer from your bank app.'}
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-dashed border-border bg-card/85 p-5 text-sm leading-6 text-muted-foreground md:min-w-[360px]">
-              {bankTransfer?.message || 'Wallet transfer account will appear here once it is available.'}
-              <Button className="mt-4 w-full" onClick={() => router.push('/wallet')}>
-                Open wallet
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-[1.25rem] border border-dashed border-border/60 bg-card/40 p-8 text-center text-sm text-muted-foreground">
+            {bankTransfer?.message || 'No wallet transfer accounts available right now. Tap to refresh or contact support.'}
+          </div>
+        )}
+      </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
-        <Card className="overflow-hidden border border-border/50 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
-          <CardHeader className="border-b border-border/50 bg-gradient-to-r from-secondary/50 to-card/50 py-4 px-5">
+      <div className="space-y-6">
+        <Card className="relative overflow-hidden border border-border/40 bg-card/40 backdrop-blur-2xl shadow-xl">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-[4rem] -z-10" />
+          <CardHeader className="relative z-10 border-b border-white/5 bg-gradient-to-r from-secondary/30 to-transparent py-4 px-5">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <CardTitle className="text-lg font-semibold tracking-tight">Quick Services</CardTitle>
+              <Sparkles className="h-5 w-5 text-primary" />
+              <CardTitle className="text-xl font-bold tracking-tight">Quick Services</CardTitle>
             </div>
           </CardHeader>
-          <CardContent className="p-5">
-            <div className="grid grid-cols-3 gap-4 sm:grid-cols-6">
+          <CardContent className="relative z-10 p-5">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               {[
                 { label: 'Data', href: '/buy-data', icon: Package2, color: 'text-blue-500 bg-blue-500/10 dark:bg-blue-500/20' },
                 { label: 'Airtime', href: '/airtime', icon: Smartphone, color: 'text-sky-500 bg-sky-500/10 dark:bg-sky-500/20' },
@@ -224,12 +320,13 @@ export default function DashboardPage() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="group flex flex-col items-center justify-center rounded-2xl border border-border/60 bg-card/40 p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:border-primary/30 hover:bg-card hover:shadow-[0_12px_30px_rgba(0,0,0,0.04)] dark:hover:shadow-[0_12px_30px_rgba(0,0,0,0.2)]"
+                    className="group relative overflow-hidden flex flex-col items-center justify-center rounded-[1.5rem] border border-white/10 bg-background/40 p-5 text-center transition-all duration-400 hover:-translate-y-1 hover:shadow-2xl"
                   >
-                    <div className={`mb-3 flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-300 group-hover:scale-110 ${item.color}`}>
-                      <Icon className="h-6 w-6" />
+                    <div className="absolute inset-0 bg-gradient-to-br opacity-0 transition-opacity duration-300 group-hover:opacity-100 from-white/5 to-transparent" />
+                    <div className={`mb-3 flex h-14 w-14 items-center justify-center rounded-[1.2rem] shadow-inner transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3 ${item.color}`}>
+                      <Icon className="h-7 w-7 drop-shadow-sm" />
                     </div>
-                    <span className="text-xs font-semibold tracking-tight text-foreground transition-colors duration-200 group-hover:text-primary">
+                    <span className="relative z-10 text-sm font-bold tracking-tight text-foreground/90 transition-colors duration-200 group-hover:text-primary">
                       {item.label}
                     </span>
                   </Link>
@@ -239,107 +336,109 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Referral position</CardTitle>
-            <CardDescription>Invite-first deposit rewards, surfaced directly on the dashboard.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-3xl border border-border bg-secondary p-4">
-              <div className="axis-label">Your code</div>
-              <div className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{referralCode}</div>
-              <div className="mt-2 text-sm text-muted-foreground">Share this code with new users to earn rewards after their first deposit.</div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Button variant="secondary" onClick={() => router.push('/profile')} className="border-border bg-card text-muted-foreground hover:bg-secondary">
-                View profile
-              </Button>
-              <Button onClick={() => router.push('/referrals')}>Open referrals</Button>
-            </div>
-            {referralLink ? <div className="rounded-2xl border border-border bg-card p-3 text-xs text-muted-foreground break-all">{referralLink}</div> : null}
-          </CardContent>
-        </Card>
-
-        <Card className="col-span-full">
-          <CardHeader>
-            <CardTitle>Developer API Access</CardTitle>
-            <CardDescription>
-              {String(profile?.role).toLowerCase() === 'developer' 
-                ? 'Use this key to authenticate your API requests.'
-                : 'Connect your website to our platform and automate your VTU business.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {String(profile?.role).toLowerCase() === 'developer' && profile?.api_public_key ? (
-              <div className="rounded-3xl border border-border bg-secondary p-4">
-                <div className="axis-label">Your Public API Key</div>
-                <div className="mt-2 text-sm font-mono tracking-tight text-foreground break-all">{profile.api_public_key}</div>
-                <div className="mt-2 text-sm text-muted-foreground">Do not share this key with anyone. It gives full access to your API pricing.</div>
-                <Button className="mt-4 w-full sm:w-auto" variant="secondary" onClick={() => router.push('/api-docs')}>
-                  View API Documentation
-                </Button>
               </div>
-            ) : (
-              <div className="rounded-3xl border border-border bg-secondary p-4 flex flex-col items-start gap-4">
-                <div className="text-sm text-muted-foreground">
-                  You are currently on a standard user account. Upgrade to a Developer account to generate API keys, access developer pricing, and integrate our services into your own applications.
-                </div>
-                <div className="flex flex-wrap gap-3 w-full sm:w-auto">
-                  <Button onClick={() => router.push('/profile')} className="w-full sm:w-auto">
-                    Upgrade to Developer
-                  </Button>
-                  <Button variant="secondary" onClick={() => router.push('/api-docs')} className="w-full sm:w-auto">
-                    Read API Documentation
-                  </Button>
-                </div>
+
+      <div className="space-y-6">
+        <Card className="relative overflow-hidden border border-border/40 bg-card/40 backdrop-blur-2xl shadow-xl">
+          <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-primary/5 rounded-full blur-[4rem] -z-10" />
+          <CardHeader className="relative z-10">
+            <CardTitle className="text-xl font-bold tracking-tight">Recent Activity</CardTitle>
+            <CardDescription>Latest wallet and service movements.</CardDescription>
+          </CardHeader>
+          <CardContent className="relative z-10">
+            {loading ? <div className="text-sm text-muted-foreground p-4">Loading transactions...</div> : null}
+            {txs.length === 0 && !loading ? <div className="text-sm text-muted-foreground p-4">No recent activity yet.</div> : null}
+            
+            {txs.length > 0 && (
+              <div className="w-full overflow-x-auto pb-2">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs uppercase text-muted-foreground border-b border-border/50">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">#</th>
+                      <th className="px-4 py-3 font-semibold">Phone / Recipient</th>
+                      <th className="px-4 py-3 font-semibold">Capacity / Plan</th>
+                      <th className="px-4 py-3 font-semibold">Network</th>
+                      <th className="px-4 py-3 font-semibold">When</th>
+                      <th className="px-4 py-3 font-semibold">Status</th>
+                      <th className="px-4 py-3 font-semibold">Tx ID</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/30">
+                    {paginatedTransactions.map((tx, idx) => {
+                      const isSuccess = tx.status === 'success' || tx.status === 'delivered';
+                      const isPending = tx.status === 'pending' || tx.status === 'processing';
+                      const statusColor = isSuccess ? 'text-emerald-500' : isPending ? 'text-amber-500' : 'text-red-500';
+                      const statusBg = isSuccess ? 'bg-emerald-500/10' : isPending ? 'bg-amber-500/10' : 'bg-red-500/10';
+                      
+                      const tType = String(tx.tx_type || '').toLowerCase();
+                      const meta = tx.meta || {};
+                      
+                      let recipient = tx.customer || tx.recipient_phone || meta.recipient_phone || meta.phone_number || meta.phone || meta.smartcard_number || meta.meter_number || '—';
+                      if (tType === 'wallet_fund' || tType === 'fund') recipient = 'Wallet Funding';
+                      if (tType === 'referral_bonus' || tType === 'referral') recipient = 'Referral Bonus';
+                      
+                      let capacity = '—';
+                      if (tType === 'data') {
+                        const rawPlan = String(meta.plan_name || meta.package_name || meta.description || tx.data_plan_code || meta.package_code || '');
+                        const match = rawPlan.match(/(\d+(?:\.\d+)?\s*(?:GB|MB|TB))/i);
+                        capacity = match ? match[1].toUpperCase().replace(/\s/g, '') : (rawPlan || '—');
+                      } else if (tType === 'cable') {
+                        capacity = meta.plan_name || meta.package_name || tx.data_plan_code || meta.package_code || '—';
+                      } else {
+                        capacity = `₦${formatMoney(tx.amount || 0)}`;
+                      }
+
+                      let network = (tx.network || meta.network || meta.provider || meta.disco || meta.exam || '—').toString().toUpperCase();
+                      if (tType === 'wallet_fund' || tType === 'fund') network = 'DEPOSIT';
+                      if (tType === 'referral_bonus' || tType === 'referral') network = 'REWARD';
+                      let netColor = 'text-foreground';
+                      let netDot = 'bg-foreground';
+                      if (network === 'MTN') { netColor = 'text-yellow-500'; netDot = 'bg-yellow-500'; }
+                      else if (network === 'GLO') { netColor = 'text-green-500'; netDot = 'bg-green-500'; }
+                      else if (network === 'AIRTEL') { netColor = 'text-red-500'; netDot = 'bg-red-500'; }
+                      else if (network === '9MOBILE') { netColor = 'text-emerald-700'; netDot = 'bg-emerald-700'; }
+                      else if (network === 'DEPOSIT') { netColor = 'text-blue-500'; netDot = 'bg-blue-500'; }
+                      else if (network === 'REWARD') { netColor = 'text-violet-500'; netDot = 'bg-violet-500'; }
+
+                      const d = new Date(tx.created_at || tx.timestamp);
+                      const dateStr = !isNaN(d.getTime()) ? d.toLocaleDateString("en-GB").replace(/\//g, '-') : '—';
+                      const timeStr = !isNaN(d.getTime()) ? d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }) : '';
+
+                      return (
+                        <tr key={tx.reference || tx.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-4 text-muted-foreground">{idx + 1}</td>
+                          <td className="px-4 py-4 font-bold text-foreground">{recipient}</td>
+                          <td className="px-4 py-4 font-bold text-foreground">{capacity}</td>
+                          <td className="px-4 py-4">
+                            {network !== '—' ? (
+                              <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-background/50 px-2.5 py-0.5 text-xs font-semibold shadow-sm">
+                                <div className={`h-1.5 w-1.5 rounded-full ${netDot}`} />
+                                <span className={netColor}>{network}</span>
+                              </div>
+                            ) : '—'}
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="text-foreground">{dateStr}</div>
+                            <div className="text-xs text-muted-foreground">{timeStr}</div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${statusColor} ${statusBg}`}>
+                              {String(tx.status || 'pending')}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 text-xs font-mono text-muted-foreground">
+                            #{String(tx.reference || '').substring(0, 8)}...
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </CardContent>
         </Card>
-      </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent activity</CardTitle>
-            <CardDescription>Latest wallet and service movements.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {loading ? <div className="text-sm text-muted-foreground">Loading transactions...</div> : null}
-            {txs.length === 0 && !loading ? <div className="text-sm text-muted-foreground">No recent activity yet.</div> : null}
-            {txs.map((tx) => (
-              <div key={tx.reference || tx.id} className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-secondary p-4">
-                <div>
-                  <div className="text-sm font-medium text-foreground">{String(tx.tx_type || 'Transaction').replace(/_/g, ' ')}</div>
-                  <div className="text-xs text-muted-foreground">{String(tx.reference || '—')}</div>
-                  <div className="text-xs text-muted-foreground">{formatDateTime(tx.created_at)}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-semibold text-foreground">₦{formatMoney(tx.amount || 0)}</div>
-                  <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{String(tx.status || 'pending')}</div>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Announcements</CardTitle>
-              <CardDescription>Operational updates from the platform.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {announcements.length === 0 ? <div className="text-sm text-muted-foreground">No active announcements.</div> : null}
-              {announcements.map((item) => (
-                <div key={item.id} className="rounded-2xl border border-border bg-secondary p-4">
-                  <div className="text-sm font-medium text-foreground">{item.title || 'Update'}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">{item.message || item.text || ''}</div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
       </div>
     </div>
   );
