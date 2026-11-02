@@ -1889,7 +1889,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               return bankScore(aName).compareTo(bankScore(bName));
                             });
 
-                            final activeAccount = accounts.first;
+                            final activeAccount = accounts[_activeAccountIndex % accounts.length];
                             final rawBankName = (activeAccount['bank_name'] ?? 'Bank').toString().trim();
                             final bankNameLower = rawBankName.toLowerCase();
                             final displayBankName = (bankNameLower.contains('9psb') || bankNameLower.contains('9 payment'))
@@ -1909,237 +1909,228 @@ class _HomeScreenState extends State<HomeScreen> {
                                                         : (bankNameLower.contains('sterling')
                                                             ? 'Sterling Bank'
                                                             : rawBankName)));
-                            final bankSearchHint = (bankNameLower.contains('safehaven') || bankNameLower.contains('safe haven'))
-                                ? 'In your bank app, select "Safe Haven MFB"'
-                                : (bankNameLower.contains('9psb') || bankNameLower.contains('9 payment'))
-                                    ? 'In your bank app, select "9PSB" or "9 Payment Service Bank"'
-                                    : (bankNameLower.contains('moniepoint') || bankNameLower.contains('monnify'))
-                                        ? 'In your bank app, select "Moniepoint MFB"'
-                                        : (bankNameLower.contains('palmpay'))
-                                            ? 'In your bank app, select "PalmPay"'
-                                            : 'In your bank app, select "$displayBankName"';
+
+                            final shortBankName = bankNameLower.contains('palmpay')
+                                ? 'PalmPay'
+                                : (bankNameLower.contains('moniepoint') || bankNameLower.contains('monnify'))
+                                    ? 'Moniepoint'
+                                    : (bankNameLower.contains('safehaven') || bankNameLower.contains('safe haven'))
+                                        ? 'Safe Haven'
+                                        : (bankNameLower.contains('9psb') || bankNameLower.contains('9 payment'))
+                                            ? '9PSB'
+                                            : (bankNameLower.contains('titan') || bankNameLower.contains('paystack'))
+                                                ? 'Titan'
+                                                : rawBankName.split(' ').first;
+
+                            final Color badgeBg;
+                            final Color badgeBorder;
+                            final Color badgeText;
+                            if (bankNameLower.contains('palmpay')) {
+                              badgeBg = isDark ? const Color(0xFF2E1065) : const Color(0xFFF3E8FF);
+                              badgeBorder = isDark ? const Color(0xFF6B21A8) : const Color(0xFFD8B4FE);
+                              badgeText = isDark ? const Color(0xFFD8B4FE) : const Color(0xFF7E22CE);
+                            } else if (bankNameLower.contains('moniepoint') || bankNameLower.contains('monnify')) {
+                              badgeBg = isDark ? const Color(0xFF1E3A8A) : const Color(0xFFEFF6FF);
+                              badgeBorder = isDark ? const Color(0xFF1D4ED8) : const Color(0xFFBFDBFE);
+                              badgeText = isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8);
+                            } else if (bankNameLower.contains('safehaven') || bankNameLower.contains('safe haven')) {
+                              badgeBg = isDark ? const Color(0xFF064E3B) : const Color(0xFFECFDF5);
+                              badgeBorder = isDark ? const Color(0xFF047857) : const Color(0xFFA7F3D0);
+                              badgeText = isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857);
+                            } else if (bankNameLower.contains('9psb') || bankNameLower.contains('9 payment')) {
+                              badgeBg = isDark ? const Color(0xFF4C0519) : const Color(0xFFFFF1F2);
+                              badgeBorder = isDark ? const Color(0xFF9F1239) : const Color(0xFFFECDD3);
+                              badgeText = isDark ? const Color(0xFFFDA4AF) : const Color(0xFFBE123C);
+                            } else {
+                              badgeBg = isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9);
+                              badgeBorder = isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1);
+                              badgeText = isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569);
+                            }
+
                             final accountNumber = (activeAccount['account_number'] ?? '').toString().trim();
                             final formattedNumber = _formatAccountNumber(accountNumber);
-                            final accountHolderName = (activeAccount['account_name'] ?? '').toString().trim();
 
-                            return GestureDetector(
-                              onTap: () => FundWalletSheet.show(context, initialAccounts: accounts),
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                decoration: BoxDecoration(
-                                  color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.70) : const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: isDark ? 0.15 : 0.03),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
+                            return Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.65) : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                                  width: 1,
                                 ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    // Row 1: Header Badge + View All
-                                    Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Top Row: Account Number & Copy Button (Left), Bank Switcher Pill (Right)
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'VIRTUAL ACCOUNT NUMBER',
+                                              style: TextStyle(
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.w700,
+                                                letterSpacing: 0.8,
+                                                color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  formattedNumber.isNotEmpty ? formattedNumber : accountNumber,
+                                                  style: TextStyle(
+                                                    fontSize: 18.5,
+                                                    fontWeight: FontWeight.w900,
+                                                    letterSpacing: 1.0,
+                                                    fontFamily: 'monospace',
+                                                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                InkWell(
+                                                  onTap: () => _copyAccountNumber(accountNumber),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  child: Padding(
+                                                    padding: const EdgeInsets.all(4),
+                                                    child: Icon(
+                                                      Icons.copy_rounded,
+                                                      size: 15,
+                                                      color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Interactive Bank Switcher Pill
+                                      GestureDetector(
+                                        onTap: () {
+                                          if (accounts.length > 1) {
+                                            setState(() {
+                                              _activeAccountIndex = (_activeAccountIndex + 1) % accounts.length;
+                                            });
+                                          } else {
+                                            FundWalletSheet.show(context, initialAccounts: accounts);
+                                          }
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                           decoration: BoxDecoration(
-                                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-                                            borderRadius: BorderRadius.circular(6),
+                                            color: badgeBg,
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(color: badgeBorder),
                                           ),
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              Icon(
-                                                Icons.account_balance_rounded,
-                                                size: 13,
-                                                color: Theme.of(context).colorScheme.primary,
+                                              Container(
+                                                width: 7,
+                                                height: 7,
+                                                decoration: BoxDecoration(
+                                                  color: badgeText,
+                                                  shape: BoxShape.circle,
+                                                ),
                                               ),
-                                              const SizedBox(width: 4),
+                                              const SizedBox(width: 6),
                                               Text(
-                                                'AUTO-FUND ACCOUNT',
+                                                shortBankName,
                                                 style: TextStyle(
-                                                  fontSize: 10,
+                                                  fontSize: 12,
                                                   fontWeight: FontWeight.w800,
-                                                  letterSpacing: 0.5,
-                                                  color: Theme.of(context).colorScheme.primary,
+                                                  color: badgeText,
+                                                  letterSpacing: 0.2,
+                                                ),
+                                              ),
+                                              if (accounts.length > 1) ...[
+                                                const SizedBox(width: 4),
+                                                Icon(
+                                                  Icons.swap_horiz_rounded,
+                                                  size: 14,
+                                                  color: badgeText,
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+
+                                  const SizedBox(height: 9),
+                                  Divider(
+                                    height: 1,
+                                    thickness: 0.8,
+                                    color: isDark ? const Color(0xFF334155).withValues(alpha: 0.5) : const Color(0xFFE2E8F0),
+                                  ),
+                                  const SizedBox(height: 7),
+
+                                  // Bottom Row: Full Bank Name & View All Action
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: RichText(
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          text: TextSpan(
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                            ),
+                                            children: [
+                                              const TextSpan(
+                                                text: 'BANK: ',
+                                                style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.4),
+                                              ),
+                                              TextSpan(
+                                                text: displayBankName,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  color: isDark ? Colors.white : const Color(0xFF1E293B),
                                                 ),
                                               ),
                                             ],
                                           ),
                                         ),
-                                        const Spacer(),
-                                        Row(
+                                      ),
+                                      const SizedBox(width: 8),
+                                      GestureDetector(
+                                        onTap: () => FundWalletSheet.show(context, initialAccounts: accounts),
+                                        child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             Text(
-                                              accounts.length > 1 ? 'View all (${accounts.length})' : 'Instant credit',
+                                              accounts.length > 1 ? 'All banks (${accounts.length})' : 'Instant credit',
                                               style: TextStyle(
-                                                fontSize: 11,
+                                                fontSize: 10.5,
                                                 fontWeight: FontWeight.w700,
-                                                color: isDark ? const Color(0xFF38BDF8) : Theme.of(context).colorScheme.primary,
+                                                color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB),
                                               ),
                                             ),
                                             const SizedBox(width: 2),
                                             Icon(
-                                              Icons.chevron_right_rounded,
-                                              size: 15,
-                                              color: isDark ? const Color(0xFF38BDF8) : Theme.of(context).colorScheme.primary,
+                                              Icons.arrow_forward_rounded,
+                                              size: 12,
+                                              color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB),
                                             ),
                                           ],
                                         ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-
-                                    // Row 2: Full Bank Name
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'BANK: ',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w900,
-                                            color: isDark ? Colors.white54 : const Color(0xFF64748B),
-                                            letterSpacing: 0.5,
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                displayBankName,
-                                                style: TextStyle(
-                                                  fontSize: 13.5,
-                                                  fontWeight: FontWeight.w800,
-                                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                                  height: 1.2,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 3),
-                                              Text(
-                                                bankSearchHint,
-                                                style: TextStyle(
-                                                  fontSize: 10.5,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-
-                                    // Row 3: Account Number & Copy Button
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'ACCOUNT NUMBER:',
-                                                style: TextStyle(
-                                                  fontSize: 9.5,
-                                                  fontWeight: FontWeight.w800,
-                                                  color: isDark ? Colors.white54 : const Color(0xFF64748B),
-                                                  letterSpacing: 0.5,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 1),
-                                              Text(
-                                                formattedNumber.isNotEmpty ? formattedNumber : accountNumber,
-                                                style: TextStyle(
-                                                  fontSize: 19,
-                                                  fontWeight: FontWeight.w900,
-                                                  letterSpacing: 1.5,
-                                                  fontFamily: 'monospace',
-                                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Material(
-                                          color: Colors.transparent,
-                                          child: InkWell(
-                                            onTap: () => _copyAccountNumber(accountNumber),
-                                            borderRadius: BorderRadius.circular(8),
-                                            child: Ink(
-                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                                              decoration: BoxDecoration(
-                                                color: isDark ? const Color(0xFF334155) : const Color(0xFFEFF6FF),
-                                                borderRadius: BorderRadius.circular(8),
-                                                border: Border.all(
-                                                  color: isDark ? const Color(0xFF475569) : const Color(0xFFBFDBFE),
-                                                ),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons.copy_rounded,
-                                                    size: 13,
-                                                    color: isDark ? Colors.white : const Color(0xFF2563EB),
-                                                  ),
-                                                  const SizedBox(width: 5),
-                                                  Text(
-                                                    'Copy',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight: FontWeight.w800,
-                                                      color: isDark ? Colors.white : const Color(0xFF2563EB),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-
-                                    // Row 4: Account Name (if available)
-                                    if (accountHolderName.isNotEmpty) ...[
-                                      const SizedBox(height: 6),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            'ACCOUNT NAME: ',
-                                            style: TextStyle(
-                                              fontSize: 9.5,
-                                              fontWeight: FontWeight.w800,
-                                              color: isDark ? Colors.white54 : const Color(0xFF64748B),
-                                              letterSpacing: 0.4,
-                                            ),
-                                          ),
-                                          Expanded(
-                                            child: Text(
-                                              accountHolderName,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w700,
-                                                color: isDark ? Colors.white70 : const Color(0xFF334155),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
                                       ),
                                     ],
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
                             );
                           },

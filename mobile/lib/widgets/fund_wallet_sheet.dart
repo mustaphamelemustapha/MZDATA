@@ -643,242 +643,281 @@ class _FundWalletSheetState extends State<FundWalletSheet> {
     );
   }
 
+  String _getShortBankName(String rawBank) {
+    final lower = rawBank.toLowerCase();
+    if (lower.contains('palmpay')) return 'PalmPay';
+    if (lower.contains('moniepoint') || lower.contains('monnify')) return 'Moniepoint';
+    if (lower.contains('safehaven') || lower.contains('safe haven')) return 'Safe Haven';
+    if (lower.contains('9psb') || lower.contains('9 payment')) return '9PSB';
+    if (lower.contains('titan') || lower.contains('paystack')) return 'Titan Trust';
+    if (lower.contains('paga')) return 'Paga';
+    if (lower.contains('wema')) return 'Wema Bank';
+    if (lower.contains('sterling')) return 'Sterling';
+    return rawBank.split(' ').first;
+  }
+
   Widget _buildBankCard(Map<String, dynamic> account, bool isDark, Color cardColor, Color textColor) {
     final rawBank = (account['bank_name'] ?? 'Bank').toString().trim();
     final bankName = _formatBankDisplayName(rawBank);
-    final accountNumber = (account['account_number'] ?? '').toString();
-    final accountName = (account['account_name'] ?? '').toString();
+    final shortBank = _getShortBankName(rawBank);
+    final accountNumber = (account['account_number'] ?? '').toString().trim();
+    final accountName = (account['account_name'] ?? '').toString().trim();
+    final searchHint = _getBankAppSearchHint(rawBank);
+
+    final Color badgeBg;
+    final Color badgeBorder;
+    final Color badgeText;
+    final bankLower = rawBank.toLowerCase();
+    if (bankLower.contains('palmpay')) {
+      badgeBg = isDark ? const Color(0xFF2E1065) : const Color(0xFFF3E8FF);
+      badgeBorder = isDark ? const Color(0xFF6B21A8) : const Color(0xFFD8B4FE);
+      badgeText = isDark ? const Color(0xFFD8B4FE) : const Color(0xFF7E22CE);
+    } else if (bankLower.contains('moniepoint') || bankLower.contains('monnify')) {
+      badgeBg = isDark ? const Color(0xFF1E3A8A) : const Color(0xFFEFF6FF);
+      badgeBorder = isDark ? const Color(0xFF1D4ED8) : const Color(0xFFBFDBFE);
+      badgeText = isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8);
+    } else if (bankLower.contains('safehaven') || bankLower.contains('safe haven')) {
+      badgeBg = isDark ? const Color(0xFF064E3B) : const Color(0xFFECFDF5);
+      badgeBorder = isDark ? const Color(0xFF047857) : const Color(0xFFA7F3D0);
+      badgeText = isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857);
+    } else if (bankLower.contains('9psb') || bankLower.contains('9 payment')) {
+      badgeBg = isDark ? const Color(0xFF4C0519) : const Color(0xFFFFF1F2);
+      badgeBorder = isDark ? const Color(0xFF9F1239) : const Color(0xFFFECDD3);
+      badgeText = isDark ? const Color(0xFFFDA4AF) : const Color(0xFFBE123C);
+    } else {
+      badgeBg = isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9);
+      badgeBorder = isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1);
+      badgeText = isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569);
+    }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(18),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: textColor.withOpacity(0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.65) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Bank Header
+          // Top Row: Account Number & Copy Button (Left), Bank Badge Pill (Right)
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.account_balance, color: Color(0xFF2563EB), size: 20),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'VIRTUAL ACCOUNT NUMBER',
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        accountNumber,
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.0,
+                          fontFamily: 'monospace',
+                          color: textColor,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: () => _copyToClipboard(accountNumber),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.copy_rounded,
+                            size: 15,
+                            color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              // Bank Badge Pill
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: badgeBg,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: badgeBorder),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      'BANK NAME',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: textColor.withOpacity(0.55),
-                        letterSpacing: 0.8,
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: badgeText,
+                        shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(width: 6),
                     Text(
-                      bankName,
+                      shortBank,
                       style: TextStyle(
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.w900,
-                        color: textColor,
-                        height: 1.2,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: badgeText,
+                        letterSpacing: 0.2,
                       ),
                     ),
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD1FAE5),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'AUTOMATED',
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF059669),
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
             ],
           ),
-          const SizedBox(height: 14),
-          Divider(color: textColor.withOpacity(0.08), height: 1),
-          const SizedBox(height: 14),
 
-          // Account Number
+          const SizedBox(height: 10),
+          Divider(
+            height: 1,
+            thickness: 0.8,
+            color: isDark ? const Color(0xFF334155).withValues(alpha: 0.5) : const Color(0xFFE2E8F0),
+          ),
+          const SizedBox(height: 8),
+
+          // Bottom Section: Bank Name & Search Hint (Left) + Compact Action Buttons (Right)
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'ACCOUNT NUMBER',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  color: textColor.withOpacity(0.55),
-                  letterSpacing: 0.8,
-                ),
-              ),
-              Text(
-                'Tap to copy',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF2563EB),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          InkWell(
-            onTap: () => _copyToClipboard(accountNumber),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Text(
-                _formatAccountNumberDisplay(accountNumber),
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.8,
-                  color: textColor,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ),
-          ),
-
-          // Account Name
-          if (accountName.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              'ACCOUNT NAME',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: textColor.withOpacity(0.55),
-                letterSpacing: 0.8,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              accountName,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: textColor.withOpacity(0.85),
-              ),
-            ),
-          ],
-          const SizedBox(height: 14),
-
-          // Instructions for local customers
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: textColor.withOpacity(0.06)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.lightbulb_outline_rounded, size: 16, color: Color(0xFFD97706)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _getBankAppSearchHint(rawBank),
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: textColor.withOpacity(0.80),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Action Buttons: Copy Number (Soft Blue) | Share Details (Vibrant Green)
-          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: GestureDetector(
-                  onTap: () => _copyToClipboard(accountNumber),
-                  child: Container(
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.copy_rounded, color: Color(0xFF2563EB), size: 16),
-                        SizedBox(width: 8),
-                        Text(
-                          'Copy Number',
-                          style: TextStyle(
-                            color: Color(0xFF2563EB),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 13,
-                          ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RichText(
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      text: TextSpan(
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                         ),
-                      ],
+                        children: [
+                          const TextSpan(
+                            text: 'BANK: ',
+                            style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.3),
+                          ),
+                          TextSpan(
+                            text: bankName,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: textColor,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                    if (accountName.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Name: $accountName',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                          color: textColor.withOpacity(0.70),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 2),
+                    Text(
+                      searchHint,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => _shareDetails(bankName, accountNumber, accountName),
-                  child: Container(
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.ios_share, color: Colors.white, size: 16),
-                        SizedBox(width: 8),
-                        Text(
-                          'Share Details',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 13,
+              const SizedBox(width: 8),
+              // Compact Copy & Share Action Buttons
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _copyToClipboard(accountNumber),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Ink(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF334155) : const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isDark ? const Color(0xFF475569) : const Color(0xFFBFDBFE),
                           ),
                         ),
-                      ],
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.copy_rounded,
+                              size: 13,
+                              color: isDark ? Colors.white : const Color(0xFF2563EB),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Copy',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: isDark ? Colors.white : const Color(0xFF2563EB),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 6),
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _shareDetails(bankName, accountNumber, accountName),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Ink(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.share_outlined,
+                          size: 14,
+                          color: isDark ? Colors.white70 : const Color(0xFF475569),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
