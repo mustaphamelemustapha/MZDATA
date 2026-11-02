@@ -1,33 +1,42 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Copy, RefreshCw, Wallet2, ChevronLeft, ChevronRight, Landmark, Sparkles, Plus, ShieldCheck } from 'lucide-react';
-import { apiFetch } from '@/lib/api';
+import { Check, Copy, RefreshCw, Wallet2, ChevronLeft, ChevronRight, Landmark, Sparkles, Plus, ShieldCheck, ArrowUpRight } from 'lucide-react';
+import { apiFetch, getProfile } from '@/lib/api';
+import { getActiveBrand } from '@/lib/brand';
 import { formatDateTime, formatMoney, formatBankDisplayName, getBankAppSearchHint, formatAccountNumber, sortFundingAccounts, getBankStyle } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/page-header';
 import { LinkBvnNinModal } from '@/components/link-bvn-nin-modal';
+import { WithdrawModal } from '@/components/withdraw-modal';
 
 export default function WalletPage() {
   const [wallet, setWallet] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [ledger, setLedger] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
   const [showKycModal, setShowKycModal] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const brand = getActiveBrand();
+  const isMeleData = brand?.key === 'meledata';
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [walletRes, ledgerRes, accountRes] = await Promise.allSettled([
+      const [walletRes, ledgerRes, accountRes, profileRes] = await Promise.allSettled([
         apiFetch('/wallet/me'),
         apiFetch('/wallet/ledger'),
         apiFetch('/wallet/bank-transfer-accounts'),
+        apiFetch('/auth/me'),
       ]);
       if (walletRes.status === 'fulfilled') setWallet(walletRes.value);
       if (ledgerRes.status === 'fulfilled') setLedger(Array.isArray(ledgerRes.value) ? ledgerRes.value : []);
+      if (profileRes.status === 'fulfilled') setProfile(profileRes.value);
       if (accountRes.status === 'fulfilled') {
         const accs = Array.isArray(accountRes.value?.accounts) ? accountRes.value.accounts : [];
         setAccounts(accs);
@@ -60,7 +69,16 @@ export default function WalletPage() {
         title="Balance, transfer details, and ledger"
         description="A focused wallet workspace with the information the user needs to fund accounts and review movements."
         actions={(
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {isMeleData && (
+              <Button
+                onClick={() => setShowWithdrawModal(true)}
+                className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm gap-1.5 h-9"
+              >
+                <ArrowUpRight className="h-4 w-4" />
+                Withdraw to Bank
+              </Button>
+            )}
             <Button
               onClick={() => setShowKycModal(true)}
               className="rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-sm hover:bg-primary/90 gap-1.5 h-9"
@@ -322,6 +340,18 @@ export default function WalletPage() {
         setActiveIndex(0);
         load();
       }}
+    />
+
+    {/* Bank Withdrawal Modal (Mele Data) */}
+    <WithdrawModal
+      open={showWithdrawModal}
+      onClose={() => setShowWithdrawModal(false)}
+      onSuccess={() => {
+        load();
+      }}
+      onOpenKyc={() => setShowKycModal(true)}
+      walletBalance={wallet?.balance || 0}
+      userProfile={profile}
     />
     </div>
   );
