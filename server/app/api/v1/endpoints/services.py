@@ -20,7 +20,7 @@ from app.schemas.services import (
     ExamPurchaseRequest,
     ServicesCatalogOut,
 )
-from app.services.bills import get_bills_provider
+from app.services.bills import get_bills_provider, get_fallback_bills_provider
 from app.services.fraud import enforce_purchase_limits
 from app.services.wallet import get_or_create_wallet, debit_wallet, credit_wallet
 from app.services.pricing import get_service_charge_for_user
@@ -71,7 +71,7 @@ def _client_request_reference(prefix: str, user_id: int, request_id: str | None)
 
 def _provider_status(result) -> str:
     meta = result.meta or {}
-    for provider_key in ("vtpass", "clubkonnect"):
+    for provider_key in ("vtpass", "clubkonnect", "autosync"):
         status = str((meta.get(provider_key) or {}).get("status") or "").strip().lower()
         if status:
             return status
@@ -171,16 +171,16 @@ def services_catalog(user: User = Depends(get_current_user)):
             "benin",
             "aba",
         ],
-        "exam_types": ["waec", "neco", "jamb"],
+        "exam_types": ["waec", "neco", "nabteb", "jamb"],
     }
 
 
 @router.get("/exam/packages")
 def exam_packages(exam: str, user: User = Depends(get_current_user)):
     exam_key = str(exam or "").strip().lower()
-    if exam_key not in {"waec", "jamb"}:
-        raise HTTPException(status_code=400, detail="Exam must be one of: waec, jamb")
-    provider = get_bills_provider()
+    if exam_key not in {"waec", "neco", "nabteb", "jamb"}:
+        raise HTTPException(status_code=400, detail="Exam must be one of: waec, neco, nabteb, jamb")
+    provider = get_bills_provider("exam")
     packages = _fetch_exam_packages(provider, exam_key)
     if not packages:
         raise HTTPException(status_code=503, detail=f"Unable to load {exam_key.upper()} packages right now.")
@@ -191,7 +191,7 @@ def exam_packages(exam: str, user: User = Depends(get_current_user)):
 @limiter.limit("5/minute")
 def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _ensure_service_table(db)
-    wallet = get_or_create_wallet(db, user.id)
+    wallet = get_or_create_wallet(db, user.id, for_update=True)
     base_amount = Decimal(payload.amount)
     charge_amount, margin = get_service_charge_for_user(
         db,
@@ -212,6 +212,35 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
                 f"Selected network {selected_network.upper()} does not match."
             ),
         )
+        
+    user_promo = None
+    if getattr(payload, "user_promo_id", None):
+        from app.models.promo import UserPromo
+        from datetime import datetime, timezone
+        user_promo = db.query(UserPromo).filter(
+            UserPromo.id == payload.user_promo_id,
+            UserPromo.user_id == user.id,
+            UserPromo.status == "READY"
+        ).first()
+        if not user_promo:
+            raise HTTPException(status_code=400, detail="Invalid or expired promo.")
+            
+        promo_code = user_promo.promo_code
+        if not promo_code.is_active or (promo_code.expires_at and promo_code.expires_at < datetime.now(timezone.utc)):
+            raise HTTPException(status_code=400, detail="Promo code is inactive or expired.")
+            
+        if promo_code.applicable_network != "ALL" and promo_code.applicable_network.upper() != selected_network.upper():
+            raise HTTPException(status_code=400, detail=f"Promo is only applicable for {promo_code.applicable_network}.")
+            
+        # For airtime, applicable_plan_size doesn't apply strictly, or we can consider base_amount
+        if promo_code.applicable_plan_size != "ALL":
+            pass # Usually size refers to Data, but if needed we could match exact amount
+            
+        discount = Decimal(str(promo_code.discount_amount))
+        if promo_code.is_percentage:
+            discount = charge_amount * (discount / Decimal(100))
+        charge_amount = max(Decimal(0), charge_amount - discount)
+
     enforce_purchase_limits(db, user_id=user.id, amount=charge_amount, tx_type=TransactionType.AIRTIME.value)
     if Decimal(wallet.balance) < charge_amount:
         raise HTTPException(status_code=400, detail="Insufficient balance")
@@ -223,6 +252,8 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
     # 1. DEBIT WALLET
     try:
         debit_wallet(db, wallet, charge_amount, reference, "Airtime purchase")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Wallet debit failed: {e}")
         raise HTTPException(status_code=400, detail="Wallet debit failed.")
@@ -253,44 +284,71 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
     fcm_token = user.fcm_token
     db.close()
 
-    try:
-        from app.providers.meledata_provider import MeleDataProvider
-        provider = MeleDataProvider()
-        result = provider.purchase_airtime(tx.provider or "", tx.customer or "", float(base_amount), reference=reference)
-    except Exception as exc:
-        from app.core.database import SessionLocal
-        db2 = SessionLocal()
+    provider = get_bills_provider("airtime")
+    
+    def attempt_purchase(p_instance, ref):
         try:
-            tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
-            if not tx:
-                raise HTTPException(status_code=404, detail="Transaction not found")
-            if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
-                db2.commit()
-                return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
-            wallet = get_or_create_wallet(db2, user_id)
-            if _is_transport_error(exc):
-                logger.warning("Airtime provider confirmation delayed ref=%s error=%s", reference, exc)
-                _mark_pending_confirmation(db2, tx, {"provider_error": str(exc)})
-                return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE}
-            logger.exception("Airtime purchase failed with non-transport provider error ref=%s", reference)
-            tx.failure_reason = str(exc) or "Provider failed"
-            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase", commit=False)
-            tx.status = TransactionStatus.REFUNDED.value
-            db2.commit()
-            raise HTTPException(status_code=502, detail=tx.failure_reason)
-        finally:
-            db2.close()
+            return p_instance.purchase_airtime(
+                tx.provider or "", 
+                tx.customer or "", 
+                float(base_amount),
+                reference=ref
+            ), None
+        except Exception as e:
+            return None, e
+            
+    result, exc = attempt_purchase(provider, reference)
+    
+    needs_fallback = False
+    if exc and not _is_transport_error(exc):
+        needs_fallback = True
+    elif result and not result.success and _provider_status(result) not in _PROVIDER_PENDING_STATUS:
+        needs_fallback = True
+        
+    if needs_fallback:
+        fallback = get_fallback_bills_provider(provider)
+        if fallback:
+            logger.warning("Primary airtime provider failed, attempting fallback. Error: %s", exc or (result.message if result else "unknown"))
+            primary_meta = {"primary_error": str(exc) if exc else (result.message if result else "unknown")}
+            if result and result.meta:
+                primary_meta.update(result.meta)
+            
+            result, exc = attempt_purchase(fallback, f"{reference}_FB")
+            
+            if result and result.meta:
+                result.meta = {**primary_meta, **result.meta}
+            elif result:
+                result.meta = primary_meta
 
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
-        if not tx:
-            raise HTTPException(status_code=404, detail="Transaction not found")
-        if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
-            db2.commit()
-            return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
+        tx = db2.query(ServiceTransaction).get(tx_id)
         wallet = get_or_create_wallet(db2, user_id)
+        
+        if exc:
+            if _is_transport_error(exc):
+                logger.warning("Airtime provider confirmation delayed ref=%s error=%s", reference, exc)
+                _mark_pending_confirmation(db2, tx, {"provider_error": str(exc)})
+                return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE}
+            
+            logger.exception("Airtime purchase failed with non-transport provider error ref=%s", reference)
+            tx.failure_reason = str(exc) or "Provider failed"
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase")
+            tx.status = TransactionStatus.REFUNDED.value
+            db2.commit()
+            if fcm_token:
+                try:
+                    from app.services.push_notification import PushNotificationService
+                    PushNotificationService.send_to_token(
+                        token=fcm_token,
+                        title="Airtime Purchase Failed",
+                        body=f"Your purchase of ₦{float(base_amount)} {payload.network.upper()} airtime for {payload.phone_number} failed. A refund of ₦{float(charge_amount)} has been credited to your wallet.",
+                        data={"type": "transaction", "reference": reference, "status": "refunded"}
+                    )
+                except Exception as e:
+                    logger.warning("Failed to send push notification: %s", e)
+            raise HTTPException(status_code=502, detail=tx.failure_reason)
         
         provider_status = _provider_status(result)
         if provider_status in _PROVIDER_PENDING_STATUS:
@@ -299,13 +357,30 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
             if result.meta:
                 tx.meta = {**(tx.meta or {}), **result.meta}
             tx.failure_reason = result.message or _PENDING_CONFIRMATION_MESSAGE
+            
+            if getattr(payload, "user_promo_id", None):
+                from app.models.promo import UserPromo
+                from datetime import datetime, timezone
+                up = db2.query(UserPromo).get(payload.user_promo_id)
+                if up:
+                    up.status = "USED"
+                    up.used_at = datetime.now(timezone.utc)
             db2.commit()
             return {"reference": reference, "status": tx.status, "message": tx.failure_reason}
+            
         if result.success:
             tx.status = TransactionStatus.SUCCESS.value
             tx.external_reference = result.external_reference
             if result.meta:
                 tx.meta = {**(tx.meta or {}), **result.meta}
+            
+            if getattr(payload, "user_promo_id", None):
+                from app.models.promo import UserPromo
+                from datetime import datetime, timezone
+                up = db2.query(UserPromo).get(payload.user_promo_id)
+                if up:
+                    up.status = "USED"
+                    up.used_at = datetime.now(timezone.utc)
             db2.commit()
             if fcm_token:
                 try:
@@ -323,7 +398,7 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
         tx.failure_reason = result.message or "Provider failed"
         if result.meta:
             tx.meta = {**(tx.meta or {}), **result.meta}
-        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase", commit=False)
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed airtime purchase")
         tx.status = TransactionStatus.REFUNDED.value
         db2.commit()
         if fcm_token:
@@ -346,7 +421,7 @@ def purchase_airtime(request: Request, payload: AirtimePurchaseRequest, user: Us
 @limiter.limit("5/minute")
 def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _ensure_service_table(db)
-    wallet = get_or_create_wallet(db, user.id)
+    wallet = get_or_create_wallet(db, user.id, for_update=True)
     base_amount = Decimal(payload.amount)
     charge_amount, margin = get_service_charge_for_user(
         db,
@@ -368,6 +443,8 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
     # 1. DEBIT WALLET
     try:
         debit_wallet(db, wallet, charge_amount, reference, "Cable subscription")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Wallet debit failed: {e}")
         raise HTTPException(status_code=400, detail="Wallet debit failed.")
@@ -402,7 +479,7 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
     fcm_token = user.fcm_token
     db.close()
 
-    provider = get_bills_provider()
+    provider = get_bills_provider("cable")
     try:
         result = provider.purchase_cable(
             tx.provider or "",
@@ -410,17 +487,13 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
             tx.product_code or "",
             float(base_amount),
             payload.phone_number.strip(),
+            reference=reference
         )
     except Exception as exc:
         from app.core.database import SessionLocal
         db2 = SessionLocal()
         try:
-            tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
-            if not tx:
-                raise HTTPException(status_code=404, detail="Transaction not found")
-            if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
-                db2.commit()
-                return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
+            tx = db2.query(ServiceTransaction).get(tx_id)
             wallet = get_or_create_wallet(db2, user_id)
             if _is_transport_error(exc):
                 logger.warning("Cable provider confirmation delayed ref=%s error=%s", reference, exc)
@@ -428,7 +501,7 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
                 return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE}
             logger.exception("Cable purchase failed with non-transport provider error ref=%s", reference)
             tx.failure_reason = str(exc) or "Provider failed"
-            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase", commit=False)
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase")
             tx.status = TransactionStatus.REFUNDED.value
             db2.commit()
             raise HTTPException(status_code=502, detail=tx.failure_reason)
@@ -438,12 +511,7 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
-        if not tx:
-            raise HTTPException(status_code=404, detail="Transaction not found")
-        if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
-            db2.commit()
-            return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
+        tx = db2.query(ServiceTransaction).get(tx_id)
         wallet = get_or_create_wallet(db2, user_id)
 
         provider_status = _provider_status(result)
@@ -477,7 +545,7 @@ def purchase_cable(request: Request, payload: CablePurchaseRequest, user: User =
         tx.failure_reason = result.message or "Provider failed"
         if result.meta:
             tx.meta = {**(tx.meta or {}), **result.meta}
-        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase", commit=False)
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed cable purchase")
         tx.status = TransactionStatus.REFUNDED.value
         db2.commit()
         if fcm_token:
@@ -501,7 +569,7 @@ def cable_packages(provider: str, user: User = Depends(get_current_user)):
     provider_key = str(provider or "").strip().lower()
     if not provider_key:
         raise HTTPException(status_code=400, detail="Provider is required.")
-    service = get_bills_provider()
+    service = get_bills_provider("cable")
     fetcher = getattr(service, "fetch_cable_packages", None)
     if not callable(fetcher):
         return {"provider": provider_key, "packages": []}
@@ -545,7 +613,7 @@ def cable_verify(
     smartcard = str(payload.smartcard_number or "").strip()
     if not provider_key or not smartcard:
         raise HTTPException(status_code=400, detail="Provider and smartcard number are required.")
-    service = get_bills_provider()
+    service = get_bills_provider("cable")
     verifier = getattr(service, "verify_cable_customer", None)
     if not callable(verifier):
         return {"ok": False, "message": "Smartcard verification is unavailable right now."}
@@ -569,7 +637,7 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
     disco = str(payload.disco or "").strip().lower()
     if disco in {"yola", "yedc"}:
         raise HTTPException(status_code=400, detail="Yola Electricity subscription is temporarily unavailable.")
-    wallet = get_or_create_wallet(db, user.id)
+    wallet = get_or_create_wallet(db, user.id, for_update=True)
     base_amount = Decimal(payload.amount)
     charge_amount, margin = get_service_charge_for_user(
         db,
@@ -591,6 +659,8 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
     # 1. DEBIT WALLET
     try:
         debit_wallet(db, wallet, charge_amount, reference, "Electricity purchase")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Wallet debit failed: {e}")
         raise HTTPException(status_code=400, detail="Wallet debit failed.")
@@ -624,7 +694,7 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
     fcm_token = user.fcm_token
     db.close()
 
-    provider = get_bills_provider()
+    provider = get_bills_provider("electricity")
     try:
         result = provider.purchase_electricity(
             tx.provider or "",
@@ -632,17 +702,13 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
             tx.product_code or "",
             float(base_amount),
             payload.phone_number.strip(),
+            reference=reference
         )
     except Exception as exc:
         from app.core.database import SessionLocal
         db2 = SessionLocal()
         try:
-            tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
-            if not tx:
-                raise HTTPException(status_code=404, detail="Transaction not found")
-            if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
-                db2.commit()
-                return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
+            tx = db2.query(ServiceTransaction).get(tx_id)
             wallet = get_or_create_wallet(db2, user_id)
             if _is_transport_error(exc):
                 logger.warning("Electricity provider confirmation delayed ref=%s error=%s", reference, exc)
@@ -650,7 +716,7 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
                 return {"reference": reference, "status": tx.status, "message": _PENDING_CONFIRMATION_MESSAGE, "token": (tx.meta or {}).get("token")}
             logger.exception("Electricity purchase failed with non-transport provider error ref=%s", reference)
             tx.failure_reason = str(exc) or "Provider failed"
-            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase", commit=False)
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase")
             tx.status = TransactionStatus.REFUNDED.value
             db2.commit()
             raise HTTPException(status_code=502, detail=tx.failure_reason)
@@ -660,12 +726,7 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
-        if not tx:
-            raise HTTPException(status_code=404, detail="Transaction not found")
-        if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
-            db2.commit()
-            return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
+        tx = db2.query(ServiceTransaction).get(tx_id)
         wallet = get_or_create_wallet(db2, user_id)
 
         provider_status = _provider_status(result)
@@ -703,7 +764,7 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
         tx.failure_reason = result.message or "Provider failed"
         if result.meta:
             tx.meta = {**(tx.meta or {}), **result.meta}
-        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase", commit=False)
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed electricity purchase")
         tx.status = TransactionStatus.REFUNDED.value
         db2.commit()
         if fcm_token:
@@ -724,7 +785,7 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
 
 @router.get("/electricity/discos")
 def electricity_discos(user: User = Depends(get_current_user)):
-    service = get_bills_provider()
+    service = get_bills_provider("electricity")
     fetcher = getattr(service, "fetch_electricity_discos", None)
     if not callable(fetcher):
         return {
@@ -790,7 +851,7 @@ def electricity_verify(request: Request, payload: ElectricityVerifyRequest, user
     if not disco or not meter_number or not meter_type:
         raise HTTPException(status_code=400, detail="Disco, meter type, and meter number are required.")
 
-    service = get_bills_provider()
+    service = get_bills_provider("electricity")
     verifier = getattr(service, "verify_electricity_customer", None)
     if not callable(verifier):
         return {"ok": False, "message": "Meter verification is unavailable right now."}
@@ -812,10 +873,10 @@ def electricity_verify(request: Request, payload: ElectricityVerifyRequest, user
 def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _ensure_service_table(db)
     exam_key = str(payload.exam or "").strip().lower()
-    if exam_key not in {"waec", "jamb"}:
-        raise HTTPException(status_code=400, detail="Exam must be WAEC or JAMB")
+    if exam_key not in {"waec", "neco", "nabteb", "jamb"}:
+        raise HTTPException(status_code=400, detail="Exam must be one of: waec, neco, nabteb, jamb")
 
-    provider = get_bills_provider()
+    provider = get_bills_provider("exam")
     selected_exam_type = str(payload.exam_type or "").strip()
     packages = _fetch_exam_packages(provider, exam_key)
     if not selected_exam_type and packages:
@@ -841,7 +902,7 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
         raise HTTPException(status_code=400, detail="Final amount must be greater than zero")
     enforce_purchase_limits(db, user_id=user.id, amount=charge_amount, tx_type=TransactionType.EXAM.value)
 
-    wallet = get_or_create_wallet(db, user.id)
+    wallet = get_or_create_wallet(db, user.id, for_update=True)
     if Decimal(wallet.balance) < charge_amount:
         raise HTTPException(status_code=400, detail="Insufficient balance")
 
@@ -852,6 +913,8 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
     # 1. DEBIT WALLET
     try:
         debit_wallet(db, wallet, charge_amount, reference, "Exam pin purchase")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Wallet debit failed: {e}")
         raise HTTPException(status_code=400, detail="Wallet debit failed.")
@@ -898,12 +961,7 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
         from app.core.database import SessionLocal
         db2 = SessionLocal()
         try:
-            tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
-            if not tx:
-                raise HTTPException(status_code=404, detail="Transaction not found")
-            if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
-                db2.commit()
-                return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
+            tx = db2.query(ServiceTransaction).get(tx_id)
             wallet = get_or_create_wallet(db2, user_id)
             if _is_transport_error(exc):
                 logger.warning("Exam provider confirmation delayed ref=%s error=%s", reference, exc)
@@ -911,7 +969,7 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
                 return {"reference": reference, "status": tx.status, "pins": (tx.meta or {}).get("pins", []), "message": _PENDING_CONFIRMATION_MESSAGE}
             logger.exception("Exam purchase failed with non-transport provider error ref=%s", reference)
             tx.failure_reason = str(exc) or "Provider failed"
-            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase", commit=False)
+            credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase")
             tx.status = TransactionStatus.REFUNDED.value
             db2.commit()
             raise HTTPException(status_code=502, detail=tx.failure_reason)
@@ -921,12 +979,7 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        tx = db2.query(ServiceTransaction).with_for_update().get(tx_id)
-        if not tx:
-            raise HTTPException(status_code=404, detail="Transaction not found")
-        if tx.status in {TransactionStatus.SUCCESS.value, TransactionStatus.REFUNDED.value, "success", "refunded"}:
-            db2.commit()
-            return {"reference": reference, "status": tx.status, "message": "Transaction already processed asynchronously"}
+        tx = db2.query(ServiceTransaction).get(tx_id)
         wallet = get_or_create_wallet(db2, user_id)
 
         provider_status = _provider_status(result)
@@ -964,7 +1017,7 @@ def purchase_exam_pin(request: Request, payload: ExamPurchaseRequest, user: User
         tx.failure_reason = result.message or "Provider failed"
         if result.meta:
             tx.meta = {**(tx.meta or {}), **result.meta}
-        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase", commit=False)
+        credit_wallet(db2, wallet, charge_amount, reference, "Auto refund for failed exam pin purchase")
         tx.status = TransactionStatus.REFUNDED.value
         db2.commit()
         if fcm_token:

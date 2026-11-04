@@ -151,6 +151,12 @@ class Settings(BaseSettings):
     wallettopup_base_url: AnyHttpUrl = "https://wallettopup.com/api"
     wallettopup_api_key: str = ""
 
+    # Telecom Abode API
+    telecom_abode_base_url: str = "https://telecomabode.com.ng/api"
+    telecom_abode_api_key: str = ""
+    telecom_abode_enabled: bool = False
+    telecom_abode_timeout_seconds: int = 30
+
     # Fraud / abuse guardrails for purchases
     fraud_guard_enabled: bool = True
     fraud_single_tx_limit_ngn: Decimal = Decimal("50000")

@@ -10,8 +10,18 @@ from typing import Any
 
 import httpx
 
-from app.core.config import get_settings
+GLOBAL_HTTP_CLIENT = httpx.Client(timeout=30.0)
+GLOBAL_HTTP_CLIENT_FOLLOW = httpx.Client(timeout=30.0, follow_redirects=True)
 
+from app.core.config import get_settings
+from app.core.database import SessionLocal
+from app.models.system_settings import SystemSettings
+from app.models.integration import IntegrationProvider
+from app.providers.autosync_provider import AutosyncProvider
+from app.providers.boltnet_provider import BoltnetProvider
+from app.providers.telecom_abode_provider import TelecomAbodeProvider
+from app.providers.meledata_provider import MeleDataProvider
+from app.services.amigo import resolve_network_id
 
 @dataclass
 class ProviderResult:
@@ -300,38 +310,29 @@ def _extract_token(purchased_code: str | None) -> str | None:
 
 
 class VTPassBillsProvider:
-    def __init__(self):
-        self.base_url = _normalize_vtpass_base_url(str(settings.vtpass_base_url))
-        self.api_key = settings.vtpass_api_key or ""
-        self.public_key = settings.vtpass_public_key or ""
-        self.secret_key = settings.vtpass_secret_key or ""
+    def __init__(self, base_url=None, api_key=None, public_key=None, secret_key=None):
+        self.base_url = _normalize_vtpass_base_url(base_url or str(settings.vtpass_base_url))
+        self.api_key = api_key or settings.vtpass_api_key or ""
+        self.public_key = public_key or settings.vtpass_public_key or ""
+        self.secret_key = secret_key or settings.vtpass_secret_key or ""
         self.timeout = settings.vtpass_timeout_seconds
 
     def _post_headers(self) -> dict:
         headers = {
-            "api-key": self.api_key,
-            "secret-key": self.secret_key,
+            "api-key": str(self.api_key or "").strip(),
+            "public-key": str(self.public_key or "").strip(),
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-        if self.api_key and self.secret_key:
-            basic = base64.b64encode(f"{self.api_key}:{self.secret_key}".encode("utf-8")).decode("utf-8")
-            headers["Authorization"] = f"Basic {basic}"
         return headers
 
     def _get_headers(self) -> dict:
         headers = {
-            "api-key": self.api_key,
+            "api-key": str(self.api_key or "").strip(),
+            "secret-key": str(self.secret_key or "").strip(),
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-        if self.public_key:
-            headers["public-key"] = self.public_key
-        if self.secret_key:
-            headers["secret-key"] = self.secret_key
-        if self.api_key and self.secret_key:
-            basic = base64.b64encode(f"{self.api_key}:{self.secret_key}".encode("utf-8")).decode("utf-8")
-            headers["Authorization"] = f"Basic {basic}"
         return headers
 
     @staticmethod
@@ -357,8 +358,8 @@ class VTPassBillsProvider:
     def _post(self, path: str, payload: dict) -> dict:
         url = f"{self.base_url}{path}"
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.post(url, json=payload, headers=self._post_headers())
+            client = GLOBAL_HTTP_CLIENT
+            res = client.post(url, json=payload, headers=self._post_headers())
         except Exception as exc:
             raise RuntimeError(f"VTPass network error: {exc}") from exc
         data = self._safe_json(res)
@@ -370,8 +371,8 @@ class VTPassBillsProvider:
     def _get(self, path: str, params: dict | None = None) -> dict:
         url = f"{self.base_url}{path}"
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.get(url, params=params, headers=self._get_headers())
+            client = GLOBAL_HTTP_CLIENT
+            res = client.get(url, params=params, headers=self._get_headers())
         except Exception as exc:
             raise RuntimeError(f"VTPass network error: {exc}") from exc
         data = self._safe_json(res)
@@ -500,7 +501,7 @@ class VTPassBillsProvider:
                 return service_id, code
         return None, None
 
-    def purchase_airtime(self, network: str, phone_number: str, amount: float) -> ProviderResult:
+    def purchase_airtime(self, network: str, phone_number: str, amount: float, reference: str | None = None) -> ProviderResult:
         payload = {
             "request_id": _vtpass_request_id(),
             "serviceID": _airtime_service_id(network),
@@ -510,7 +511,7 @@ class VTPassBillsProvider:
         data = self._post("/pay", payload)
         return self._parse_result(data)
 
-    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str) -> ProviderResult:
+    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str, reference: str | None = None) -> ProviderResult:
         payload = {
             "request_id": _vtpass_request_id(),
             "serviceID": _cable_service_id(provider),
@@ -522,7 +523,7 @@ class VTPassBillsProvider:
         data = self._post("/pay", payload)
         return self._parse_result(data)
 
-    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str) -> ProviderResult:
+    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str, reference: str | None = None) -> ProviderResult:
         payload = {
             "request_id": _vtpass_request_id(),
             "serviceID": _electricity_service_id(disco),
@@ -674,12 +675,40 @@ class VTPassBillsProvider:
             result.meta["vtpass"]["variation_code"] = payload["variation_code"]
         return result
 
+    def check_status(self, request_id: str) -> ProviderResult:
+        """
+        Query the status of a transaction using the VTpass requery API.
+        """
+        payload = {"request_id": request_id}
+        try:
+            data = self._post("/requery", payload)
+            return self._parse_result(data)
+        except Exception as e:
+            return ProviderResult(False, message=str(e), pending=True)
+
 
 class ClubKonnectBillsProvider:
-    def __init__(self):
-        self.base_url = _normalize_clubkonnect_base_url(str(settings.clubkonnect_base_url or ""))
-        self.user_id = str(settings.nello_user_id or settings.clubkonnect_user_id or "").strip()
-        self.api_key = str(settings.nello_api_key or settings.clubkonnect_api_key or "").strip()
+    def __init__(self, base_url=None, user_id=None, api_key=None):
+        import os
+        self.base_url = _normalize_clubkonnect_base_url(base_url or str(settings.clubkonnect_base_url or ""))
+        self.user_id = user_id or str(
+            settings.nello_user_id 
+            or settings.clubkonnect_user_id 
+            or os.environ.get("CLUBKONNECT_USER_ID", "")
+            or os.environ.get("CLUB_KONNECT_USER_ID", "")
+            or os.environ.get("CLUBKONNECT_USERID", "")
+            or os.environ.get("NELLO_USER_ID", "")
+            or ""
+        ).strip().strip("'\"")
+        self.api_key = api_key or str(
+            settings.nello_api_key 
+            or settings.clubkonnect_api_key 
+            or os.environ.get("CLUBKONNECT_API_KEY", "")
+            or os.environ.get("CLUB_KONNECT_API_KEY", "")
+            or os.environ.get("CLUBKONNECT_KEY", "")
+            or os.environ.get("NELLO_API_KEY", "")
+            or ""
+        ).strip().strip("'\"")
         self.timeout = settings.clubkonnect_timeout_seconds
 
     def _callback_url(self) -> str:
@@ -688,7 +717,7 @@ class ClubKonnectBillsProvider:
             return callback
         base = str(settings.frontend_base_url or "").strip().rstrip("/")
         if not base:
-            return "https://mzdata.org/app/transactions"
+            return "https://kullomadata.com/app/transactions"
         return f"{base}/app/transactions"
 
     @staticmethod
@@ -703,7 +732,7 @@ class ClubKonnectBillsProvider:
 
     def _request(self, endpoint: str, params: dict) -> dict:
         if not self.user_id or not self.api_key:
-            raise RuntimeError("ClubKonnect credentials are missing.")
+            raise RuntimeError("ClubKonnect credentials are missing (UserID or APIKey).")
         payload = {
             **(params or {}),
             "UserID": self.user_id,
@@ -711,8 +740,8 @@ class ClubKonnectBillsProvider:
         }
         url = f"{self.base_url}{endpoint.lstrip('/')}"
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.get(url, params=payload)
+            client = GLOBAL_HTTP_CLIENT_FOLLOW
+            res = client.get(url, params=payload)
         except Exception as exc:
             raise RuntimeError(f"ClubKonnect network error: {exc}") from exc
         data = self._safe_json(res)
@@ -723,16 +752,28 @@ class ClubKonnectBillsProvider:
 
     def get_balance(self) -> float | str:
         try:
+            logger.info("Checking ClubKonnect balance with UserID prefix='%s...' (len=%d), APIKey len=%d", self.user_id[:4] if self.user_id else "", len(self.user_id), len(self.api_key))
             res = self._request("APIWalletBalanceV1.asp", {})
+            status_val = str(res.get("status") or "").upper()
+            if status_val in ("INVALID_CREDENTIALS", "MISSING_CREDENTIALS", "FAILED", "ERROR"):
+                msg = res.get("message") or status_val
+                logger.error(f"ClubKonnect get_balance failed: {msg}")
+                return f"CK Error: {msg}"
+
             raw_bal = ""
-            if "Balance" in res:
-                raw_bal = str(res["Balance"])
-            elif "balance" in res:
-                raw_bal = str(res["balance"])
-            
+            for k, v in res.items():
+                if "bal" in k.lower():
+                    raw_bal = str(v)
+                    break
+            if not raw_bal and "amount" in res:
+                raw_bal = str(res["amount"])
+
             if raw_bal:
                 bal = "".join(c for c in raw_bal if c.isdigit() or c == ".")
                 return float(bal) if bal else 0.0
+
+            if status_val:
+                return f"CK Error: {status_val}"
             return 0.0
         except Exception as e:
             logger.error(f"ClubKonnect get_balance error: {e}")
@@ -843,7 +884,9 @@ class ClubKonnectBillsProvider:
         order_id = str(result.external_reference or "").strip() or None
         if not order_id and not request_id:
             return result
-        for delay in (0.6, 1.2):
+            
+        delays = (1.5, 2.5, 3.5) if action == "airtime" else (0.6, 1.2, 2.0)
+        for delay in delays:
             time.sleep(delay)
             queried = self._query_transaction(order_id=order_id, request_id=request_id)
             if not queried:
@@ -1077,7 +1120,7 @@ class ClubKonnectBillsProvider:
                     flattened.append(merged)
         return flattened
 
-    def purchase_airtime(self, network: str, phone_number: str, amount: float) -> ProviderResult:
+    def purchase_airtime(self, network: str, phone_number: str, amount: float, reference: str | None = None) -> ProviderResult:
         request_id = _clubkonnect_request_id("AIRTIME")
         data = self._request(
             "APIAirtimeV1.asp",
@@ -1091,7 +1134,7 @@ class ClubKonnectBillsProvider:
         )
         return self._settle_pending(self._parse_result(data, action="airtime"), "airtime", request_id=request_id)
 
-    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str | None = None) -> ProviderResult:
+    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
         request_id = _clubkonnect_request_id("CABLE")
         data = self._request(
             "APICableTVV1.asp",
@@ -1176,7 +1219,7 @@ class ClubKonnectBillsProvider:
         error_msg = customer_name or "Unable to verify smartcard number."
         return {"ok": False, "message": error_msg}
 
-    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str | None = None) -> ProviderResult:
+    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
         request_id = _clubkonnect_request_id("ELEC")
         data = self._request(
             "APIElectricityV1.asp",
@@ -1559,26 +1602,480 @@ class ClubKonnectBillsProvider:
         return self._settle_pending(self._parse_result(data, action="data"), "data", request_id=req_id)
 
 
-def get_bills_provider():
-    choice = str(settings.bills_provider or "auto").strip().lower()
-    if choice == "wallettopup":
-        return WallettopupBillsProvider()
-    if choice == "wallettopup":
-        return WallettopupBillsProvider()
-    if choice == "brendysubs":
-        return BrendysubsBillsProvider()
-    choice = str(settings.bills_provider or "auto").strip().lower()
-    if choice == "wallettopup":
-        return WallettopupBillsProvider()
-    if choice == "brendysubs":
-        return BrendysubsBillsProvider()
-    choice = str(settings.bills_provider or "auto").strip().lower()
+class AutosyncBillsProvider:
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        self.autosync = AutosyncProvider(api_key=api_key)
+        if base_url:
+            self.autosync.base_url = base_url
+        self.timeout = self.autosync.timeout
+        self.pin = str(get_settings().autosync_webhook_pin or "").strip()
+
+    def _parse_result(self, res_data: dict, action: str) -> ProviderResult:
+        status_value = str(res_data.get("status") or "").lower()
+        message = str(res_data.get("error") or res_data.get("message") or "")
+        reference = str(res_data.get("provider_reference") or "")
+        
+        meta = {
+            "autosync": {
+                "status": status_value,
+                "action": action,
+                "raw": res_data
+            }
+        }
+        token = str(res_data.get("token") or "")
+        if token:
+            meta["token"] = token
+            
+        if status_value == "success" or status_value == "successful":
+            return ProviderResult(True, external_reference=reference, message=message or "Successful", meta=meta)
+        if status_value == "pending":
+            return ProviderResult(False, external_reference=reference, message="Transaction pending", meta=meta, pending=True)
+            
+        return ProviderResult(False, external_reference=reference, message=message or "Provider failed", meta=meta)
+
+    def purchase_airtime(self, network: str, phone_number: str, amount: float, reference: str | None = None) -> ProviderResult:
+        payload = {
+            "product_id": network,
+            "phone": str(phone_number),
+            "amount": float(amount),
+            "request_ref": reference or _vtpass_request_id()
+
+        }
+        if self.pin:
+            payload["pin"] = self.pin
+            
+        url = f"{self.autosync.base_url}/v1/airtime"
+        try:
+            client = GLOBAL_HTTP_CLIENT
+            res = client.post(url, json=payload, headers=self.autosync._get_headers())
+            data = self.autosync._json_or_none(res) or {}
+            
+            # Map Autosync's generic API response to dict
+            status_value = str(data.get("status") or "").lower()
+            message = str(data.get("message") or "")
+            tx_data = data.get("data", {}).get("transaction", {}) if data.get("status") == "ok" else {}
+            provider_reference = str(tx_data.get("reference") or "")
+            inner_status = str(tx_data.get("status") or "").strip().lower()
+            
+            if status_value == "ok":
+               final_status = "success" if inner_status == "successful" else ("failed" if inner_status == "failed" else "pending")
+               res_data = {"status": final_status, "provider_reference": provider_reference, "error": message}
+            else:
+               logger.error(f"Autosync Airtime Error Payload: {payload}")
+               logger.error(f"Autosync Airtime Error Response: {data}")
+               res_data = {"status": "failed", "provider_reference": provider_reference, "error": message}
+               
+        except Exception as exc:
+            res_data = {"status": "failed", "error": str(exc)}
+            
+        return self._parse_result(res_data, action="airtime")
+
+    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str, reference: str | None = None) -> ProviderResult:
+        payload = {
+            "request_ref": reference or _vtpass_request_id(),
+            "iuc_number": str(smartcard_number),
+            "product_id": provider, # e.g. dstv, gotv
+            "variation_code": str(package_code),
+            "type": "renew",
+            "amount": float(amount),
+            "phone": str(phone_number)
+        }
+        if self.pin:
+            payload["pin"] = self.pin
+            
+        url = f"{self.autosync.base_url}/v1/cable"
+        try:
+            client = GLOBAL_HTTP_CLIENT
+            res = client.post(url, json=payload, headers=self.autosync._get_headers())
+            data = self.autosync._json_or_none(res) or {}
+            
+            status_value = str(data.get("status") or "").lower()
+            message = str(data.get("message") or "")
+            tx_data = data.get("data", {}).get("transaction", {}) if data.get("status") == "ok" else {}
+            provider_reference = str(tx_data.get("reference") or "")
+            inner_status = str(tx_data.get("status") or "").strip().lower()
+            
+            if status_value == "ok":
+               final_status = "success" if inner_status == "successful" else ("failed" if inner_status == "failed" else "pending")
+               res_data = {"status": final_status, "provider_reference": provider_reference, "error": message}
+            else:
+               logger.error(f"Autosync Cable Error Payload: {payload}")
+               logger.error(f"Autosync Cable Error Response: {data}")
+               res_data = {"status": "failed", "provider_reference": provider_reference, "error": message}
+               
+        except Exception as exc:
+            res_data = {"status": "failed", "error": str(exc)}
+            
+        return self._parse_result(res_data, action="cable")
+
+    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str, reference: str | None = None) -> ProviderResult:
+        payload = {
+            "request_ref": reference or _vtpass_request_id(),
+            "meter_number": str(meter_number),
+            "product_id": disco, # The ID/code for the disco
+            "type": str(meter_type).lower(), # prepaid or postpaid
+            "amount": float(amount),
+            "phone": str(phone_number)
+        }
+        if self.pin:
+            payload["pin"] = self.pin
+            
+        url = f"{self.autosync.base_url}/v1/electricity"
+        try:
+            client = GLOBAL_HTTP_CLIENT
+            res = client.post(url, json=payload, headers=self.autosync._get_headers())
+            data = self.autosync._json_or_none(res) or {}
+            
+            status_value = str(data.get("status") or "").lower()
+            message = str(data.get("message") or "")
+            tx_data = data.get("data", {}).get("transaction", {}) if data.get("status") == "ok" else {}
+            provider_reference = str(tx_data.get("reference") or "")
+            inner_status = str(tx_data.get("status") or "").strip().lower()
+            
+            if status_value == "ok":
+               final_status = "success" if inner_status == "successful" else ("failed" if inner_status == "failed" else "pending")
+               res_data = {
+                   "status": final_status, 
+                   "provider_reference": provider_reference, 
+                   "error": message,
+                   "token": tx_data.get("token") or tx_data.get("pin")
+               }
+            else:
+               logger.error(f"Autosync Electricity Error Payload: {payload}")
+               logger.error(f"Autosync Electricity Error Response: {data}")
+               res_data = {"status": "failed", "provider_reference": provider_reference, "error": message}
+               
+        except Exception as exc:
+            res_data = {"status": "failed", "error": str(exc)}
+            
+        return self._parse_result(res_data, action="electricity")
+        
+    def verify_cable_customer(self, provider: str, smartcard_number: str) -> dict:
+        url = f"{self.autosync.base_url}/v1/validate/cable"
+        payload = {
+            "iuc_number": str(smartcard_number).strip(),
+            "product_id": provider
+        }
+        try:
+            client = GLOBAL_HTTP_CLIENT
+            res = client.post(url, json=payload, headers=self.autosync._get_headers())
+            data = self.autosync._json_or_none(res) or {}
+            
+            if data.get("status") == "ok" and data.get("data", {}).get("is_valid"):
+                return {"ok": True, "customer_name": data.get("data", {}).get("customer_name") or "Verified Customer"}
+            return {"ok": False, "message": data.get("message") or "Unable to verify smartcard right now."}
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)}
+            
+    def verify_electricity_customer(self, disco: str, meter_number: str, meter_type: str) -> dict:
+        url = f"{self.autosync.base_url}/v1/validate/electricity"
+        payload = {
+            "meter_number": str(meter_number).strip(),
+            "product_id": disco,
+            "type": str(meter_type).lower()
+        }
+        try:
+            client = GLOBAL_HTTP_CLIENT
+            res = client.post(url, json=payload, headers=self.autosync._get_headers())
+            data = self.autosync._json_or_none(res) or {}
+            
+            if data.get("status") == "ok" and data.get("data", {}).get("is_valid"):
+                return {"ok": True, "customer_name": data.get("data", {}).get("customer_name") or "Verified Meter Customer"}
+            return {"ok": False, "message": data.get("message") or "Unable to verify meter right now."}
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)}
+
+    # Fallbacks / stubs for unimplemented services to avoid crashes if routed here
+    def fetch_exam_packages(self, exam: str) -> list[dict]:
+        return []
+        
+    def purchase_exam_pin(self, exam: str, quantity: int, phone_number: str | None = None, exam_type: str | None = None) -> ProviderResult:
+        return ProviderResult(False, message="Exam Pins not supported by Autosync provider.")
+
+    def fetch_cable_packages(self, provider: str) -> list[dict]:
+        return []
+        
+    def fetch_electricity_discos(self) -> list[dict]:
+        return []
+
+class BoltnetBillsProvider:
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        self.boltnet = BoltnetProvider(api_key=api_key)
+        if base_url:
+            self.boltnet.base_url = base_url
+        self.name = "boltnet"
+
+    def _parse_result(self, res_data: dict, action: str) -> ProviderResult:
+        status_value = str(res_data.get("status") or "").lower()
+        message = str(res_data.get("error") or "Successful")
+        reference = str(res_data.get("provider_reference") or "")
+        meta = res_data.get("meta") or {}
+        meta["boltnet_action"] = action
+            
+        if status_value == "success":
+            return ProviderResult(True, external_reference=reference, message=message, meta=meta)
+        if status_value == "pending":
+            return ProviderResult(False, external_reference=reference, message="Transaction pending", meta=meta, pending=True)
+            
+        return ProviderResult(False, external_reference=reference, message=message, meta=meta)
+
+    def purchase_airtime(self, network: str, phone_number: str, amount: float, reference: str | None = None) -> ProviderResult:
+        network_map = {"mtn": 1, "airtel": 2, "glo": 3, "9mobile": 4}
+        net_id = network_map.get(str(network).lower(), 1)
+        res_data = self.boltnet.purchase_airtime(net_id, phone_number, float(amount), reference or _vtpass_request_id())
+        return self._parse_result(res_data, "airtime")
+
+    def purchase_cable(self, provider: str, smartcard_number: str, plan_code: str, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
+        return ProviderResult(False, message="Cable not supported by Boltnet API via this class.")
+
+    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
+        return ProviderResult(False, message="Electricity not supported by Boltnet API.")
+
+    def purchase_exam_pin(self, exam: str, quantity: int, phone_number: str | None = None, exam_type: str | None = None) -> ProviderResult:
+        return ProviderResult(False, message="Exam Pins not supported by Boltnet API.")
+
+    def fetch_cable_packages(self, provider: str) -> list[dict]:
+        return []
+        
+    def fetch_electricity_discos(self) -> list[dict]:
+        return []
+
+class TelecomAbodeBillsProvider:
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        self.abode = TelecomAbodeProvider(api_key=api_key, base_url=base_url)
+        self.name = "telecom_abode"
+
+    def _parse_result(self, res_data: dict, action: str) -> ProviderResult:
+        status_value = str(res_data.get("status") or "").lower()
+        message = str(res_data.get("message") or res_data.get("error") or "Successful")
+        reference = str(res_data.get("provider_reference") or "")
+        meta = res_data.get("meta") or {}
+        meta["telecom_abode_action"] = action
+        if res_data.get("token") and not meta.get("token"):
+            meta["token"] = res_data.get("token")
+        if res_data.get("pins") and not meta.get("pins"):
+            meta["pins"] = res_data.get("pins")
+
+        if status_value == "success" or str(res_data.get("Status") or "").lower() == "successful":
+            return ProviderResult(True, external_reference=reference, message=message, meta=meta)
+        if status_value == "pending" or str(res_data.get("Status") or "").lower() == "pending":
+            return ProviderResult(False, external_reference=reference, message=message or "Transaction pending", meta=meta, pending=True)
+
+        return ProviderResult(False, external_reference=reference, message=message, meta=meta)
+
+    def purchase_airtime(self, network: str, phone_number: str, amount: float, reference: str | None = None) -> ProviderResult:
+        res_data = self.abode.purchase_airtime(network, phone_number, amount, reference or _vtpass_request_id())
+        return self._parse_result(res_data, "airtime")
+
+    def purchase_data(self, network: str, phone_number: str, plan_code: str, amount: float | None = None, request_id: str | None = None) -> ProviderResult:
+        res_data = self.abode.purchase_data(network, phone_number, plan_code, request_id or _vtpass_request_id())
+        return self._parse_result(res_data, "data")
+
+    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float = 0.0, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
+        res_data = self.abode.purchase_cable(provider, smartcard_number, package_code, reference or _vtpass_request_id())
+        return self._parse_result(res_data, "cable")
+
+    def fetch_cable_packages(self, provider: str) -> list[dict]:
+        return self.abode.fetch_cable_packages(provider)
+
+    def verify_cable_customer(self, provider: str, smartcard_number: str) -> dict:
+        return self.abode.verify_cable_smartcard(provider, smartcard_number)
+
+    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
+        res_data = self.abode.purchase_electricity(disco, meter_number, meter_type, amount, reference or _vtpass_request_id())
+        return self._parse_result(res_data, "electricity")
+
+    def fetch_electricity_discos(self) -> list[dict]:
+        discos = self.abode.fetch_electricity_discos()
+        if not discos:
+            return []
+        normalized = []
+        for d in discos:
+            if not isinstance(d, dict):
+                continue
+            code = str(d.get("id") or "").strip()
+            name = str(d.get("name") or code).strip()
+            abb = str(d.get("abb") or "").strip().lower()
+            disco_id = abb or name.lower().replace(" ", "")
+            normalized.append({"code": code, "id": disco_id, "name": name})
+        return normalized
+
+    def verify_electricity_customer(self, disco: str, meter_number: str, meter_type: str) -> dict:
+        return self.abode.verify_electricity_meter(disco, meter_number, meter_type)
+
+    def purchase_exam_pin(self, exam: str, quantity: int = 1, phone_number: str | None = None, exam_type: str | None = None, reference: str | None = None) -> ProviderResult:
+        res_data = self.abode.purchase_exam_pin(exam_type or exam, quantity, reference or _vtpass_request_id())
+        return self._parse_result(res_data, "exam")
+
+    def fetch_exam_packages(self, exam: str | None = None) -> list[dict]:
+        return self.abode.fetch_exam_packages(exam)
+
+
+class MeleDataBillsProvider:
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        self.meledata = MeleDataProvider(api_key=api_key, base_url=base_url)
+
+    def purchase_airtime(self, network: str, phone_number: str, amount: float, reference: str | None = None) -> ProviderResult:
+        ref = reference or _vtpass_request_id()
+        res_data = self.meledata.purchase_airtime(network, phone_number, amount, ref)
+        is_success = res_data.get("status") is True
+        data_block = res_data.get("data") if isinstance(res_data.get("data"), dict) else {}
+        prov_ref = str(data_block.get("reference") or res_data.get("reference") or ref)
+        msg = str(res_data.get("message") or "")
+        inner_status = str(data_block.get("status") or "").lower()
+
+        if "sandbox" in msg.lower() or data_block.get("livemode") is False or str(data_block.get("mode") or "").lower() == "test":
+            return ProviderResult(False, external_reference=prov_ref, message="MeleData returned Sandbox/Test response instead of Live delivery")
+
+        if is_success or inner_status in ("success", "delivered"):
+            return ProviderResult(True, external_reference=prov_ref, message=msg or "Airtime purchase successful")
+        if inner_status in ("pending", "processing"):
+            return ProviderResult(True, external_reference=prov_ref, message=msg or "Airtime processing", pending=True)
+        return ProviderResult(False, external_reference=prov_ref, message=msg or "MeleData airtime purchase failed")
+
+    def purchase_data(self, network: str, phone_number: str, plan_id: str, reference: str | None = None) -> ProviderResult:
+        ref = reference or _vtpass_request_id()
+        network_map = {"mtn": 1, "airtel": 2, "glo": 3, "9mobile": 4}
+        net_id = network_map.get(network.lower(), 1)
+        res_data = self.meledata.purchase_data(net_id, plan_id, phone_number, ref)
+        is_success = res_data.get("status") is True
+        data_block = res_data.get("data") if isinstance(res_data.get("data"), dict) else {}
+        prov_ref = str(data_block.get("reference") or res_data.get("reference") or ref)
+        msg = str(res_data.get("message") or "")
+        inner_status = str(data_block.get("status") or "").lower()
+
+        if is_success or inner_status in ("success", "delivered"):
+            return ProviderResult(True, external_reference=prov_ref, message=msg or "Data purchase successful")
+        if inner_status in ("pending", "processing"):
+            return ProviderResult(True, external_reference=prov_ref, message=msg or "Data processing", pending=True)
+        return ProviderResult(False, external_reference=prov_ref, message=msg or "MeleData data purchase failed")
+
+    def purchase_electricity(self, disco: str, meter_number: str, amount: float, meter_type: str = "prepaid", phone_number: str | None = None) -> ProviderResult:
+        return ProviderResult(False, message="Electricity not supported directly by MeleData provider.")
+
+    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str | None = None) -> ProviderResult:
+        return ProviderResult(False, message="Cable not supported directly by MeleData provider.")
+
+    def purchase_exam_pin(self, exam: str, quantity: int, phone_number: str | None = None, exam_type: str | None = None) -> ProviderResult:
+        return ProviderResult(False, message="Exam Pins not supported directly by MeleData provider.")
+
+    def fetch_cable_packages(self, provider: str) -> list[dict]:
+        return []
+
+    def fetch_electricity_discos(self) -> list[dict]:
+        return []
+
+
+def get_bills_provider(service_type: str | None = None):
+    env_choice = str(settings.bills_provider or "auto").strip().lower()
+    has_telecom_abode = bool((getattr(settings, "telecom_abode_enabled", False) or getattr(settings, "telecom_abode_api_key", None)) and getattr(settings, "telecom_abode_api_key", None))
+
+    # 1. If explicitly set in environment, honor it immediately
+    if env_choice == "meledata":
+        return MeleDataBillsProvider()
+    if env_choice == "telecom_abode":
+        return TelecomAbodeBillsProvider()
+    if env_choice == "mock":
+        return MockBillsProvider()
+    if env_choice == "boltnet":
+        return BoltnetBillsProvider()
+    if env_choice == "autosync":
+        return AutosyncBillsProvider()
+
+    # 2. If service is supported and Telecom Abode is enabled in env/key configured, route to Telecom Abode
+    if service_type in ("airtime", "cable", "electricity", "exam") and has_telecom_abode:
+        return TelecomAbodeBillsProvider()
+
+    db = SessionLocal()
+    active_provider = None
+    try:
+        # Check if Mele Data or Telecom Abode is specifically active in database for airtime
+        if service_type == "airtime":
+            mele_prov = db.query(IntegrationProvider).filter(
+                IntegrationProvider.identifier == "meledata",
+                IntegrationProvider.is_active == True
+            ).first()
+            if mele_prov:
+                active_provider = mele_prov
+
+            if not active_provider:
+                abode_prov = db.query(IntegrationProvider).filter(
+                    IntegrationProvider.identifier == "telecom_abode",
+                    IntegrationProvider.is_active == True
+                ).first()
+                if abode_prov:
+                    active_provider = abode_prov
+
+        # Check IntegrationProvider: if service_type is given, prefer an active provider supporting this service (excluding clubkonnect for airtime if kyc blocked)
+        if not active_provider and service_type:
+            active_providers = db.query(IntegrationProvider).filter(IntegrationProvider.is_active == True).all()
+            for p in active_providers:
+                if service_type == "airtime" and p.identifier == "clubkonnect" and has_telecom_abode:
+                    continue
+                supported = p.supported_services or []
+                if isinstance(supported, list) and service_type.lower() in [str(s).lower() for s in supported]:
+                    active_provider = p
+                    break
+
+        if not active_provider:
+            # Check IntegrationProvider for an active VTU provider
+            active_provider = db.query(IntegrationProvider).filter(
+                IntegrationProvider.is_active == True,
+                IntegrationProvider.identifier.in_(["meledata", "telecom_abode", "autosync", "boltnet", "vtpass", "clubkonnect"])
+            ).first()
+
+        if active_provider:
+            choice = active_provider.identifier.lower()
+            api_key = active_provider.api_key
+            base_url = active_provider.base_url
+            api_secret = active_provider.api_secret
+            config = active_provider.additional_config or {}
+
+            if choice == "meledata":
+                return MeleDataBillsProvider(api_key=api_key, base_url=base_url)
+            if choice == "telecom_abode":
+                return TelecomAbodeBillsProvider(api_key=api_key, base_url=base_url)
+            if choice == "clubkonnect":
+                user_id = api_secret or config.get("user_id")
+                return ClubKonnectBillsProvider(base_url=base_url, user_id=user_id, api_key=api_key)
+            if choice == "vtpass":
+                public_key = config.get("public_key")
+                return VTPassBillsProvider(base_url=base_url, api_key=api_key, secret_key=api_secret, public_key=public_key)
+            if choice == "autosync":
+                return AutosyncBillsProvider(api_key=api_key, base_url=base_url)
+            if choice == "boltnet":
+                return BoltnetBillsProvider(api_key=api_key, base_url=base_url)
+
+        # Fallback to SystemSettings if no IntegrationProvider is active
+        db_settings = db.query(SystemSettings).first()
+        db_choice = db_settings.active_vtu_provider if db_settings else None
+        vtu_api_key = db_settings.vtu_api_key if db_settings else None
+    except Exception as exc:
+        logger.warning("Could not resolve bills provider from database: %s", exc)
+        db_choice = None
+        vtu_api_key = None
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    choice = db_choice or env_choice
 
     has_vtpass = bool(settings.vtpass_enabled and settings.vtpass_api_key and settings.vtpass_secret_key)
     has_clubkonnect = bool((settings.nello_user_id or settings.clubkonnect_user_id) and (settings.nello_api_key or settings.clubkonnect_api_key))
+    has_autosync = bool(vtu_api_key or settings.autosync_api_key)
     clubkonnect_enabled = bool(settings.clubkonnect_enabled)
 
     if choice == "mock":
+        return MockBillsProvider()
+    if choice == "telecom_abode" or (service_type in ("airtime", "cable", "electricity", "exam") and has_telecom_abode):
+        if has_telecom_abode:
+            return TelecomAbodeBillsProvider()
+    if choice == "autosync":
+        if has_autosync:
+            return AutosyncBillsProvider(api_key=vtu_api_key)
+        logger.warning("BILLS_PROVIDER=autosync but AUTOSYNC_API_KEY missing; falling back to mock.")
         return MockBillsProvider()
     if choice == "clubkonnect":
         if has_clubkonnect:
@@ -1590,8 +2087,20 @@ def get_bills_provider():
             return VTPassBillsProvider()
         logger.warning("BILLS_PROVIDER=vtpass but VTPASS credentials missing; falling back to mock.")
         return MockBillsProvider()
+    if choice == "boltnet":
+        has_boltnet = bool(vtu_api_key or settings.boltnet_api_key)
+        if has_boltnet:
+            return BoltnetBillsProvider(api_key=vtu_api_key)
+        logger.warning("BILLS_PROVIDER=boltnet but BOLTNET_API_KEY missing; falling back to mock.")
+        return MockBillsProvider()
 
-    # auto mode
+    # auto mode:
+    # If the requested service is airtime and telecom_abode is configured, use Telecom Abode!
+    if service_type == "airtime" and has_telecom_abode:
+        return TelecomAbodeBillsProvider()
+    if has_telecom_abode:
+        return TelecomAbodeBillsProvider()
+
     if clubkonnect_enabled and has_clubkonnect:
         return ClubKonnectBillsProvider()
     if has_vtpass:
@@ -1600,6 +2109,21 @@ def get_bills_provider():
         return ClubKonnectBillsProvider()
     return MockBillsProvider()
 
+
+def get_fallback_bills_provider(primary_provider):
+    """
+    Returns a fallback provider if primary fails.
+    Never falls back to ClubKonnect when using Telecom Abode to avoid KYC failure blocks.
+    """
+    if isinstance(primary_provider, TelecomAbodeBillsProvider):
+        return None
+
+    has_clubkonnect = bool((settings.nello_user_id or settings.clubkonnect_user_id) and (settings.nello_api_key or settings.clubkonnect_api_key))
+    clubkonnect_enabled = bool(settings.clubkonnect_enabled)
+    
+    if not isinstance(primary_provider, ClubKonnectBillsProvider) and clubkonnect_enabled and has_clubkonnect:
+        return ClubKonnectBillsProvider()
+    return None
 
 class MockBillsProvider:
     """
@@ -1613,17 +2137,17 @@ class MockBillsProvider:
     def _ref(self, prefix: str) -> str:
         return f"{prefix}-MOCK-{int(time.time())}-{secrets.token_hex(3)}"
 
-    def purchase_airtime(self, network: str, phone_number: str, amount: float) -> ProviderResult:
+    def purchase_airtime(self, network: str, phone_number: str, amount: float, reference: str | None = None) -> ProviderResult:
         if str(phone_number).strip().startswith("0000"):
             return ProviderResult(False, message="Mock failure: invalid phone number.")
         return ProviderResult(True, external_reference=self._ref("AIRTIME"), meta={"network": network, "phone_number": phone_number})
 
-    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str | None = None) -> ProviderResult:
+    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
         if str(smartcard_number).strip().startswith("0000"):
             return ProviderResult(False, message="Mock failure: invalid smartcard number.")
         return ProviderResult(True, external_reference=self._ref("CABLE"), meta={"provider": provider, "smartcard_number": smartcard_number, "package_code": package_code})
 
-    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str | None = None) -> ProviderResult:
+    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
         if str(meter_number).strip().startswith("0000"):
             return ProviderResult(False, message="Mock failure: invalid meter number.")
         token = f"{secrets.randbelow(10**12):012d}"
@@ -1688,131 +2212,3 @@ class MockBillsProvider:
         if str(meter_number).strip().startswith("0000"):
             return {"ok": False, "message": "Invalid meter number."}
         return {"ok": True, "customer_name": "Verified Meter Customer"}
-
-
-from app.providers.brendysubs_provider import BrendysubsProvider
-
-class BrendysubsBillsProvider:
-    def __init__(self):
-        self.provider = BrendysubsProvider()
-
-    def purchase_airtime(self, network: str, phone_number: str, amount: float) -> ProviderResult:
-        res = self.provider.purchase_airtime(network, phone_number, amount, "")
-        if res["status"] in ("success", "pending"):
-            return ProviderResult(True, external_reference=res.get("provider_reference"), message=res.get("error"), meta=res)
-        return ProviderResult(False, message=res.get("error"), meta=res)
-
-    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str | None = None) -> ProviderResult:
-        res = self.provider.purchase_cable(provider, package_code, smartcard_number)
-        if res["status"] in ("success", "pending"):
-            return ProviderResult(True, external_reference=res.get("provider_reference"), message=res.get("error"), meta=res)
-        return ProviderResult(False, message=res.get("error"), meta=res)
-
-    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str | None = None) -> ProviderResult:
-        res = self.provider.purchase_electricity(disco, meter_number, meter_type, amount, phone_number or "08012345678")
-        if res["status"] in ("success", "pending"):
-            return ProviderResult(True, external_reference=res.get("provider_reference"), message=res.get("error"), meta=res)
-        return ProviderResult(False, message=res.get("error"), meta=res)
-
-    def purchase_exam_pin(self, exam: str, quantity: int, phone_number: str | None = None, exam_type: str | None = None) -> ProviderResult:
-        res = self.provider.purchase_result_checker(exam.upper(), quantity)
-        if res["status"] == "success":
-            return ProviderResult(True, external_reference=res.get("provider_reference"), meta=res)
-        return ProviderResult(False, message=res.get("error"), meta=res)
-
-    def purchase_data(self, network: str, phone_number: str, plan_code: str, amount: float | None = None, request_id: str | None = None) -> ProviderResult:
-        res = self.provider.purchase_network_data(network, phone_number, plan_code, request_id or "")
-        if res["status"] in ("success", "pending"):
-            return ProviderResult(True, external_reference=res.get("provider_reference"), message=res.get("error"), meta=res)
-        return ProviderResult(False, message=res.get("error"), meta=res)
-
-    def fetch_exam_packages(self, exam: str) -> list[dict]:
-        exam_key = _normalize_exam_key(exam)
-        defaults = {
-            "waec": [{"code": "waecdirect", "name": "WAEC Result Checker PIN", "amount": 3500.0, "exam": "waec"}],
-            "neco": [{"code": "neco", "name": "NECO Result Checker PIN", "amount": 1500.0, "exam": "neco"}],
-            "nabteb": [{"code": "nabteb", "name": "NABTEB Result Checker PIN", "amount": 1500.0, "exam": "nabteb"}],
-        }
-        return defaults.get(exam_key, [])
-
-    def fetch_cable_packages(self, provider: str) -> list[dict]:
-        return []
-
-    def verify_cable_customer(self, provider: str, smartcard_number: str) -> dict:
-        # Brendysubs uses cablename/cableplan IDs for validation. 
-        # Map provider to ID: DSTV=1, GOTV=2, STARTIMES=3
-        provider_map = {"dstv": "1", "gotv": "2", "startimes": "3"}
-        p_id = provider_map.get(str(provider).lower(), "1")
-        res = self.provider.validate_cable(p_id, smartcard_number)
-        if res["status"] == "success":
-            return {"ok": True, "customer_name": res.get("name", "Verified")}
-        return {"ok": False, "message": res.get("error")}
-
-    def fetch_electricity_discos(self) -> list[dict]:
-        return [
-            {"code": "1", "id": "ikedc", "name": "Ikeja Electric"},
-            {"code": "2", "id": "ekedc", "name": "Eko Electric"},
-            {"code": "3", "id": "kedco", "name": "Kano Electric"},
-            {"code": "4", "id": "phed", "name": "Port Harcourt Electric"},
-            {"code": "5", "id": "jos", "name": "Jos Electric"},
-            {"code": "6", "id": "ibedc", "name": "Ibadan Electric"},
-            {"code": "7", "id": "kaedco", "name": "Kaduna Electric"},
-            {"code": "8", "id": "aedc", "name": "Abuja Electric"},
-            {"code": "9", "id": "eedc", "name": "Enugu Electric"},
-            {"code": "10", "id": "bedc", "name": "Benin Electric"},
-        ]
-
-    def verify_electricity_customer(self, disco: str, meter_number: str, meter_type: str) -> dict:
-        # disco maps to code in fetch_electricity_discos
-        disco_map = {"ikedc": "1", "ekedc": "2", "kedco": "3", "phed": "4", "jos": "5", "ibedc": "6", "kaedco": "7", "aedc": "8", "eedc": "9", "bedc": "10"}
-        d_id = disco_map.get(str(disco).lower(), "1")
-        res = self.provider.validate_electricity(d_id, meter_number, meter_type)
-        if res["status"] == "success":
-            return {"ok": True, "customer_name": res.get("name", "Verified")}
-        return {"ok": False, "message": res.get("error")}
-
-
-
-from app.providers.wallettopup_provider import WallettopupProvider
-
-class WallettopupBillsProvider:
-    def __init__(self):
-        self.provider = WallettopupProvider()
-
-    def purchase_airtime(self, network: str, phone_number: str, amount: float) -> ProviderResult:
-        res = self.provider.purchase_airtime(network, phone_number, amount, "")
-        if res["status"] in ("success", "pending"):
-            return ProviderResult(True, external_reference=res.get("provider_reference"), message=res.get("error"), meta=res)
-        return ProviderResult(False, message=res.get("error"), meta=res)
-
-    def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float, phone_number: str | None = None) -> ProviderResult:
-        # Not implemented yet based on docs, but we provide stub returning False
-        return ProviderResult(False, message="Wallettopup cable not implemented")
-
-    def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str | None = None) -> ProviderResult:
-        return ProviderResult(False, message="Wallettopup electricity not implemented")
-
-    def purchase_exam_pin(self, exam: str, quantity: int, phone_number: str | None = None, exam_type: str | None = None) -> ProviderResult:
-        return ProviderResult(False, message="Wallettopup exam not implemented")
-
-    def purchase_data(self, network: str, phone_number: str, plan_code: str, amount: float | None = None, request_id: str | None = None) -> ProviderResult:
-        res = self.provider.purchase_network_data(network, phone_number, plan_code, request_id or "")
-        if res["status"] in ("success", "pending"):
-            return ProviderResult(True, external_reference=res.get("provider_reference"), message=res.get("error"), meta=res)
-        return ProviderResult(False, message=res.get("error"), meta=res)
-
-    def fetch_exam_packages(self, exam: str) -> list[dict]:
-        return []
-
-    def fetch_cable_packages(self, provider: str) -> list[dict]:
-        return []
-
-    def verify_cable_customer(self, provider: str, smartcard_number: str) -> dict:
-        return {"ok": False, "message": "Not implemented"}
-
-    def fetch_electricity_discos(self) -> list[dict]:
-        return []
-
-    def verify_electricity_customer(self, disco: str, meter_number: str, meter_type: str) -> dict:
-        return {"ok": False, "message": "Not implemented"}
-
