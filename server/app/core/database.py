@@ -1,9 +1,32 @@
 import importlib.util
 import logging
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Enum as SQLEnum
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from app.core.config import get_settings
+
+
+class SafeSQLEnum(SQLEnum):
+    """
+    Resilient SQLAlchemy Enum type that avoids LookupError / KeyError crashes
+    when PostgreSQL contains uppercase, lowercase, mixed-case, or unmapped enum values.
+    """
+    def _object_value_for_elem(self, elem):
+        if elem is None:
+            return None
+        if elem in self._object_lookup:
+            return self._object_lookup[elem]
+        elem_str = str(elem).strip()
+        elem_lower = elem_str.lower()
+        for k, v in self._object_lookup.items():
+            if k is not None and str(k).lower() == elem_lower:
+                return v
+        if self.enum_class:
+            for member in self.enum_class:
+                if (hasattr(member, 'value') and str(member.value).lower() == elem_lower) or member.name.lower() == elem_lower:
+                    return member
+            return list(self.enum_class)[0]
+        return elem
 
 
 class Base(DeclarativeBase):
@@ -15,8 +38,15 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_database_url(database_url: str) -> str:
+    if not database_url:
+        return database_url
+
+    # Normalize legacy postgres:// scheme to postgresql://
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+    if not database_url.startswith("postgresql://") and not database_url.startswith("postgresql+psycopg://"):
+        return database_url
 
     has_psycopg2 = importlib.util.find_spec("psycopg2") is not None
     has_psycopg3 = importlib.util.find_spec("psycopg") is not None
@@ -30,8 +60,10 @@ def _resolve_database_url(database_url: str) -> str:
         is_supabase = "supabase" in hostname
 
         if not is_supabase:
+            # Internal/Coolify/Docker/local postgres databases do not support SSL
             query_params["sslmode"] = ["disable"]
         else:
+            # Supabase managed databases require SSL
             query_params["sslmode"] = ["require"]
 
         flat_query = {k: v[0] if len(v) == 1 else v for k, v in query_params.items()}
@@ -68,6 +100,9 @@ if database_url.startswith("postgresql"):
     configured_max_overflow = int(settings.db_max_overflow)
     configured_pool_timeout = int(settings.db_pool_timeout)
 
+    # Guardrails for production stability: too-small pools cause frequent 503
+    # under normal concurrent requests (auth + dashboard bootstrap + polling).
+    # NOTE: Set to 5 and 5 to respect Supabase 15 connection limit, allowing 2 instances during deploy.
     pool_size = max(5, configured_pool_size)
     max_overflow = max(5, configured_max_overflow)
     pool_timeout = max(15, configured_pool_timeout)
@@ -93,6 +128,7 @@ if database_url.startswith("postgresql"):
         "pool_size": pool_size,
         "max_overflow": max_overflow,
         "pool_timeout": pool_timeout,
+        # Reuse hot connections first to reduce churn under burst traffic.
         "pool_use_lifo": True,
     }
 
@@ -109,7 +145,8 @@ import datetime
 @listens_for(engine, "connect")
 def register_sqlite_now(dbapi_connection, connection_record):
     if isinstance(dbapi_connection, sqlite3.Connection):
-        dbapi_connection.create_function("now", 0, lambda: datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+        # Register standard PostgreSQL-style now() function in SQLite
+        dbapi_connection.create_function("now", 0, lambda: datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

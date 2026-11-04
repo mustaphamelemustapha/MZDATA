@@ -1,7 +1,7 @@
 import enum
-from sqlalchemy import Column, Integer, String, Boolean, Enum, Index, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, Index, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, SafeSQLEnum
 from app.models.base import TimestampMixin
 
 
@@ -10,7 +10,17 @@ class UserRole(str, enum.Enum):
     AGENT = "agent"
     AMBASSADOR = "ambassador"
     ADMIN = "admin"
-    DEVELOPER = "developer"
+    USER = "user"
+    RESELLER = "reseller"
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            val_lower = value.strip().lower()
+            for member in cls:
+                if member.value.lower() == val_lower or member.name.lower() == val_lower:
+                    return member
+        return cls.CUSTOMER
 
 
 class User(Base, TimestampMixin):
@@ -22,7 +32,7 @@ class User(Base, TimestampMixin):
     full_name = Column(String(255), nullable=False)
     profile_image_url = Column(String(512), nullable=True)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole, values_callable=lambda obj: [e.value for e in obj]), nullable=False, default=UserRole.CUSTOMER)
+    role = Column(SafeSQLEnum(UserRole, values_callable=lambda obj: [e.value for e in obj]), nullable=False, default=UserRole.CUSTOMER)
     is_active = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
     referral_code = Column(String(16), unique=True, nullable=False, index=True)
@@ -47,6 +57,8 @@ class User(Base, TimestampMixin):
     api_secret_key_hash = Column(String(128), nullable=True)
     webhook_url = Column(String(255), nullable=True)
     webhook_secret = Column(String(128), nullable=True)
+    state = Column(String(64), nullable=True)
+    brand = Column(String(32), nullable=True, default="meledata", index=True)
 
     referred_by = relationship(
         "User",
@@ -65,11 +77,43 @@ class User(Base, TimestampMixin):
         back_populates="referred_user",
         uselist=False,
     )
-    wallet = relationship("Wallet", back_populates="user", uselist=False)
+    wallet = relationship("Wallet", back_populates="user", uselist=False, lazy="joined")
     transactions = relationship("Transaction", back_populates="user")
     service_transactions = relationship("ServiceTransaction", back_populates="user")
     api_logs = relationship("ApiLog", back_populates="user")
     virtual_accounts = relationship("VirtualAccount", back_populates="user")
+    promos = relationship("UserPromo", back_populates="user")
+
+    @property
+    def has_bvn(self) -> bool:
+        return bool(self.bvn_hash)
+
+    @property
+    def has_nin(self) -> bool:
+        return bool(self.nin_hash)
+
+    @property
+    def kyc_verified(self) -> bool:
+        if bool(self.bvn_hash or self.nin_hash):
+            return True
+        # If user has an active virtual account from CBN-regulated rails requiring KYC
+        # (Moniepoint, PalmPay, Monnify, Safehaven), they are verified
+        try:
+            if self.virtual_accounts:
+                for va in self.virtual_accounts:
+                    status_str = str(getattr(va, "status", "")).lower()
+                    if "active" in status_str:
+                        bank = str(getattr(va, "bank_name", "") or "").lower()
+                        provider = str(getattr(va, "provider", "") or "").lower()
+                        if any(b in bank for b in ("moniepoint", "palmpay", "monnify", "safehaven")) or "monnify" in provider:
+                            return True
+        except Exception:
+            pass
+        return False
+
+    @property
+    def has_api_keys(self) -> bool:
+        return bool(self.api_public_key and self.api_secret_key_hash)
 
 
 Index("ix_users_role_active", User.role, User.is_active)

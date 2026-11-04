@@ -1,7 +1,7 @@
 import enum
-from sqlalchemy import Column, Integer, String, ForeignKey, Numeric, Enum, Index
+from sqlalchemy import Column, Integer, String, ForeignKey, Numeric, Index
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, SafeSQLEnum
 from app.models.base import TimestampMixin
 
 
@@ -10,6 +10,15 @@ class TransactionStatus(str, enum.Enum):
     SUCCESS = "success"
     FAILED = "failed"
     REFUNDED = "refunded"
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            val_lower = value.strip().lower()
+            for member in cls:
+                if member.value.lower() == val_lower or member.name.lower() == val_lower:
+                    return member
+        return cls.PENDING
 
 
 class TransactionType(str, enum.Enum):
@@ -20,6 +29,15 @@ class TransactionType(str, enum.Enum):
     CABLE = "cable"
     ELECTRICITY = "electricity"
     EXAM = "exam"
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            val_lower = value.strip().lower()
+            for member in cls:
+                if member.value.lower() == val_lower or member.name.lower() == val_lower:
+                    return member
+        return cls.DATA
 
 
 class Transaction(Base, TimestampMixin):
@@ -32,8 +50,23 @@ class Transaction(Base, TimestampMixin):
     recipient_phone = Column(String(32), nullable=True)
     data_plan_code = Column(String(64), nullable=True)
     amount = Column(Numeric(12, 2), nullable=False)
-    status = Column(Enum(TransactionStatus, values_callable=lambda obj: [e.value for e in obj]), nullable=False, default=TransactionStatus.PENDING)
-    tx_type = Column(Enum(TransactionType), nullable=False)
+    status = Column(
+        SafeSQLEnum(
+            TransactionStatus,
+            name="transactionstatus",
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
+        nullable=False,
+        default=TransactionStatus.PENDING,
+    )
+    tx_type = Column(
+        SafeSQLEnum(
+            TransactionType,
+            name="transactiontype",
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
+        nullable=False,
+    )
     external_reference = Column(String(64), nullable=True)
     provider = Column(String(64), nullable=True, index=True)
     provider_plan_id = Column(String(64), nullable=True, index=True)

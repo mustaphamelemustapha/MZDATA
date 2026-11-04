@@ -32,6 +32,7 @@ os.makedirs("uploads/profile_images", exist_ok=True)
 
 app = FastAPI(title=settings.app_name)
 app.mount("/static", StaticFiles(directory="uploads"), name="static")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -58,7 +59,7 @@ async def developer_api_exception_handler(request: Request, exc: DeveloperAPIExc
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     from fastapi.responses import JSONResponse
-    if request.url.path.startswith("/api/v1/developer"):
+    if request.url.path.startswith("/api/v1/developer") or request.url.path.startswith("/developer"):
         return JSONResponse(
             status_code=400,
             content={"status": False, "message": "Invalid request payload or missing required fields."}
@@ -170,6 +171,10 @@ if FORWARD_TARGET_URL:
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
+from app.api.v1.endpoints import developer as dev_ep, webhooks as wh_ep
+app.include_router(dev_ep.router, prefix="/developer", tags=["developer_compat"])
+app.include_router(wh_ep.router, prefix="/webhooks", tags=["webhooks_compat"])
+
 
 def _bootstrap_admins() -> None:
     raw = (settings.bootstrap_admin_emails or "").strip()
@@ -211,6 +216,7 @@ def ensure_tables():
     # Pending reconcile must run in both production (auto_create_tables=False)
     # and local bootstrap mode.
     start_pending_reconcile_worker()
+    _ensure_all_database_enums()
     _ensure_virtual_account_provider_enum()
     if not settings.auto_create_tables:
         _bootstrap_admins()
@@ -238,11 +244,25 @@ def ensure_tables():
         _ensure_data_plan_dispatch_columns()
         _ensure_system_settings_columns()
         _ensure_default_integrations()
+        _ensure_financial_ledger_table()
+        _ensure_user_brand_column()
+        _ensure_broadcast_announcement_brand_column()
+        _ensure_userrole_enum()
+        _run_alembic_upgrade()
         try:
             from app.services.push_notification import PushNotificationService
             PushNotificationService._initialize()
         except Exception as e:
             logging.getLogger(__name__).warning("Firebase Admin initialization on startup skipped: %s", e)
+        try:
+            from app.services.commissions import reconcile_missing_agent_commissions
+            db_rec = SessionLocal()
+            try:
+                reconcile_missing_agent_commissions(db_rec, limit=100)
+            finally:
+                db_rec.close()
+        except Exception as e:
+            logging.getLogger(__name__).warning("Agent commission reconciliation on startup skipped: %s", e)
         return
 
     # Optional local fallback for fresh environments.
@@ -277,6 +297,11 @@ def ensure_tables():
     _ensure_data_plan_dispatch_columns()
     _ensure_system_settings_columns()
     _ensure_default_integrations()
+    _ensure_financial_ledger_table()
+    _ensure_user_brand_column()
+    _ensure_broadcast_announcement_brand_column()
+    _ensure_userrole_enum()
+    _run_alembic_upgrade()
     try:
         from app.services.push_notification import PushNotificationService
         PushNotificationService._initialize()
@@ -1014,6 +1039,144 @@ def _ensure_default_integrations() -> None:
         logging.getLogger(__name__).warning("Could not ensure default integrations: %s", exc)
     finally:
         db.close()
+
+
+def _ensure_financial_ledger_table() -> None:
+    try:
+        from app.models.financial_ledger import FinancialLedger
+        inspector = inspect(engine)
+        if not inspector.has_table("financial_ledger"):
+            FinancialLedger.__table__.create(engine, checkfirst=True)
+            logging.getLogger(__name__).info("Ensured financial_ledger table exists.")
+        else:
+            cols = {c["name"] for c in inspector.get_columns("financial_ledger")}
+            with engine.begin() as conn:
+                if "created_by_id" not in cols:
+                    conn.execute(text("ALTER TABLE financial_ledger ADD COLUMN IF NOT EXISTS created_by_id INTEGER REFERENCES users(id)"))
+                if "source_id" not in cols:
+                    conn.execute(text("ALTER TABLE financial_ledger ADD COLUMN IF NOT EXISTS source_id VARCHAR(64)"))
+                if "brand" not in cols:
+                    conn.execute(text("ALTER TABLE financial_ledger ADD COLUMN IF NOT EXISTS brand VARCHAR(32) DEFAULT 'meledata'"))
+                logging.getLogger(__name__).info("Ensured financial_ledger columns.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure financial_ledger table: %s", exc)
+
+
+def _ensure_user_brand_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "brand" not in cols:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS brand VARCHAR(32) DEFAULT 'meledata'"))
+                    logging.getLogger(__name__).info("Added users.brand column.")
+            except Exception as e:
+                logging.getLogger(__name__).warning("Error adding users.brand column: %s", e)
+
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_brand ON users (brand)"))
+        except Exception:
+            pass
+
+        # Auto-align brands based on email domains if brand is currently default/null
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE users SET brand = 'kullomadata' WHERE (brand IS NULL OR brand = 'meledata' OR brand = '') AND email ILIKE '%kulloma%'"))
+                conn.execute(text("UPDATE users SET brand = 'mzdata' WHERE (brand IS NULL OR brand = 'meledata' OR brand = '') AND email ILIKE '%mzdata%'"))
+        except Exception as e:
+            logging.getLogger(__name__).warning("Error auto-aligning user brands: %s", e)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure users.brand column: %s", exc)
+
+
+def _ensure_broadcast_announcement_brand_column() -> None:
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("broadcast_announcements"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("broadcast_announcements")}
+        if "brand" not in cols:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE broadcast_announcements ADD COLUMN IF NOT EXISTS brand VARCHAR(32) DEFAULT 'all'"))
+                    logging.getLogger(__name__).info("Added broadcast_announcements.brand column.")
+            except Exception as e:
+                logging.getLogger(__name__).warning("Error adding broadcast_announcements.brand: %s", e)
+
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_broadcast_announcements_brand ON broadcast_announcements (brand)"))
+        except Exception:
+            pass
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not ensure broadcast_announcements.brand column: %s", exc)
+
+
+def _ensure_all_database_enums() -> None:
+    if engine.dialect.name == "postgresql":
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                enum_map = {
+                    "ledgertype": ['credit', 'debit', 'CREDIT', 'DEBIT', 'Credit', 'Debit'],
+                    "transactiontype": [
+                        'data', 'wallet_fund', 'wallet_transfer', 'airtime', 'cable', 'electricity', 'exam',
+                        'DATA', 'WALLET_FUND', 'WALLET_TRANSFER', 'AIRTIME', 'CABLE', 'ELECTRICITY', 'EXAM'
+                    ],
+                    "transactionstatus": [
+                        'pending', 'success', 'failed', 'refunded',
+                        'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'
+                    ],
+                    "userrole": [
+                        'customer', 'agent', 'ambassador', 'admin', 'user', 'reseller',
+                        'CUSTOMER', 'AGENT', 'AMBASSADOR', 'ADMIN', 'USER', 'RESELLER'
+                    ],
+                    "disputestatus": [
+                        'open', 'resolved', 'rejected',
+                        'OPEN', 'RESOLVED', 'REJECTED'
+                    ],
+                    "virtualaccountprovider": [
+                        'monnify', 'paystack', 'billstack', 'squad', 'safehaven', 'palmpay', 'moniepoint',
+                        'MONNIFY', 'PAYSTACK', 'BILLSTACK', 'SQUAD', 'SAFEHAVEN', 'PALMPAY', 'MONIEPOINT'
+                    ],
+                    "virtualaccountstatus": [
+                        'active', 'inactive', 'failed', 'pending',
+                        'ACTIVE', 'INACTIVE', 'FAILED', 'PENDING'
+                    ],
+                    "agentrewardstatus": [
+                        'pending', 'credited', 'failed',
+                        'PENDING', 'CREDITED', 'FAILED'
+                    ]
+                }
+                for enum_name, values in enum_map.items():
+                    for val in values:
+                        try:
+                            conn.execute(text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{val}'"))
+                        except Exception:
+                            pass
+            logging.getLogger(__name__).info("Ensured all PostgreSQL database enum values (ledgertype, transactiontype, transactionstatus, userrole, disputestatus, virtualaccount).")
+        except Exception as e:
+            logging.getLogger(__name__).warning("Could not ensure PostgreSQL database enums: %s", e)
+
+_ensure_userrole_enum = _ensure_all_database_enums
+
+
+def _run_alembic_upgrade() -> None:
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_ini = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic.ini")
+        if not os.path.exists(alembic_ini):
+            alembic_ini = "alembic.ini"
+        if os.path.exists(alembic_ini):
+            cfg = Config(alembic_ini)
+            command.upgrade(cfg, "head")
+            logging.getLogger(__name__).info("Programmatic alembic upgrade head finished successfully.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Programmatic alembic upgrade failed: %s", exc)
 
 
 @app.get("/healthz")

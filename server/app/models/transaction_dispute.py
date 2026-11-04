@@ -1,9 +1,9 @@
 import enum
 
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 
-from app.core.database import Base
+from app.core.database import Base, SafeSQLEnum
 from app.models.base import TimestampMixin
 
 
@@ -11,6 +11,15 @@ class DisputeStatus(str, enum.Enum):
     OPEN = "open"
     RESOLVED = "resolved"
     REJECTED = "rejected"
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            val_lower = value.strip().lower()
+            for member in cls:
+                if member.value.lower() == val_lower or member.name.lower() == val_lower:
+                    return member
+        return cls.OPEN
 
 
 class TransactionDispute(Base, TimestampMixin):
@@ -22,7 +31,15 @@ class TransactionDispute(Base, TimestampMixin):
     tx_type = Column(String(32), nullable=False)
     category = Column(String(32), nullable=False, default="delivery_issue")
     reason = Column(Text, nullable=False)
-    status = Column(Enum(DisputeStatus), nullable=False, default=DisputeStatus.OPEN)
+    status = Column(
+        SafeSQLEnum(
+            DisputeStatus,
+            name="disputestatus",
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
+        nullable=False,
+        default=DisputeStatus.OPEN,
+    )
     admin_note = Column(Text, nullable=True)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     resolved_by = Column(String(128), nullable=True)
