@@ -188,6 +188,39 @@ def paystack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), 
             transaction.external_reference = data.get("id")
             db.commit()
 
+    elif event == "transfer.success" and transaction:
+        if transaction.status != TransactionStatus.SUCCESS:
+            transaction.status = TransactionStatus.SUCCESS
+            transaction.external_reference = str(data.get("transfer_code") or data.get("id") or "")
+            db.commit()
+
+    elif event in ("transfer.failed", "transfer.reversed") and transaction:
+        if transaction.status in (TransactionStatus.PENDING, TransactionStatus.SUCCESS):
+            fee = Decimal("25.00")
+            if transaction.data_plan_code and transaction.data_plan_code.startswith("FEE_"):
+                try:
+                    fee = Decimal(transaction.data_plan_code.replace("FEE_", ""))
+                except Exception:
+                    fee = Decimal("25.00")
+            total_refund = Decimal(transaction.amount) + fee
+            wallet = get_or_create_wallet(db, transaction.user_id)
+            wallet.balance += total_refund
+
+            refund_ref = _safe_ref("REF", transaction.reference)
+            refund_ledger = WalletLedger(
+                wallet_id=wallet.id,
+                amount=total_refund,
+                entry_type=LedgerType.CREDIT,
+                reference=refund_ref,
+                description=f"Refund for failed bank withdrawal #{transaction.reference}",
+            )
+            db.add(refund_ledger)
+            transaction.status = TransactionStatus.FAILED
+            transaction.failure_reason = str(data.get("gateway_response") or data.get("reason") or "Transfer failed at bank")[:255]
+            transaction.external_reference = str(data.get("transfer_code") or data.get("id") or "")
+            db.commit()
+            logger.info("Processed %s for withdrawal %s, refunded NGN %s to user %s", event, transaction.reference, total_refund, transaction.user_id)
+
     return {"status": "ok"}
 
 
@@ -424,7 +457,7 @@ def monnify_webhook(request: Request, raw_body: bytes = Depends(get_raw_body), d
                         if acc_num:
                             va = db.query(VirtualAccount).filter(
                                 VirtualAccount.account_number == acc_num,
-                                VirtualAccount.provider == VirtualAccountProvider.MONNIFY
+                                VirtualAccount.provider.in_([VirtualAccountProvider.MONNIFY, "monnify", "MONNIFY"])
                             ).first()
                             if va:
                                 user = va.user
@@ -521,7 +554,7 @@ def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body),
             if acc_num_check:
                 known_va = db.query(VirtualAccount).filter(
                     VirtualAccount.account_number == acc_num_check,
-                    VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
+                    VirtualAccount.provider.in_([VirtualAccountProvider.BILLSTACK, "billstack", "BILLSTACK"]),
                 ).first()
             if not known_va and (m_ref_check or r_ref_check):
                 ref_to_match = m_ref_check or r_ref_check
@@ -644,7 +677,7 @@ def billstack_webhook(request: Request, raw_body: bytes = Depends(get_raw_body),
         if acc_num:
             va = db.query(VirtualAccount).filter(
                 VirtualAccount.account_number == str(acc_num).strip(),
-                VirtualAccount.provider == VirtualAccountProvider.BILLSTACK
+                VirtualAccount.provider.in_([VirtualAccountProvider.BILLSTACK, "billstack", "BILLSTACK"])
             ).first()
             if va:
                 user = va.user
@@ -1170,7 +1203,7 @@ async def aspfiy_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
     for ref in ref_candidates:
         account = db.query(VirtualAccount).filter(
             VirtualAccount.customer_reference == ref,
-            VirtualAccount.provider == VirtualAccountProvider.ASPFIY
+            VirtualAccount.provider.in_([VirtualAccountProvider.ASPFIY, "aspfiy", "ASPFIY", "aspify", "ASPIFY"])
         ).first()
         if not account:
             account = db.query(VirtualAccount).filter(
@@ -1186,7 +1219,7 @@ async def aspfiy_webhook(request: Request, raw_body: bytes = Depends(get_raw_bod
         for acc_num in clean_accs:
             account = db.query(VirtualAccount).filter(
                 VirtualAccount.account_number == acc_num,
-                VirtualAccount.provider == VirtualAccountProvider.ASPFIY
+                VirtualAccount.provider.in_([VirtualAccountProvider.ASPFIY, "aspfiy", "ASPFIY", "aspify", "ASPIFY"])
             ).first()
             if not account:
                 account = db.query(VirtualAccount).filter(

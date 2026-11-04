@@ -1,6 +1,8 @@
 import secrets
 import re
 import logging
+import hashlib
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,7 +14,27 @@ from app.core.security import verify_pin
 from app.dependencies import get_current_user, require_admin
 from app.models import User, Transaction, TransactionType, TransactionStatus
 from sqlalchemy import or_
-from app.schemas.wallet import WalletOut, FundWalletRequest, LedgerOut, BankTransferAccountsResponse, CreateBankTransferAccountsRequest, BankAccountOut, TransferVerifyRequest, TransferVerifyResponse, TransferRequest
+import uuid
+from app.models.wallet_ledger import LedgerType
+from app.services.transaction_pin import verify_pin_for_user
+from app.schemas.wallet import (
+    WalletOut,
+    FundWalletRequest,
+    LedgerOut,
+    BankTransferAccountsResponse,
+    CreateBankTransferAccountsRequest,
+    BankAccountOut,
+    TransferVerifyRequest,
+    TransferVerifyResponse,
+    TransferRequest,
+    BankOut,
+    BankResolveRequest,
+    BankResolveResponse,
+    BankWithdrawalRequest,
+    BankWithdrawalResponse,
+    LinkKycRequest,
+    LinkKycResponse,
+)
 from app.services.wallet import get_or_create_wallet, credit_wallet, verify_transfer_recipient, execute_wallet_transfer
 from app.services.referrals import record_referral_first_deposit_reward
 from app.services.paystack import (
@@ -22,6 +44,11 @@ from app.services.paystack import (
     get_or_create_dedicated_account,
     get_paystack_customer,
     PaystackError,
+    list_nigerian_banks,
+    resolve_bank_account,
+    create_transfer_recipient,
+    initiate_transfer,
+    verify_paystack_transfer,
 )
 from app.services.monnify import (
     init_monnify_transaction,
@@ -137,7 +164,7 @@ def _safe_ref(prefix: str, value: str) -> str:
     return cleaned[:64] if len(cleaned) <= 64 else cleaned[:64]
 
 
-def _maybe_reward_first_deposit(db: Session, *, user: User, reference: str, amount: Decimal, status: TransactionStatus) -> None:
+def _maybe_reward_first_deposit(db: Session, *, user: User, reference: str, amount: Decimal, status: TransactionStatus, request: Request | None = None) -> None:
     try:
         record_referral_first_deposit_reward(
             db,
@@ -145,6 +172,7 @@ def _maybe_reward_first_deposit(db: Session, *, user: User, reference: str, amou
             transaction_reference=reference,
             deposit_amount=amount,
             transaction_status=status.value if hasattr(status, "value") else str(status),
+            request=request,
         )
     except Exception as exc:
         db.rollback()
@@ -315,16 +343,16 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
         try:
             db_paystack = db.query(VirtualAccount).filter(
                 VirtualAccount.user_id == user.id,
-                VirtualAccount.provider == VirtualAccountProvider.PAYSTACK
+                VirtualAccount.provider.in_([VirtualAccountProvider.PAYSTACK, "paystack", "PAYSTACK"])
             ).all()
-            if db_paystack:
-                for db_acc in db_paystack:
-                    if db_acc.status == VirtualAccountStatus.ACTIVE and db_acc.account_number:
-                        all_accounts.append({
-                            "bank_name": db_acc.bank_name,
-                            "account_number": db_acc.account_number,
-                            "account_name": db_acc.account_name,
-                        })
+            active_paystack = [acc for acc in db_paystack if acc.status in (VirtualAccountStatus.ACTIVE, "active", "ACTIVE") and acc.account_number]
+            if active_paystack:
+                for db_acc in active_paystack:
+                    all_accounts.append({
+                        "bank_name": db_acc.bank_name,
+                        "account_number": db_acc.account_number,
+                        "account_name": db_acc.account_name,
+                    })
             else:
                 phone = _to_paystack_phone(user.phone_number)
                 try:
@@ -340,18 +368,36 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
                     if paystack_accs:
                         for acc in paystack_accs:
                             bank_slug = acc["bank_name"].lower().replace(" ", "_")
-                            db_acc = VirtualAccount(
-                                user_id=user.id,
-                                provider=VirtualAccountProvider.PAYSTACK,
-                                account_number=acc["account_number"],
-                                account_name=acc["account_name"],
-                                bank_name=acc["bank_name"],
-                                bank_code="000",
-                                customer_reference=f"{account_reference}_paystack_{bank_slug}",
-                                reservation_reference=f"paystack_{user.id}_{bank_slug}_{secrets.token_hex(4)}",
-                                status=VirtualAccountStatus.ACTIVE,
-                            )
-                            db.add(db_acc)
+                            cust_ref = f"{account_reference}_paystack_{bank_slug}"
+                            existing_va = db.query(VirtualAccount).filter(
+                                (VirtualAccount.customer_reference == cust_ref) |
+                                (VirtualAccount.account_number == acc["account_number"]) |
+                                (
+                                    (VirtualAccount.user_id == user.id)
+                                    & (VirtualAccount.provider.in_([VirtualAccountProvider.PAYSTACK, "paystack", "PAYSTACK"]))
+                                )
+                            ).first()
+                            if existing_va:
+                                existing_va.user_id = user.id
+                                existing_va.provider = VirtualAccountProvider.PAYSTACK
+                                existing_va.account_number = acc["account_number"]
+                                existing_va.account_name = acc["account_name"]
+                                existing_va.bank_name = acc["bank_name"]
+                                existing_va.bank_code = "000"
+                                existing_va.status = VirtualAccountStatus.ACTIVE
+                            else:
+                                db_acc = VirtualAccount(
+                                    user_id=user.id,
+                                    provider=VirtualAccountProvider.PAYSTACK,
+                                    account_number=acc["account_number"],
+                                    account_name=acc["account_name"],
+                                    bank_name=acc["bank_name"],
+                                    bank_code="000",
+                                    customer_reference=cust_ref,
+                                    reservation_reference=f"paystack_{user.id}_{bank_slug}_{secrets.token_hex(4)}",
+                                    status=VirtualAccountStatus.ACTIVE,
+                                )
+                                db.add(db_acc)
                         db.commit()
                         all_accounts.extend(paystack_accs)
                 except PaystackError as exc:
@@ -392,7 +438,7 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
     if is_gateway_active(db, "monnify", bool(settings.monnify_secret_key)):
         db_monnify = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
-            VirtualAccount.provider == VirtualAccountProvider.MONNIFY
+            VirtualAccount.provider.in_([VirtualAccountProvider.MONNIFY, "monnify", "MONNIFY"])
         ).all()
 
         if not db_monnify:
@@ -414,8 +460,8 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
     if is_gateway_active(db, "billstack", bool(getattr(settings, "billstack_enabled", False) or getattr(settings, "billstack_api_key", ""))):
         db_billstack = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
-            VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
-            VirtualAccount.status == VirtualAccountStatus.ACTIVE
+            VirtualAccount.provider.in_([VirtualAccountProvider.BILLSTACK, "billstack", "BILLSTACK"]),
+            VirtualAccount.status.in_([VirtualAccountStatus.ACTIVE, "active", "ACTIVE"])
         ).all()
 
         existing_bank_codes = set()
@@ -462,7 +508,7 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
                             (VirtualAccount.account_number == acc_num) |
                             (
                                 (VirtualAccount.user_id == user.id)
-                                & (VirtualAccount.provider == VirtualAccountProvider.BILLSTACK)
+                                & (VirtualAccount.provider.in_([VirtualAccountProvider.BILLSTACK, "billstack", "BILLSTACK"]))
                                 & (VirtualAccount.bank_code == acc_bank_code)
                             )
                         ).first()
@@ -499,8 +545,8 @@ def get_bank_transfer_accounts(request: Request = None, user: User = Depends(get
 
         fresh_billstack = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
-            VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
-            VirtualAccount.status == VirtualAccountStatus.ACTIVE
+            VirtualAccount.provider.in_([VirtualAccountProvider.BILLSTACK, "billstack", "BILLSTACK"]),
+            VirtualAccount.status.in_([VirtualAccountStatus.ACTIVE, "active", "ACTIVE"])
         ).all()
 
         for db_acc in fresh_billstack:
@@ -748,6 +794,19 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
                 detail="This NIN is already linked to another account on our platform. Please use a unique NIN."
             )
 
+    # Immediately persist the validated BVN / NIN hash to the user record
+    if bvn_hash_val or nin_hash_val:
+        db_user = db.query(User).filter(User.id == user.id).first()
+        if db_user:
+            if bvn_hash_val:
+                db_user.bvn_hash = bvn_hash_val
+                user.bvn_hash = bvn_hash_val
+            if nin_hash_val:
+                db_user.nin_hash = nin_hash_val
+                user.nin_hash = nin_hash_val
+            db.commit()
+            db.refresh(db_user)
+
     # 2. Clear Database Monnify Cache & Re-generate (Hard Refresh) only if Monnify is active
     if is_gateway_active(db, "monnify", bool(settings.monnify_secret_key)):
         db.query(VirtualAccount).filter(
@@ -832,8 +891,8 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
     if is_gateway_active(db, "billstack", bool(getattr(settings, "billstack_enabled", False) or getattr(settings, "billstack_api_key", ""))):
         db_billstack = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
-            VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
-            VirtualAccount.status == VirtualAccountStatus.ACTIVE
+            VirtualAccount.provider.in_([VirtualAccountProvider.BILLSTACK, "billstack", "BILLSTACK"]),
+            VirtualAccount.status.in_([VirtualAccountStatus.ACTIVE, "active", "ACTIVE"])
         ).all()
 
         existing_bank_codes = set()
@@ -894,7 +953,7 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
                             (VirtualAccount.account_number == acc_num) |
                             (
                                 (VirtualAccount.user_id == user.id)
-                                & (VirtualAccount.provider == VirtualAccountProvider.BILLSTACK)
+                                & (VirtualAccount.provider.in_([VirtualAccountProvider.BILLSTACK, "billstack", "BILLSTACK"]))
                                 & (VirtualAccount.bank_code == acc_bank_code)
                             )
                         ).first()
@@ -949,8 +1008,8 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
 
         fresh_billstack = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
-            VirtualAccount.provider == VirtualAccountProvider.BILLSTACK,
-            VirtualAccount.status == VirtualAccountStatus.ACTIVE
+            VirtualAccount.provider.in_([VirtualAccountProvider.BILLSTACK, "billstack", "BILLSTACK"]),
+            VirtualAccount.status.in_([VirtualAccountStatus.ACTIVE, "active", "ACTIVE"])
         ).all()
 
         for db_acc in fresh_billstack:
@@ -977,7 +1036,7 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
     if not is_mele and is_gateway_active(db, "asfiy", getattr(settings, "aspfiy_enabled", False)):
         db_aspfiy = db.query(VirtualAccount).filter(
             VirtualAccount.user_id == user.id,
-            VirtualAccount.provider == VirtualAccountProvider.ASPFIY,
+            VirtualAccount.provider.in_([VirtualAccountProvider.ASPFIY, "aspfiy", "ASPFIY", "aspify", "ASPIFY"]),
         ).all()
 
         active_aspfiy = [
@@ -1136,8 +1195,8 @@ def create_bank_transfer_accounts(request: Request, payload: CreateBankTransferA
 def delete_bank_transfer_accounts(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     db.query(VirtualAccount).filter(
         VirtualAccount.user_id == user.id,
-        VirtualAccount.provider.in_([VirtualAccountProvider.MONNIFY, VirtualAccountProvider.BILLSTACK])
-    ).delete()
+        VirtualAccount.provider.in_([VirtualAccountProvider.MONNIFY, VirtualAccountProvider.BILLSTACK, "monnify", "MONNIFY", "billstack", "BILLSTACK"])
+    ).delete(synchronize_session=False)
     db.commit()
     return {"status": "success", "message": "Virtual accounts cache successfully deleted."}
 
@@ -1149,8 +1208,8 @@ def temp_reset_virtual_accounts(email: str, db: Session = Depends(get_db), admin
         return {"status": "error", "message": "User not found"}
     deleted = db.query(VirtualAccount).filter(
         VirtualAccount.user_id == user.id,
-        VirtualAccount.provider.in_([VirtualAccountProvider.MONNIFY, VirtualAccountProvider.BILLSTACK])
-    ).delete()
+        VirtualAccount.provider.in_([VirtualAccountProvider.MONNIFY, VirtualAccountProvider.BILLSTACK, "monnify", "MONNIFY", "billstack", "BILLSTACK"])
+    ).delete(synchronize_session=False)
     db.commit()
     return {"status": "success", "message": f"Successfully deleted {deleted} cached accounts for {email}."}
 
@@ -1332,3 +1391,63 @@ def execute_transfer(request: Request, payload: TransferRequest, user: User = De
         raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
         
     return {"status": "success", "message": f"Successfully transferred NGN{payload.amount:,.2f} to {recipient.full_name}"}
+
+
+@router.post("/link-kyc", response_model=LinkKycResponse)
+@limiter.limit("5/minute")
+def link_kyc(
+    request: Request,
+    payload: LinkKycRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    import hashlib
+    import re
+    bvn = re.sub(r"\D", "", (payload.bvn or "").strip())
+    nin = re.sub(r"\D", "", (payload.nin or "").strip())
+
+    if not bvn and not nin:
+        raise HTTPException(status_code=400, detail="Please provide an 11-digit BVN or NIN.")
+
+    db_user = db.query(User).filter(User.id == user.id).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    if bvn:
+        if len(bvn) != 11:
+            raise HTTPException(status_code=400, detail="BVN must be exactly 11 digits.")
+        bvn_hash_val = hashlib.sha256(bvn.encode()).hexdigest()
+        dup_bvn = db.query(User).filter(User.bvn_hash == bvn_hash_val, User.id != user.id).first()
+        if dup_bvn:
+            raise HTTPException(
+                status_code=400,
+                detail="This BVN is already linked to another account on our platform."
+            )
+        db_user.bvn_hash = bvn_hash_val
+        user.bvn_hash = bvn_hash_val
+
+    if nin:
+        if len(nin) != 11:
+            raise HTTPException(status_code=400, detail="NIN must be exactly 11 digits.")
+        nin_hash_val = hashlib.sha256(nin.encode()).hexdigest()
+        dup_nin = db.query(User).filter(User.nin_hash == nin_hash_val, User.id != user.id).first()
+        if dup_nin:
+            raise HTTPException(
+                status_code=400,
+                detail="This NIN is already linked to another account on our platform."
+            )
+        db_user.nin_hash = nin_hash_val
+        user.nin_hash = nin_hash_val
+
+    db.commit()
+    db.refresh(db_user)
+
+    return LinkKycResponse(
+        status=True,
+        message="Identity verified and linked successfully.",
+        kyc_verified=True,
+        has_bvn=bool(db_user.bvn_hash),
+        has_nin=bool(db_user.nin_hash),
+    )
+
+
