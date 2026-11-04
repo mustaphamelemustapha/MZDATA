@@ -117,7 +117,10 @@ class PushNotificationService {
             final title = message.notification?.title ?? AppConfig.appName;
             final body = message.notification?.body ?? '';
             final soundType = message.data['sound_type'] as String?;
-            final imageUrl = message.notification?.android?.imageUrl ?? message.notification?.apple?.imageUrl;
+            final imageUrl = message.notification?.android?.imageUrl ??
+                message.notification?.apple?.imageUrl ??
+                (message.data['image_url'] as String?) ??
+                (message.data['image'] as String?);
             InteractiveNotificationBanner.show(
               context,
               title: title,

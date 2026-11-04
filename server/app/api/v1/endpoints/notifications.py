@@ -272,7 +272,21 @@ def admin_upload_broadcast_image(
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(image.file, buffer)
 
-        host_url = str(request.base_url).rstrip("/")
+        host_header = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+        proto_header = request.headers.get("x-forwarded-proto", "https")
+        origin_header = request.headers.get("origin") or request.headers.get("referer") or ""
+
+        # If proxy passes internal Docker IP or localhost, determine public origin
+        if not host_header or "10." in host_header or "localhost" in host_header or "127." in host_header:
+            if "mzdata.org" in origin_header:
+                host_url = "https://mzdata.org"
+            else:
+                host_url = "https://api.mzdata.org"
+        else:
+            host_url = f"{proto_header}://{host_header}".rstrip("/")
+            if host_url.startswith("http://") and not ("localhost" in host_url or "127.0.0.1" in host_url):
+                host_url = "https://" + host_url[7:]
+
         image_url = f"{host_url}/static/profile_images/{filename}"
 
     return {"image_url": image_url}
