@@ -151,10 +151,12 @@ def _grant_reward(
     first_deposit_amount: Decimal,
     reward_amount: Decimal,
     source_reference: str,
+    description: str | None = None,
 ) -> str:
     reward_reference = referral.reward_transaction_reference or f"REFERRAL_DEPOSIT_REWARD_{referral.id}"
     wallet = get_or_create_wallet(db, referrer.id, commit=False)
-    description = f"Referral reward from first deposit of ₦{first_deposit_amount:.2f}"
+    if not description:
+        description = f"Referral reward from first deposit of ₦{first_deposit_amount:.2f}"
 
     existing_tx = db.query(Transaction).filter(Transaction.reference == reward_reference).first()
     if existing_tx:
@@ -197,6 +199,7 @@ def record_referral_first_deposit_reward(
     transaction_reference: str,
     deposit_amount: Decimal | int | float | str,
     transaction_status: str,
+    request: Request | None = None,
 ) -> Referral | None:
     referral = _get_or_create_referral_row(db, referred_user=user)
     if not referral:
@@ -249,15 +252,34 @@ def record_referral_first_deposit_reward(
     referral.qualified_at = referral.qualified_at or _utcnow()
     referral.status = ReferralStatus.QUALIFIED
     referrer = db.query(User).filter(User.id == referral.referrer_id).first()
-    if referrer and referrer.role != UserRole.AMBASSADOR:
-        _grant_reward(
-            db,
-            referral=referral,
-            referrer=referrer,
-            first_deposit_amount=amount,
-            reward_amount=reward_amount,
-            source_reference=reference,
-        )
+    if referrer:
+        if referrer.role == UserRole.AMBASSADOR:
+            if not referral.is_ten_percent_paid:
+                from app.services.commissions import get_brand_commission_config
+                cfg = get_brand_commission_config(db, request=request)
+                amb_rate = cfg["ambassador_deposit_rate"]
+                amb_pct = cfg["ambassador_deposit_percent"]
+                amb_pct_str = f"{amb_pct:.0f}%" if float(amb_pct).is_integer() else f"{amb_pct:.1f}%"
+                ambassador_reward = (amount * amb_rate).quantize(Decimal("0.01"))
+                _grant_reward(
+                    db,
+                    referral=referral,
+                    referrer=referrer,
+                    first_deposit_amount=amount,
+                    reward_amount=ambassador_reward,
+                    source_reference=reference,
+                    description=f"Ambassador {amb_pct_str} Onboarding Commission",
+                )
+                referral.is_ten_percent_paid = True
+        else:
+            _grant_reward(
+                db,
+                referral=referral,
+                referrer=referrer,
+                first_deposit_amount=amount,
+                reward_amount=reward_amount,
+                source_reference=reference,
+            )
     db.commit()
     return referral
 

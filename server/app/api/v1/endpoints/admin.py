@@ -6,7 +6,7 @@ import time
 import logging
 from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, select, union_all, String, cast, inspect
 from app.core.database import get_db
@@ -43,8 +43,6 @@ from app.schemas.admin import (
 from app.services.wallet import get_or_create_wallet, credit_wallet, debit_wallet
 from app.services.pricing import build_service_pricing_key, parse_pricing_key
 from app.api.v1.endpoints.data import _invalidate_plans_cache
-from app.api.v1.endpoints.developer import generate_key_pair
-import secrets
 
 router = APIRouter()
 settings = get_settings()
@@ -112,7 +110,7 @@ def _extract_provider_payload(meta: dict | None):
     for key in ("provider_response", "raw_provider_response", "provider_raw", "response", "result"):
         if key in payload and payload.get(key) is not None:
             return payload.get(key)
-    for provider_key in ("clubkonnect", "vtpass", "smeplug", "autosync", "boltnet"):
+    for provider_key in ("amigo", "clubkonnect", "vtpass"):
         provider_obj = payload.get(provider_key)
         if isinstance(provider_obj, dict):
             for key in ("raw_response", "response", "result"):
@@ -201,12 +199,13 @@ def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
     return value.astimezone(timezone.utc)
 
 
-@router.get("/analytics")
-def analytics(admin=Depends(require_admin), db: Session = Depends(get_db)):
+def _compute_analytics(admin, db: Session):
     # Check cache first
     cached = _ANALYTICS_CACHE.get("admin_analytics")
     if cached and (time.time() - cached['time']) < ANALYTICS_CACHE_TTL:
-        return cached['data']
+        # Don't serve cached zero-data if it was an empty fallback
+        if cached['data'].get("total_users", 0) > 0 or cached['data'].get("total_revenue", 0) > 0:
+            return cached['data']
 
     now_utc = _utcnow()
     day_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -233,88 +232,161 @@ def analytics(admin=Depends(require_admin), db: Session = Depends(get_db)):
             "tx_count": 0
         })
 
-    total_revenue = db.query(func.sum(Transaction.amount)).filter(
+    total_revenue = 0
+    total_cost_estimate = 0
+    data_revenue = 0
+    data_cost_estimate = 0
+
+    is_success_tx = or_(
         Transaction.status == TransactionStatus.SUCCESS,
-        Transaction.tx_type.notin_([TransactionType.WALLET_FUND, TransactionType.WALLET_TRANSFER])
-    ).scalar() or 0
-    
-    # Calculate total cost estimate across ALL transactions
-    total_cost_estimate = (
-        db.query(func.sum(func.coalesce(DataPlan.base_price, Transaction.amount)))
-        .select_from(Transaction)
-        .outerjoin(DataPlan, Transaction.data_plan_code == DataPlan.plan_code)
-        .filter(
-            Transaction.status == TransactionStatus.SUCCESS,
-            Transaction.tx_type.notin_([TransactionType.WALLET_FUND, TransactionType.WALLET_TRANSFER])
-        )
-        .scalar()
-        or 0
+        cast(Transaction.status, String).in_(["SUCCESS", "success", "delivered", "successful"])
     )
-    
-    data_revenue = (
-        db.query(func.sum(Transaction.amount))
-        .filter(
-            Transaction.status == TransactionStatus.SUCCESS,
-            Transaction.tx_type == TransactionType.DATA,
-        )
-        .scalar()
-        or 0
+    is_not_wallet_tx = func.lower(cast(Transaction.tx_type, String)).notin_(["wallet_fund", "wallet_transfer"])
+    is_data_tx = or_(
+        Transaction.tx_type == TransactionType.DATA,
+        cast(Transaction.tx_type, String).in_(["DATA", "data"])
     )
-    # Estimate cost from the current plan catalog base_price (not historical).
-    data_cost_estimate = (
-        db.query(func.sum(func.coalesce(DataPlan.base_price, Transaction.amount)))
-        .select_from(Transaction)
-        .outerjoin(DataPlan, Transaction.data_plan_code == DataPlan.plan_code)
-        .filter(
-            Transaction.status == TransactionStatus.SUCCESS,
-            Transaction.tx_type == TransactionType.DATA,
+
+    try:
+        total_revenue = db.query(func.sum(Transaction.amount)).filter(
+            is_success_tx,
+            is_not_wallet_tx
+        ).scalar() or 0
+    except Exception as exc:
+        logger.warning(f"Error computing total_revenue: {exc}")
+        db.rollback()
+
+    try:
+        total_cost_estimate = (
+            db.query(func.sum(func.coalesce(func.nullif(DataPlan.base_price, 0), Transaction.amount * 0.90)))
+            .select_from(Transaction)
+            .outerjoin(
+                DataPlan,
+                or_(
+                    Transaction.data_plan_code == DataPlan.plan_code,
+                    func.lower(Transaction.data_plan_code) == func.lower(DataPlan.plan_code),
+                )
+            )
+            .filter(
+                is_success_tx,
+                is_not_wallet_tx
+            )
+            .scalar()
+            or 0
         )
-        .scalar()
-        or 0
-    )
+    except Exception as exc:
+        logger.warning(f"Error computing total_cost_estimate: {exc}")
+        db.rollback()
+
+    try:
+        data_revenue = (
+            db.query(func.sum(Transaction.amount))
+            .filter(
+                is_success_tx,
+                is_data_tx
+            )
+            .scalar()
+            or 0
+        )
+    except Exception as exc:
+        logger.warning(f"Error computing data_revenue: {exc}")
+        db.rollback()
+
+    try:
+        data_cost_estimate = (
+            db.query(func.sum(func.coalesce(func.nullif(DataPlan.base_price, 0), Transaction.amount * 0.90)))
+            .select_from(Transaction)
+            .outerjoin(
+                DataPlan,
+                or_(
+                    Transaction.data_plan_code == DataPlan.plan_code,
+                    func.lower(Transaction.data_plan_code) == func.lower(DataPlan.plan_code),
+                )
+            )
+            .filter(
+                is_success_tx,
+                is_data_tx
+            )
+            .scalar()
+            or 0
+        )
+    except Exception as exc:
+        logger.warning(f"Error computing data_cost_estimate: {exc}")
+        db.rollback()
+
     gross_profit_estimate = float(total_revenue or 0) - float(total_cost_estimate or 0)
     gross_margin_pct = (float(gross_profit_estimate) / float(total_revenue) * 100.0) if float(total_revenue) else 0.0
-    total_users = db.query(func.count(User.id)).scalar() or 0
-    active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
 
-    today_successful_tx = db.query(func.count(Transaction.id)).filter(
-        Transaction.status == TransactionStatus.SUCCESS,
-        Transaction.created_at >= day_start_utc,
-        Transaction.tx_type.notin_([TransactionType.WALLET_FUND, TransactionType.WALLET_TRANSFER])
-    ).scalar() or 0
-    today_failed_tx = db.query(func.count(Transaction.id)).filter(
-        Transaction.status.in_([TransactionStatus.FAILED, TransactionStatus.REFUNDED]),
-        Transaction.created_at >= day_start_utc,
-        Transaction.tx_type.notin_([TransactionType.WALLET_FUND, TransactionType.WALLET_TRANSFER])
-    ).scalar() or 0
-    today_pending_tx = db.query(func.count(Transaction.id)).filter(
-        Transaction.status == TransactionStatus.PENDING,
-        Transaction.created_at >= day_start_utc,
-        Transaction.tx_type.notin_([TransactionType.WALLET_FUND, TransactionType.WALLET_TRANSFER])
-    ).scalar() or 0
+    total_users = 0
+    active_users = 0
+    try:
+        total_users = db.query(func.count(User.id)).scalar() or 0
+        active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+    except Exception as exc:
+        logger.warning(f"Error computing total_users: {exc}")
+        db.rollback()
 
-    if inspect(db.bind).has_table("service_transactions"):
-        today_successful_st = db.query(func.count(ServiceTransaction.id)).filter(
-            ServiceTransaction.status == TransactionStatus.SUCCESS.value,
-            ServiceTransaction.created_at >= day_start_utc
+    today_successful_tx = 0
+    today_failed_tx = 0
+    today_pending_tx = 0
+    try:
+        today_successful_tx = db.query(func.count(Transaction.id)).filter(
+            is_success_tx,
+            Transaction.created_at >= day_start_utc,
+            is_not_wallet_tx
         ).scalar() or 0
-        today_failed_st = db.query(func.count(ServiceTransaction.id)).filter(
-            ServiceTransaction.status.in_([TransactionStatus.FAILED.value, TransactionStatus.REFUNDED.value]),
-            ServiceTransaction.created_at >= day_start_utc
+        today_failed_tx = db.query(func.count(Transaction.id)).filter(
+            or_(
+                Transaction.status.in_([TransactionStatus.FAILED, TransactionStatus.REFUNDED]),
+                cast(Transaction.status, String).in_(["FAILED", "failed", "REFUNDED", "refunded"])
+            ),
+            Transaction.created_at >= day_start_utc,
+            is_not_wallet_tx
         ).scalar() or 0
-        today_pending_st = db.query(func.count(ServiceTransaction.id)).filter(
-            ServiceTransaction.status == TransactionStatus.PENDING.value,
-            ServiceTransaction.created_at >= day_start_utc
+        today_pending_tx = db.query(func.count(Transaction.id)).filter(
+            or_(
+                Transaction.status == TransactionStatus.PENDING,
+                cast(Transaction.status, String).in_(["PENDING", "pending", "processing"])
+            ),
+            Transaction.created_at >= day_start_utc,
+            is_not_wallet_tx
         ).scalar() or 0
-        
-        today_successful_tx += today_successful_st
-        today_failed_tx += today_failed_st
-        today_pending_tx += today_pending_st
+    except Exception as exc:
+        logger.warning(f"Error computing today tx counts: {exc}")
+        db.rollback()
+
+    try:
+        if inspect(db.bind).has_table("service_transactions"):
+            today_successful_st = db.query(func.count(ServiceTransaction.id)).filter(
+                ServiceTransaction.status == TransactionStatus.SUCCESS.value,
+                ServiceTransaction.created_at >= day_start_utc
+            ).scalar() or 0
+            today_failed_st = db.query(func.count(ServiceTransaction.id)).filter(
+                ServiceTransaction.status.in_([TransactionStatus.FAILED.value, TransactionStatus.REFUNDED.value]),
+                ServiceTransaction.created_at >= day_start_utc
+            ).scalar() or 0
+            today_pending_st = db.query(func.count(ServiceTransaction.id)).filter(
+                ServiceTransaction.status == TransactionStatus.PENDING.value,
+                ServiceTransaction.created_at >= day_start_utc
+            ).scalar() or 0
+            
+            today_successful_tx += today_successful_st
+            today_failed_tx += today_failed_st
+            today_pending_tx += today_pending_st
+    except Exception as st_exc:
+        logger.warning(f"Error computing service_transactions today counts: {st_exc}")
+        db.rollback()
 
     daily_tx = today_successful_tx + today_failed_tx + today_pending_tx
 
-    api_success = db.query(func.count(ApiLog.id)).filter(ApiLog.success == 1).scalar() or 0
-    api_failed = db.query(func.count(ApiLog.id)).filter(ApiLog.success == 0).scalar() or 0
+    try:
+        api_success = db.query(func.count(ApiLog.id)).filter(ApiLog.success == 1).scalar() or 0
+        api_failed = db.query(func.count(ApiLog.id)).filter(ApiLog.success == 0).scalar() or 0
+    except Exception as api_exc:
+        logger.warning(f"Error querying ApiLog counts: {api_exc}")
+        db.rollback()
+        api_success = 0
+        api_failed = 0
     service_revenue = 0
     service_cost_estimate = 0
     service_profit_estimate = 0
@@ -363,11 +435,17 @@ def analytics(admin=Depends(require_admin), db: Session = Depends(get_db)):
     try:
         data_period_rows = (
             db.query(Transaction.created_at, Transaction.amount, DataPlan.base_price)
-            .outerjoin(DataPlan, Transaction.data_plan_code == DataPlan.plan_code)
+            .outerjoin(
+                DataPlan,
+                or_(
+                    Transaction.data_plan_code == DataPlan.plan_code,
+                    func.lower(Transaction.data_plan_code) == func.lower(DataPlan.plan_code),
+                )
+            )
             .filter(
-                Transaction.status == TransactionStatus.SUCCESS,
+                is_success_tx,
                 Transaction.created_at >= months_starts[0],
-                Transaction.tx_type.notin_([TransactionType.WALLET_FUND, TransactionType.WALLET_TRANSFER])
+                is_not_wallet_tx
             )
             .all()
         )
@@ -375,9 +453,12 @@ def analytics(admin=Depends(require_admin), db: Session = Depends(get_db)):
         for created_at, amount, base_price in data_period_rows:
             revenue_num = float(amount or 0)
             try:
-                cost_num = float(base_price) if base_price is not None else revenue_num
+                if base_price is not None and float(base_price) > 0 and float(base_price) <= revenue_num:
+                    cost_num = float(base_price)
+                else:
+                    cost_num = round(revenue_num * 0.90, 2)
             except Exception:
-                cost_num = revenue_num
+                cost_num = round(revenue_num * 0.90, 2)
             _apply_period_totals(created_at, revenue_num, cost_num)
             _apply_trends(created_at, revenue_num, cost_num)
 
@@ -447,9 +528,9 @@ def analytics(admin=Depends(require_admin), db: Session = Depends(get_db)):
             )
             promo_remaining = max(promo_limit - promo_users_used, 0)
             promo_active = promo_remaining > 0
-    except Exception:
-        # Keep analytics endpoint resilient when the service table is not yet available.
-        pass
+    except Exception as period_exc:
+        logger.warning(f"Error computing period data: {period_exc}")
+        db.rollback()
 
     period_profit_payload = {}
     for key, values in period_profit_estimates.items():
@@ -460,13 +541,18 @@ def analytics(admin=Depends(require_admin), db: Session = Depends(get_db)):
             "tx_count": int(values["tx_count"]),
         }
         
-    total_tx_count = db.query(func.count(Transaction.id)).filter(
-        Transaction.status == TransactionStatus.SUCCESS,
-        Transaction.tx_type.notin_([TransactionType.WALLET_FUND, TransactionType.WALLET_TRANSFER])
-    ).scalar() or 0
-    if inspect(db.bind).has_table("service_transactions"):
-        total_st_count = db.query(func.count(ServiceTransaction.id)).filter(ServiceTransaction.status == TransactionStatus.SUCCESS.value).scalar() or 0
-        total_tx_count += total_st_count
+    try:
+        total_tx_count = db.query(func.count(Transaction.id)).filter(
+            is_success_tx,
+            is_not_wallet_tx
+        ).scalar() or 0
+        if inspect(db.bind).has_table("service_transactions"):
+            total_st_count = db.query(func.count(ServiceTransaction.id)).filter(ServiceTransaction.status == TransactionStatus.SUCCESS.value).scalar() or 0
+            total_tx_count += total_st_count
+    except Exception as tx_cnt_exc:
+        logger.warning(f"Error computing total_tx_count: {tx_cnt_exc}")
+        db.rollback()
+        total_tx_count = daily_tx
         
     period_profit_payload["all_time"] = {
         "revenue": round(float(total_revenue or 0) + float(service_revenue or 0), 2),
@@ -486,28 +572,29 @@ def analytics(admin=Depends(require_admin), db: Session = Depends(get_db)):
         })
 
     result = {
-        "total_revenue": total_revenue,
-        "data_revenue": data_revenue,
-        "data_cost_estimate": data_cost_estimate,
-        "gross_profit_estimate": gross_profit_estimate,
-        "gross_margin_pct": round(gross_margin_pct, 2),
-        "service_revenue": round(float(service_revenue), 2),
-        "service_cost_estimate": round(float(service_cost_estimate), 2),
-        "service_profit_estimate": round(float(service_profit_estimate), 2),
-        "total_users": total_users,
-        "active_users": active_users,
-        "daily_transactions": daily_tx,
-        "today_successful_tx": today_successful_tx,
-        "today_failed_tx": today_failed_tx,
-        "today_pending_tx": today_pending_tx,
-        "api_success": api_success,
-        "api_failed": api_failed,
-        "reports_open": int(reports_open),
-        "reports_resolved": int(reports_resolved),
+        "total_revenue": float(total_revenue or 0.0),
+        "data_revenue": float(data_revenue or 0.0),
+        "data_cost_estimate": float(data_cost_estimate or 0.0),
+        "total_cost_estimate": float(total_cost_estimate or 0.0),
+        "gross_profit_estimate": float(gross_profit_estimate or 0.0),
+        "gross_margin_pct": round(float(gross_margin_pct or 0.0), 2),
+        "service_revenue": round(float(service_revenue or 0.0), 2),
+        "service_cost_estimate": round(float(service_cost_estimate or 0.0), 2),
+        "service_profit_estimate": round(float(service_profit_estimate or 0.0), 2),
+        "total_users": int(total_users or 0),
+        "active_users": int(active_users or 0),
+        "daily_transactions": int(daily_tx or 0),
+        "today_successful_tx": int(today_successful_tx or 0),
+        "today_failed_tx": int(today_failed_tx or 0),
+        "today_pending_tx": int(today_pending_tx or 0),
+        "api_success": int(api_success or 0),
+        "api_failed": int(api_failed or 0),
+        "reports_open": int(reports_open or 0),
+        "reports_resolved": int(reports_resolved or 0),
         "promo_mtn_1gb_enabled": bool(settings.promo_mtn_1gb_enabled),
-        "promo_mtn_1gb_limit": int(promo_limit),
-        "promo_mtn_1gb_users_used": int(promo_users_used),
-        "promo_mtn_1gb_remaining": int(promo_remaining),
+        "promo_mtn_1gb_limit": int(promo_limit or 0),
+        "promo_mtn_1gb_users_used": int(promo_users_used or 0),
+        "promo_mtn_1gb_remaining": int(promo_remaining or 0),
         "promo_mtn_1gb_active": bool(promo_active),
         "profit_period_estimates": period_profit_payload,
         "monthly_trends": monthly_trends_payload,
@@ -521,25 +608,111 @@ def analytics(admin=Depends(require_admin), db: Session = Depends(get_db)):
     
     return result
 
-@router.get("/transactions", response_model=AdminTransactionsResponse)
-@cache_endpoint(ttl_seconds=15)
-def list_all_transactions(
-    admin=Depends(require_admin),
-    db: Session = Depends(get_db),
+@router.get("/analytics")
+def analytics(admin=Depends(require_admin), db: Session = Depends(get_db)):
+    try:
+        return _compute_analytics(admin, db)
+    except Exception as exc:
+        logger.error(f"Error computing admin analytics: {exc}", exc_info=True)
+        # Safe fallback so admin overview dashboard never breaks with HTTP 500
+        return {
+            "total_revenue": 0.0,
+            "data_revenue": 0.0,
+            "data_cost_estimate": 0.0,
+            "total_cost_estimate": 0.0,
+            "gross_profit_estimate": 0.0,
+            "gross_margin_pct": 0.0,
+            "service_revenue": 0.0,
+            "service_cost_estimate": 0.0,
+            "service_profit_estimate": 0.0,
+            "total_users": 0,
+            "active_users": 0,
+            "daily_transactions": 0,
+            "today_successful_tx": 0,
+            "today_failed_tx": 0,
+            "today_pending_tx": 0,
+            "api_success": 0,
+            "api_failed": 0,
+            "reports_open": 0,
+            "reports_resolved": 0,
+            "promo_mtn_1gb_enabled": False,
+            "promo_mtn_1gb_limit": 0,
+            "promo_mtn_1gb_users_used": 0,
+            "promo_mtn_1gb_remaining": 0,
+            "promo_mtn_1gb_active": False,
+            "profit_period_estimates": {},
+            "monthly_trends": [],
+            "error_detail": str(exc),
+        }
+
+@router.get("/db-status")
+def db_status(admin=Depends(require_admin), db: Session = Depends(get_db)):
+    from sqlalchemy import text, inspect
+    status_info = {}
+    try:
+        status_info["dialect"] = db.bind.dialect.name
+        try:
+            status_info["user_count"] = db.query(func.count(User.id)).scalar()
+        except Exception as e:
+            db.rollback()
+            status_info["user_count_error"] = str(e)
+            
+        try:
+            status_info["transaction_count"] = db.query(func.count(Transaction.id)).scalar()
+        except Exception as e:
+            db.rollback()
+            status_info["transaction_count_error"] = str(e)
+            
+        try:
+            inspector = inspect(db.bind)
+            user_cols = [c["name"] for c in inspector.get_columns("users")]
+            status_info["users_has_brand"] = "brand" in user_cols
+            status_info["users_columns"] = user_cols
+        except Exception as e:
+            status_info["inspector_error"] = str(e)
+            
+        try:
+            u_sample = db.execute(text("SELECT id, email, role, brand FROM users ORDER BY id DESC LIMIT 3")).fetchall()
+            status_info["users_sample"] = [dict(row._mapping) for row in u_sample]
+        except Exception as e:
+            db.rollback()
+            status_info["sample_error"] = str(e)
+
+        try:
+            tx_sample = db.execute(text("SELECT id, user_id, amount, status, tx_type, created_at FROM transactions ORDER BY id DESC LIMIT 3")).fetchall()
+            status_info["tx_sample"] = [dict(row._mapping) for row in tx_sample]
+        except Exception as e:
+            db.rollback()
+            status_info["tx_sample_error"] = str(e)
+
+        try:
+            tx_group = db.execute(text("SELECT status::text, tx_type::text, count(*), coalesce(sum(amount), 0) FROM transactions GROUP BY 1, 2")).fetchall()
+            status_info["tx_breakdown"] = [
+                {"status": str(row[0]), "tx_type": str(row[1]), "count": int(row[2]), "sum": float(row[3])}
+                for row in tx_group
+            ]
+        except Exception as e:
+            db.rollback()
+            status_info["tx_breakdown_error"] = str(e)
+
+        status_info["ok"] = True
+    except Exception as fatal:
+        status_info["fatal_error"] = str(fatal)
+        status_info["ok"] = False
+    return status_info
+
+def _query_all_transactions(
+    admin,
+    db: Session,
     q: Optional[str] = None,
     status: Optional[str] = None,
     tx_type: Optional[str] = None,
     network: Optional[str] = None,
-    from_date: Optional[date] = Query(default=None),
-    to_date: Optional[date] = Query(default=None),
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
     page: int = 1,
     page_size: int = 50,
 ):
-    if page < 1:
-        raise HTTPException(status_code=400, detail="page must be >= 1")
-    if page_size < 1 or page_size > 200:
-        raise HTTPException(status_code=400, detail="page_size must be between 1 and 200")
-
     status_enum = _coerce_status(status)
     type_enum = _coerce_type(tx_type)
 
@@ -561,7 +734,10 @@ def list_all_transactions(
                 )
             )
         if status_enum is not None:
-            query = query.filter(Transaction.status == status_enum)
+            if status_enum == TransactionStatus.FAILED:
+                query = query.filter(Transaction.status.in_([TransactionStatus.FAILED, TransactionStatus.REFUNDED]))
+            else:
+                query = query.filter(Transaction.status == status_enum)
         if type_enum is not None:
             query = query.filter(Transaction.tx_type == type_enum)
         if network:
@@ -653,7 +829,10 @@ def list_all_transactions(
             )
         )
     if status_enum is not None:
-        where.append(func.lower(combined.c.status) == status_enum.value.lower())
+        if status_enum == TransactionStatus.FAILED:
+            where.append(func.lower(combined.c.status).in_(["failed", "refunded"]))
+        else:
+            where.append(func.lower(combined.c.status) == status_enum.value.lower())
     if type_enum is not None:
         where.append(func.lower(combined.c.tx_type) == type_enum.value.lower())
     if network:
@@ -682,14 +861,14 @@ def list_all_transactions(
         total = db.execute(
             select(func.count())
             .select_from(combined)
-            .join(User, combined.c.user_id == User.id)
+            .outerjoin(User, combined.c.user_id == User.id)
             .where(*where)
         ).scalar() or 0
         
         query_sel = (
             select(*columns)
             .select_from(combined)
-            .join(User, combined.c.user_id == User.id)
+            .outerjoin(User, combined.c.user_id == User.id)
             .where(*where)
             .order_by(combined.c.created_at.desc(), combined.c.id.desc())
             .offset((page - 1) * page_size)
@@ -728,7 +907,7 @@ def list_all_transactions(
                 paginated_subquery.c.failure_reason.label("failure_reason"),
             )
             .select_from(paginated_subquery)
-            .join(User, paginated_subquery.c.user_id == User.id)
+            .outerjoin(User, paginated_subquery.c.user_id == User.id)
             .order_by(paginated_subquery.c.created_at.desc(), paginated_subquery.c.id.desc())
         )
         rows = db.execute(query_sel).mappings().all()
@@ -741,6 +920,58 @@ def list_all_transactions(
         items.append(row)
 
     return {"items": items, "total": int(total), "page": page, "page_size": page_size}
+
+
+@router.get("/transactions", response_model=AdminTransactionsResponse)
+@cache_endpoint(ttl_seconds=15)
+def list_all_transactions(
+    admin=Depends(require_admin),
+    db: Session = Depends(get_db),
+    q: Optional[str] = None,
+    status: Optional[str] = None,
+    tx_type: Optional[str] = None,
+    network: Optional[str] = None,
+    from_date: Optional[date] = Query(default=None),
+    to_date: Optional[date] = Query(default=None),
+    page: int = 1,
+    page_size: int = 50,
+):
+    if page < 1:
+        raise HTTPException(status_code=400, detail="page must be >= 1")
+    if page_size < 1 or page_size > 200:
+        raise HTTPException(status_code=400, detail="page_size must be between 1 and 200")
+    try:
+        return _query_all_transactions(admin, db, q, status, tx_type, network, from_date, to_date, page, page_size)
+    except Exception as exc:
+        logger.error(f"Error in list_all_transactions: {exc}", exc_info=True)
+        try:
+            fallback_txs = (
+                db.query(Transaction)
+                .order_by(Transaction.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+            fallback_total = db.query(func.count(Transaction.id)).scalar() or 0
+            items = []
+            for tx in fallback_txs:
+                items.append({
+                    "id": tx.id,
+                    "created_at": tx.created_at,
+                    "user_id": tx.user_id,
+                    "user_email": "—",
+                    "reference": tx.reference,
+                    "tx_type": _normalize_type_value(tx.tx_type),
+                    "amount": tx.amount,
+                    "status": _normalize_status_value(tx.status),
+                    "network": tx.network,
+                    "data_plan_code": tx.data_plan_code,
+                    "external_reference": tx.external_reference,
+                    "failure_reason": tx.failure_reason,
+                })
+            return {"items": items, "total": fallback_total, "page": page, "page_size": page_size}
+        except Exception:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
 
 @router.get("/transactions/{reference}")
@@ -765,7 +996,7 @@ def get_transaction_details(
             .first()
         )
         provider_trace = {
-            "provider": tx.provider or "unknown",
+            "provider": tx.provider or ("amigo" if _normalize_type_value(tx.tx_type) == "data" else "unknown"),
             "tx_status": _normalize_status_value(tx.status),
             "failure_reason": tx.failure_reason or "",
             "external_reference": tx.external_reference or "",
@@ -797,7 +1028,7 @@ def get_transaction_details(
             "created_at": tx.created_at,
             "meta": _sanitize_meta(raw_meta),
             "provider_payload": _sanitize_meta(provider_payload_for_display),
-            "provider_payload_pretty": json.dumps(_sanitize_meta(provider_payload_for_display), indent=2, ensure_ascii=False, default=str),
+            "provider_payload_pretty": json.dumps(_sanitize_meta(provider_payload_for_display), indent=2, ensure_ascii=False),
             "provider_trace": _sanitize_meta(provider_trace),
         }
 
@@ -827,7 +1058,7 @@ def get_transaction_details(
                 "created_at": service_tx.created_at,
                 "meta": _sanitize_meta(raw_meta),
                 "provider_payload": _sanitize_meta(provider_payload),
-                "provider_payload_pretty": json.dumps(_sanitize_meta(provider_payload), indent=2, ensure_ascii=False, default=str)
+                "provider_payload_pretty": json.dumps(_sanitize_meta(provider_payload), indent=2, ensure_ascii=False)
                 if provider_payload is not None
                 else None,
             }
@@ -868,6 +1099,13 @@ def list_users(
         .as_scalar()
     )
 
+    wallet_subquery = (
+        db.query(func.coalesce(Wallet.balance, 0))
+        .filter(Wallet.user_id == User.id)
+        .correlate(User)
+        .as_scalar()
+    )
+
     query = db.query(
         User.id,
         User.created_at,
@@ -880,6 +1118,7 @@ def list_users(
         User.developer_status,
         ref_subquery.label("referral_count"),
         spending_subquery.label("total_spending"),
+        wallet_subquery.label("wallet_balance"),
     )
 
     if q:
@@ -904,45 +1143,93 @@ def list_users(
         elif status.lower() == "suspended":
             query = query.filter(User.is_active == False)
 
-    # For count, we can use a simpler query to avoid the subqueries slowing it down
-    # But for now we rely on SQLAlchemy optimizations. 
-    # To truly optimize count, we could strip explicit select and subqueries:
-    count_query = db.query(User.id)
-    if q: count_query = count_query.filter(or_(User.email.ilike(needle), User.full_name.ilike(needle), User.phone_number.ilike(needle)))
-    if role and role.lower() != "all":
-        try: count_query = count_query.filter(User.role == UserRole(role.lower()))
-        except ValueError: pass
-    if status and status.lower() != "all":
-        if status.lower() == "active": count_query = count_query.filter(User.is_active == True)
-        elif status.lower() == "suspended": count_query = count_query.filter(User.is_active == False)
-    total = count_query.count()
+    try:
+        count_query = db.query(User.id)
+        if q:
+            count_query = count_query.filter(or_(User.email.ilike(needle), User.full_name.ilike(needle), User.phone_number.ilike(needle)))
+        if role and role.lower() != "all":
+            try:
+                count_query = count_query.filter(User.role == UserRole(role.lower()))
+            except ValueError:
+                pass
+        if status and status.lower() != "all":
+            if status.lower() == "active":
+                count_query = count_query.filter(User.is_active == True)
+            elif status.lower() == "suspended":
+                count_query = count_query.filter(User.is_active == False)
+        total = count_query.count()
 
-    users = (
-        query.order_by(User.id.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-
-    items = []
-    for u in users:
-        items.append(
-            {
-                "id": u.id,
-                "created_at": u.created_at,
-                "email": u.email,
-                "phone_number": u.phone_number,
-                "full_name": u.full_name,
-                "role": u.role,
-                "is_active": u.is_active,
-                "is_verified": u.is_verified,
-                "referral_count": u.referral_count or 0,
-                "developer_status": u.developer_status or "none",
-                "total_spending": float(u.total_spending or 0.0),
-            }
+        users = (
+            query.order_by(User.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
         )
 
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+        items = []
+        for u in users:
+            role_val = str(u.role.value if hasattr(u.role, 'value') else u.role or "customer").lower()
+            items.append(
+                {
+                    "id": u.id,
+                    "created_at": u.created_at,
+                    "email": str(u.email or ""),
+                    "phone_number": str(u.phone_number or "") if u.phone_number else None,
+                    "full_name": str(u.full_name or ""),
+                    "role": role_val,
+                    "is_active": bool(u.is_active),
+                    "is_verified": bool(u.is_verified),
+                    "referral_count": int(u.referral_count or 0),
+                    "developer_status": str(u.developer_status or "none"),
+                    "total_spending": float(u.total_spending or 0.0),
+                    "wallet_balance": float(u.wallet_balance or 0.0),
+                }
+            )
+        return {"items": items, "total": total, "page": page, "page_size": page_size}
+    except Exception as exc:
+        logger.error(f"Error in list_users with subqueries: {exc}", exc_info=True)
+        db.rollback()
+        # Fallback to direct User query without subqueries
+        try:
+            simple_q = db.query(User)
+            if q:
+                needle = f"%{q.strip()}%"
+                simple_q = simple_q.filter(or_(User.email.ilike(needle), User.full_name.ilike(needle), User.phone_number.ilike(needle)))
+            if status and status.lower() != "all":
+                if status.lower() == "active":
+                    simple_q = simple_q.filter(User.is_active == True)
+                elif status.lower() == "suspended":
+                    simple_q = simple_q.filter(User.is_active == False)
+            fallback_total = simple_q.count()
+            fallback_users = simple_q.order_by(User.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+            items = []
+            for u in fallback_users:
+                role_val = str(u.role.value if hasattr(u.role, 'value') else u.role or "customer").lower()
+                wb = 0.0
+                try:
+                    w = db.query(Wallet.balance).filter(Wallet.user_id == u.id).first()
+                    wb = float(w[0]) if w else 0.0
+                except Exception:
+                    pass
+                items.append({
+                    "id": u.id,
+                    "created_at": u.created_at,
+                    "email": str(u.email or ""),
+                    "phone_number": str(u.phone_number or "") if u.phone_number else None,
+                    "full_name": str(u.full_name or ""),
+                    "role": role_val,
+                    "is_active": bool(u.is_active),
+                    "is_verified": bool(u.is_verified),
+                    "referral_count": 0,
+                    "developer_status": str(getattr(u, "developer_status", "none") or "none"),
+                    "total_spending": 0.0,
+                    "wallet_balance": wb,
+                })
+            return {"items": items, "total": fallback_total, "page": page, "page_size": page_size}
+        except Exception as fallback_exc:
+            logger.error(f"Fatal fallback error in list_users: {fallback_exc}", exc_info=True)
+            db.rollback()
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
 
 @router.get("/users/{user_id}/details")
@@ -1048,7 +1335,6 @@ def get_user_details(
             "referral_code": getattr(user, "referral_code", None),
             "referred_by_id": getattr(user, "referred_by_id", None),
             "developer_status": getattr(user, "developer_status", "none"),
-            "api_public_key": getattr(user, "api_public_key", None),
         },
         "wallet": {
             "balance": wallet.balance if wallet else 0,
@@ -1562,53 +1848,55 @@ def list_reports(
     try:
         if not inspect(db.bind).has_table("transaction_disputes"):
             return {"items": [], "total": 0, "page": page, "page_size": page_size}
-    except Exception:
-        return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
-    query = (
-        db.query(TransactionDispute, User.email.label("user_email"))
-        .join(User, TransactionDispute.user_id == User.id)
-    )
-    if q:
-        needle = f"%{q.strip()}%"
-        query = query.filter(
-            or_(
-                TransactionDispute.transaction_reference.ilike(needle),
-                TransactionDispute.reason.ilike(needle),
-                User.email.ilike(needle),
+        query = (
+            db.query(TransactionDispute, User.email.label("user_email"))
+            .join(User, TransactionDispute.user_id == User.id)
+        )
+        if q:
+            needle = f"%{q.strip()}%"
+            query = query.filter(
+                or_(
+                    TransactionDispute.transaction_reference.ilike(needle),
+                    TransactionDispute.reason.ilike(needle),
+                    User.email.ilike(needle),
+                )
             )
-        )
-    if status:
-        status_raw = status.strip().lower()
-        if status_raw in {DisputeStatus.OPEN.value, DisputeStatus.RESOLVED.value, DisputeStatus.REJECTED.value}:
-            query = query.filter(TransactionDispute.status == DisputeStatus(status_raw))
+        if status:
+            status_raw = status.strip().lower()
+            if status_raw in {DisputeStatus.OPEN.value, DisputeStatus.RESOLVED.value, DisputeStatus.REJECTED.value}:
+                query = query.filter(TransactionDispute.status == DisputeStatus(status_raw))
 
-    total = query.count()
-    rows = (
-        query.order_by(TransactionDispute.created_at.desc(), TransactionDispute.id.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    items = []
-    for report, user_email in rows:
-        items.append(
-            {
-                "id": report.id,
-                "created_at": report.created_at,
-                "user_id": report.user_id,
-                "user_email": user_email,
-                "transaction_reference": report.transaction_reference,
-                "tx_type": report.tx_type,
-                "category": report.category,
-                "reason": report.reason,
-                "status": report.status.value if hasattr(report.status, "value") else str(report.status),
-                "admin_note": report.admin_note,
-                "resolved_at": report.resolved_at,
-            }
+        total = query.count()
+        rows = (
+            query.order_by(TransactionDispute.created_at.desc(), TransactionDispute.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
         )
+        items = []
+        for report, user_email in rows:
+            items.append(
+                {
+                    "id": report.id,
+                    "created_at": report.created_at,
+                    "user_id": report.user_id,
+                    "user_email": user_email,
+                    "transaction_reference": report.transaction_reference,
+                    "tx_type": report.tx_type,
+                    "category": report.category,
+                    "reason": report.reason,
+                    "status": report.status.value if hasattr(report.status, "value") else str(report.status),
+                    "admin_note": report.admin_note,
+                    "resolved_at": report.resolved_at,
+                }
+            )
 
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+        return {"items": items, "total": total, "page": page, "page_size": page_size}
+    except Exception as exc:
+        logger.error(f"Error in list_reports: {exc}", exc_info=True)
+        db.rollback()
+        return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
 
 @router.patch("/reports/{report_id}", response_model=AdminReportOut)
@@ -1784,6 +2072,35 @@ def activate_user(user_id: int, admin=Depends(require_admin), db: Session = Depe
     return {"status": "active"}
 
 
+@router.post("/users/{user_id}/reset-pin")
+def reset_user_pin(user_id: int, admin=Depends(require_admin), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.pin_hash = None
+    user.pin_set_at = None
+    user.pin_failed_attempts = 0
+    user.pin_locked_until = None
+    user.pin_reset_token_hash = None
+    user.pin_reset_token_expires_at = None
+    db.commit()
+    return {"status": "success", "message": f"Transaction PIN cleared for {user.email}"}
+
+
+@router.post("/users/{user_id}/set-pin")
+def set_user_pin(user_id: int, payload: dict = Body(...), admin=Depends(require_admin), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    pin = "".join(ch for ch in str(payload.get("pin") or "") if ch.isdigit())
+    if len(pin) != 4:
+        raise HTTPException(status_code=400, detail="PIN must be exactly 4 digits")
+    from app.services.transaction_pin import set_pin
+    set_pin(user, pin)
+    db.commit()
+    return {"status": "success", "message": f"Transaction PIN updated for {user.email}"}
+
+
 @router.delete("/users/{user_id:int}")
 def delete_user(user_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
@@ -1866,7 +2183,7 @@ def adjust_user_wallet(
     )
     db.add(audit_log)
     db.commit()
-    return {"status": "ok", "new_balance": wallet.balance}
+    return {"status": "ok", "new_balance": float(wallet.balance or 0.0)}
 
 
 @router.get("/services/toggles", response_model=list[ServiceToggleOut])
@@ -1948,6 +2265,8 @@ def get_data_plans(admin=Depends(require_admin), db: Session = Depends(get_db)):
             "fallback_provider": getattr(p, "fallback_provider", None),
             "fallback_provider_plan_id": getattr(p, "fallback_provider_plan_id", None),
             "data_type": getattr(p, "data_type", None),
+            "dispatch_count": int(getattr(p, "dispatch_count", 1) or 1),
+            "dispatch_plan_id": getattr(p, "dispatch_plan_id", None),
         })
     return result
 
@@ -2011,10 +2330,10 @@ def update_data_plan(
         changes["agent_price"] = float(payload.agent_price)
 
     if payload.clear_api_price:
-        if getattr(plan, "api_price", None) is not None:
+        if plan.api_price is not None:
             plan.api_price = None
             changes["api_price"] = None
-    elif getattr(payload, "api_price", None) is not None:
+    elif payload.api_price is not None:
         if payload.api_price < 0:
             raise HTTPException(status_code=400, detail="api_price must be >= 0")
         plan.api_price = payload.api_price
@@ -2081,6 +2400,21 @@ def update_data_plan(
         plan.data_type = payload.data_type
         changes["data_type"] = payload.data_type
 
+    # Multi-dispatch / Bundle Splitting
+    if payload.dispatch_count is not None:
+        if payload.dispatch_count < 1:
+            raise HTTPException(status_code=400, detail="dispatch_count must be at least 1")
+        plan.dispatch_count = payload.dispatch_count
+        changes["dispatch_count"] = payload.dispatch_count
+
+    if payload.clear_dispatch_plan_id:
+        if plan.dispatch_plan_id is not None:
+            plan.dispatch_plan_id = None
+            changes["dispatch_plan_id"] = None
+    elif payload.dispatch_plan_id is not None:
+        plan.dispatch_plan_id = payload.dispatch_plan_id
+        changes["dispatch_plan_id"] = payload.dispatch_plan_id
+
     if not changes:
         return {
             "status": "no_change",
@@ -2088,7 +2422,6 @@ def update_data_plan(
             "is_active": plan.is_active,
             "display_price": float(plan.display_price) if plan.display_price is not None else None,
             "agent_price": float(plan.agent_price) if plan.agent_price is not None else None,
-            "api_price": float(plan.api_price) if getattr(plan, "api_price", None) is not None else None,
             "plan_name": plan.plan_name,
             "promo_active": plan.promo_active,
         }
@@ -2157,30 +2490,6 @@ def get_audit_logs(
         "page_size": page_size
     }
 
-@router.post("/data-plans/clean-legacy")
-def clean_legacy_data_plans(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    """
-    Deletes legacy data plans that do not follow the new provider:network:id canonical format,
-    which usually show up as 'unknown' provider.
-    """
-    plans = db.query(DataPlan).all()
-    deleted = 0
-    for plan in plans:
-        code = str(plan.plan_code or "")
-        colons = code.count(":")
-        provider = str(plan.provider or "").strip()
-        
-        if colons < 2 or not provider or provider.lower() == "unknown":
-            db.delete(plan)
-            deleted += 1
-            
-    db.commit()
-    try:
-        _invalidate_plans_cache()
-    except Exception:
-        pass
-    return {"status": "ok", "message": f"Successfully deleted {deleted} legacy/unknown data plans!"}
-
 @router.post("/data-plans/delete-autosynced")
 def delete_autosynced_data_plans(
     scope: str = Query("autosynced", description="Scope: 'autosynced', 'all', or provider name"),
@@ -2245,6 +2554,14 @@ def delete_autosynced_data_plans(
     }
 
 
+@router.post("/data-plans/clean-legacy")
+def clean_legacy_data_plans(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """
+    Deletes legacy data plans and autosynced plans (amigo, autosync, clubkonnect, unknown).
+    """
+    return delete_autosynced_data_plans(scope="autosynced", admin=admin, db=db)
+
+
 @router.delete("/data-plans/by-network/{network}")
 def delete_plans_by_network(
     network: str,
@@ -2283,7 +2600,6 @@ def delete_plans_by_network(
     }
 
 
-
 @router.post("/data-plans")
 def create_data_plan(payload: DataPlanUpdate, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """
@@ -2297,39 +2613,31 @@ def create_data_plan(payload: DataPlanUpdate, admin: User = Depends(require_admi
     existing = db.query(DataPlan).filter(DataPlan.plan_code == payload.plan_code).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"Plan code {payload.plan_code} already exists.")
-        
-    if payload.id is not None:
-        existing_id = db.query(DataPlan).filter(DataPlan.id == payload.id).first()
-        if existing_id:
-            raise HTTPException(status_code=400, detail=f"Plan ID {payload.id} already exists.")
 
-    plan_data = {
-        "network": payload.network,
-        "plan_code": payload.plan_code,
-        "plan_name": payload.plan_name,
-        "data_size": payload.data_size or "—",
-        "validity": payload.validity or "30 Days",
-        "base_price": payload.base_price or Decimal("0"),
-        "display_price": payload.display_price,
-        "agent_price": payload.agent_price,
-        "api_price": getattr(payload, "api_price", None),
-        "is_active": payload.is_active if payload.is_active is not None else True,
-        "provider": payload.provider,
-        "provider_plan_id": payload.provider_plan_id,
-        "fallback_provider": payload.fallback_provider if payload.fallback_provider != 'none' else None,
-        "fallback_provider_plan_id": payload.fallback_provider_plan_id,
-        "data_type": payload.data_type,
-        "promo_active": payload.promo_active if payload.promo_active is not None else False,
-        "promo_old_price": payload.promo_old_price,
-        "promo_label": payload.promo_label,
-        "cashback_amount": payload.cashback_amount,
-        "cashback_label": payload.cashback_label
-    }
-    if payload.id is not None:
-        plan_data["id"] = payload.id
-        
-    plan = DataPlan(**plan_data)
-    
+    plan = DataPlan(
+        network=payload.network,
+        plan_code=payload.plan_code,
+        plan_name=payload.plan_name,
+        data_size=payload.data_size or "—",
+        validity=payload.validity or "30 Days",
+        base_price=payload.base_price or Decimal("0"),
+        display_price=payload.display_price,
+        agent_price=payload.agent_price,
+        api_price=payload.api_price,
+        is_active=payload.is_active if payload.is_active is not None else True,
+        provider=payload.provider,
+        provider_plan_id=payload.provider_plan_id,
+        fallback_provider=payload.fallback_provider if payload.fallback_provider != 'none' else None,
+        fallback_provider_plan_id=payload.fallback_provider_plan_id,
+        data_type=payload.data_type,
+        promo_active=payload.promo_active if payload.promo_active is not None else False,
+        promo_old_price=payload.promo_old_price,
+        promo_label=payload.promo_label,
+        cashback_amount=payload.cashback_amount,
+        cashback_label=payload.cashback_label,
+        dispatch_count=payload.dispatch_count if payload.dispatch_count is not None and payload.dispatch_count >= 1 else 1,
+        dispatch_plan_id=payload.dispatch_plan_id
+    )
     db.add(plan)
     db.commit()
     db.refresh(plan)
@@ -2595,7 +2903,7 @@ def suspend_developer_access(
 @router.get("/provider-balances")
 def get_provider_balances(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """
-    Get current balances of all API providers.
+    Get current balances of all API providers configured to display on the dashboard.
     """
     results, providers = check_provider_balances_detailed(db)
     return {"status": "ok", "balances": results, "providers": providers}
@@ -2608,6 +2916,17 @@ def trigger_balance_checks(db: Session = Depends(get_db)):
     """
     results, providers = check_provider_balances_detailed(db)
     return {"status": "ok", "balances": results, "providers": providers}
+
+
+@router.post("/system/trigger-daily-report")
+def trigger_daily_report(db: Session = Depends(get_db)):
+    """
+    Cron endpoint to generate and email daily report.
+    """
+    from app.services.reports import generate_daily_report
+    results = generate_daily_report(db)
+    return {"status": "ok", "report": results}
+
 
 
 
@@ -2756,15 +3075,7 @@ def pay_ambassador_commission(
         referral.is_ten_percent_paid = True
         
     elif req.commission_type == "50GB_MILESTONE":
-        if referral.is_milestone_bonus_paid:
-            raise HTTPException(status_code=400, detail="Milestone bonus already paid")
-        if not referral.is_50gb_milestone_reached:
-            raise HTTPException(status_code=400, detail="Milestone not reached yet")
-            
-        amount = Decimal('500.00')
-        credit_wallet(db, wallet.id, amount, "Ambassador 50GB Milestone Bonus")
-        
-        referral.is_milestone_bonus_paid = True
+        raise HTTPException(status_code=400, detail="50GB milestone bonuses have been discontinued.")
         
     else:
         raise HTTPException(status_code=400, detail="Invalid commission type")
@@ -2783,12 +3094,12 @@ def upgrade_user_to_developer(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
         
-    user.role = UserRole.DEVELOPER
     user.is_developer = True
     user.developer_status = "approved"
     
     sec_plain = None
     if not user.api_public_key or not user.api_secret_key_hash:
+        from app.api.v1.endpoints.developer import generate_key_pair
         pub, sec_plain, sec_hash = generate_key_pair()
         user.api_public_key = pub
         user.api_secret_key_hash = sec_hash
@@ -2800,7 +3111,7 @@ def upgrade_user_to_developer(
         "user_id": user.id,
         "is_developer": user.is_developer,
         "developer_status": user.developer_status,
-        "role": user.role.value,
+        "role": user.role.value if hasattr(user.role, "value") else str(user.role),
         "api_public_key": user.api_public_key,
         "api_secret_key": sec_plain
     }
@@ -2838,6 +3149,7 @@ def set_user_pricing_override(
         
     db.commit()
     db.refresh(override)
+    _invalidate_plans_cache()
     return override
 
 
@@ -2853,3 +3165,27 @@ def get_user_pricing_overrides(
         
     overrides = db.query(UserPricingOverride).filter(UserPricingOverride.user_id == user_id).all()
     return overrides
+
+
+@router.delete("/users/{user_id}/pricing-overrides/{override_id}")
+def delete_user_pricing_override(
+    user_id: int,
+    override_id: int,
+    admin=Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    override = db.query(UserPricingOverride).filter(
+        UserPricingOverride.id == override_id,
+        UserPricingOverride.user_id == user_id
+    ).first()
+    if not override:
+        raise HTTPException(status_code=404, detail="Pricing override not found")
+        
+    db.delete(override)
+    db.commit()
+    _invalidate_plans_cache()
+    return {"status": "ok", "message": "Pricing override deleted."}

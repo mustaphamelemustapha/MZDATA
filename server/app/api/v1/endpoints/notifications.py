@@ -1,16 +1,17 @@
 from datetime import datetime, timezone
-
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Request
-from sqlalchemy import and_, inspect, or_
-from sqlalchemy.orm import Session
-import cloudinary.uploader
-import uuid
 import os
 import shutil
-import logging
+import uuid
+import cloudinary.uploader
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+from app.core.config import get_settings
+from app.middlewares.rate_limit import limiter
+from sqlalchemy import and_, inspect, or_
+
+settings = get_settings()
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.config import get_settings
 from app.dependencies import get_current_user, require_admin
 from app.models import (
     AnnouncementLevel,
@@ -23,9 +24,6 @@ from app.schemas.notifications import (
     BroadcastAnnouncementUpdate,
     PushNotificationSend,
 )
-
-settings = get_settings()
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -85,18 +83,66 @@ def _to_out(item: BroadcastAnnouncement) -> dict:
         "created_by_email": item.created_by_email,
         "button_label": item.button_label,
         "button_link": item.button_link,
+        "image_url": item.image_url,
+        "is_popup": item.is_popup,
+        "brand": getattr(item, "brand", "all") or "all",
     }
+
+
+def _get_tokens_for_brand(db: Session, target_brand: str) -> list[str]:
+    norm = (target_brand or "all").strip().lower()
+    if "kulloma" in norm:
+        query = db.query(User.fcm_token).filter(
+            User.fcm_token.isnot(None),
+            User.fcm_token != "",
+            or_(
+                User.brand == "kullomadata",
+                User.email.ilike("%kulloma%"),
+            ),
+        )
+    elif "mele" in norm:
+        query = db.query(User.fcm_token).filter(
+            User.fcm_token.isnot(None),
+            User.fcm_token != "",
+            User.brand != "kullomadata",
+            User.brand != "mzdata",
+            ~User.email.ilike("%kulloma%"),
+            ~User.email.ilike("%mzdata%"),
+        )
+    elif "mz" in norm:
+        query = db.query(User.fcm_token).filter(
+            User.fcm_token.isnot(None),
+            User.fcm_token != "",
+            or_(
+                User.brand == "mzdata",
+                User.email.ilike("%mzdata%"),
+            ),
+        )
+    else:
+        query = db.query(User.fcm_token).filter(
+            User.fcm_token.isnot(None),
+            User.fcm_token != "",
+        )
+    return [u.fcm_token for u in query.all() if u.fcm_token]
 
 
 @router.get("/broadcast", response_model=list[BroadcastAnnouncementOut])
 def list_active_broadcasts(
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _ = user
     if not _has_table(db):
         return []
+    from app.core.tenant import get_tenant_brand
+    current_brand = get_tenant_brand(request)
     now = _utcnow()
+    brand_filter = or_(
+        BroadcastAnnouncement.brand.is_(None),
+        BroadcastAnnouncement.brand == "all",
+        BroadcastAnnouncement.brand == current_brand,
+    )
     rows = (
         db.query(BroadcastAnnouncement)
         .filter(
@@ -104,6 +150,7 @@ def list_active_broadcasts(
                 BroadcastAnnouncement.is_active.is_(True),
                 or_(BroadcastAnnouncement.starts_at.is_(None), BroadcastAnnouncement.starts_at <= now),
                 or_(BroadcastAnnouncement.ends_at.is_(None), BroadcastAnnouncement.ends_at >= now),
+                brand_filter,
             )
         )
         .order_by(BroadcastAnnouncement.created_at.desc(), BroadcastAnnouncement.id.desc())
@@ -115,15 +162,26 @@ def list_active_broadcasts(
 
 @router.get("/broadcast/admin", response_model=list[BroadcastAnnouncementOut])
 def admin_list_broadcasts(
+    request: Request,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     _ = admin
     if not _has_table(db):
         return []
+    from app.core.tenant import get_tenant_brand
+    current_brand = get_tenant_brand(request)
+    query = db.query(BroadcastAnnouncement)
+    if current_brand and current_brand != "default":
+        query = query.filter(
+            or_(
+                BroadcastAnnouncement.brand == current_brand,
+                BroadcastAnnouncement.brand == "all",
+                BroadcastAnnouncement.brand.is_(None),
+            )
+        )
     rows = (
-        db.query(BroadcastAnnouncement)
-        .order_by(BroadcastAnnouncement.created_at.desc(), BroadcastAnnouncement.id.desc())
+        query.order_by(BroadcastAnnouncement.created_at.desc(), BroadcastAnnouncement.id.desc())
         .limit(300)
         .all()
     )
@@ -132,12 +190,18 @@ def admin_list_broadcasts(
 
 @router.post("/broadcast/admin", response_model=BroadcastAnnouncementOut)
 def admin_create_broadcast(
+    request: Request,
     payload: BroadcastAnnouncementCreate,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     if not _ensure_table(db):
         raise HTTPException(status_code=503, detail="Announcements table is not ready yet")
+
+    from app.core.tenant import get_tenant_brand
+    target_brand = (payload.brand or get_tenant_brand(request)).strip().lower()
+    if target_brand == "default":
+        target_brand = "kullomadata" if "kulloma" in admin.email.lower() else "meledata"
 
     starts_at = _as_utc(payload.starts_at)
     ends_at = _as_utc(payload.ends_at)
@@ -153,6 +217,9 @@ def admin_create_broadcast(
         created_by_email=admin.email,
         button_label=payload.button_label.strip() if payload.button_label else None,
         button_link=payload.button_link.strip() if payload.button_link else None,
+        image_url=payload.image_url.strip() if payload.image_url else None,
+        is_popup=bool(payload.is_popup),
+        brand=target_brand,
     )
     db.add(row)
     db.commit()
@@ -161,16 +228,95 @@ def admin_create_broadcast(
     if row.is_active:
         try:
             from app.services.push_notification import PushNotificationService
-            PushNotificationService.send_broadcast(
-                title=row.title,
-                body=row.message,
-                data={"type": "announcement", "id": str(row.id)}
-            )
+            if target_brand == "all":
+                mele_tokens = _get_tokens_for_brand(db, "meledata")
+                PushNotificationService.send_broadcast(
+                    title=row.title,
+                    body=row.message,
+                    data={"type": "announcement", "id": str(row.id), "brand": "meledata"},
+                    image_url=row.image_url,
+                    tokens=mele_tokens,
+                    target_brand="meledata",
+                )
+                kulloma_tokens = _get_tokens_for_brand(db, "kullomadata")
+                PushNotificationService.send_broadcast(
+                    title=row.title,
+                    body=row.message,
+                    data={"type": "announcement", "id": str(row.id), "brand": "kullomadata"},
+                    image_url=row.image_url,
+                    tokens=kulloma_tokens,
+                    target_brand="kullomadata",
+                )
+            else:
+                tokens = _get_tokens_for_brand(db, target_brand)
+                PushNotificationService.send_broadcast(
+                    title=row.title,
+                    body=row.message,
+                    data={"type": "announcement", "id": str(row.id), "brand": target_brand},
+                    image_url=row.image_url,
+                    tokens=tokens,
+                    target_brand=target_brand,
+                )
         except Exception as push_exc:
             import logging
             logging.getLogger(__name__).warning("Failed to send broadcast push notification: %s", push_exc)
 
     return _to_out(row)
+
+
+@router.post("/broadcast/admin/upload-image")
+@limiter.limit("5/minute")
+def admin_upload_broadcast_image(
+    request: Request,
+    image: UploadFile = File(...),
+    admin: User = Depends(require_admin),
+):
+    _ = admin
+    if not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File provided is not an image.")
+
+    extension = image.filename.split(".")[-1] if "." in image.filename else "jpg"
+    
+    if settings.cloudinary_url:
+        try:
+            result = cloudinary.uploader.upload(
+                image.file,
+                folder="vtu_announcements",
+                public_id=f"announcement_{uuid.uuid4().hex[:8]}",
+                overwrite=True,
+                resource_type="image"
+            )
+            image_url = result.get("secure_url")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Cloudinary upload failed: {e}")
+            raise HTTPException(status_code=500, detail="Failed to upload image to cloud storage.")
+    else:
+        filename = f"{uuid.uuid4().hex}.{extension}"
+        os.makedirs(os.path.join("uploads", "announcement_images"), exist_ok=True)
+        file_path = os.path.join("uploads", "announcement_images", filename)
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+
+        host_header = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+        proto_header = request.headers.get("x-forwarded-proto", "https")
+        origin_header = request.headers.get("origin") or request.headers.get("referer") or ""
+
+        # If proxy passes internal Docker IP or localhost, determine public origin
+        if not host_header or "10." in host_header or "localhost" in host_header or "127." in host_header:
+            if "kullomadata.com" in origin_header:
+                host_url = "https://kullomadata.com"
+            else:
+                host_url = "https://api.meledata.ng"
+        else:
+            host_url = f"{proto_header}://{host_header}".rstrip("/")
+            if host_url.startswith("http://") and not ("localhost" in host_url or "127.0.0.1" in host_url):
+                host_url = "https://" + host_url[7:]
+
+        image_url = f"{host_url}/static/announcement_images/{filename}"
+
+    return {"image_url": image_url}
 
 
 @router.patch("/broadcast/admin/{announcement_id}", response_model=BroadcastAnnouncementOut)
@@ -208,6 +354,10 @@ def admin_update_broadcast(
         row.button_label = payload.button_label.strip() if payload.button_label else None
     if "button_link" in fields_set:
         row.button_link = payload.button_link.strip() if payload.button_link else None
+    if "image_url" in fields_set:
+        row.image_url = payload.image_url.strip() if payload.image_url else None
+    if "is_popup" in fields_set and payload.is_popup is not None:
+        row.is_popup = bool(payload.is_popup)
 
     _validate_window(_as_utc(row.starts_at), _as_utc(row.ends_at))
     db.commit()
@@ -218,75 +368,118 @@ def admin_update_broadcast(
     db.refresh(row)
     return _to_out(row)
 
-@router.post("/broadcast/admin/push-only")
-def admin_send_push_only(
-    payload: PushNotificationSend,
+@router.get("/broadcast/admin/push-status")
+def admin_get_push_status(
+    request: Request,
     admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
 ):
     _ = admin
+    from app.services.push_notification import PushNotificationService
+    from app.core.tenant import get_tenant_brand
+    current_brand = get_tenant_brand(request)
+    status = PushNotificationService.get_status()
+    total_tokens = db.query(User).filter(User.fcm_token.isnot(None), User.fcm_token != "").count()
+    kulloma_tokens = len(_get_tokens_for_brand(db, "kullomadata"))
+    mele_tokens = len(_get_tokens_for_brand(db, "meledata"))
+    mz_tokens = len(_get_tokens_for_brand(db, "mzdata"))
+
+    return {
+        "status": "success",
+        "firebase": status,
+        "current_brand": current_brand,
+        "users_registered_for_push": total_tokens,
+        "kullomadata_recipients": kulloma_tokens,
+        "meledata_recipients": mele_tokens,
+        "mzdata_recipients": mz_tokens,
+    }
+
+@router.post("/broadcast/admin/test-my-device")
+def admin_test_my_device(
+    request: Request,
+    admin: User = Depends(require_admin),
+):
+    from app.services.push_notification import PushNotificationService
+    from app.core.tenant import get_tenant_brand
+    current_brand = get_tenant_brand(request)
+    brand_label = "KULLOMA DATA" if current_brand == "kullomadata" else ("MZ DATA" if current_brand == "mzdata" else "MELE DATA")
+    if not admin.fcm_token:
+        return {
+            "status": "failed",
+            "message": f"Your admin account ({admin.email}) does not have an FCM token registered yet. Please log into the {brand_label} mobile app with this account first."
+        }
+    ok = PushNotificationService.send_to_token(
+        token=admin.fcm_token,
+        title=f"{brand_label} Test Push",
+        body=f"If you see this, push notifications are working 100% on your {brand_label} device!",
+        data={"type": "admin_test", "brand": current_brand},
+    )
+    return {
+        "status": "success" if ok else "failed",
+        "message": f"Test push notification dispatched directly to your {brand_label} device!" if ok else "FCM failed to deliver to device token.",
+        "admin_email": admin.email,
+        "brand": current_brand,
+    }
+
+@router.post("/broadcast/admin/push-only")
+def admin_send_push_only(
+    request: Request,
+    payload: PushNotificationSend,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _ = admin
+    from app.core.tenant import get_tenant_brand
+    target_brand = (payload.target_brand or get_tenant_brand(request)).strip().lower()
+    if target_brand == "default":
+        target_brand = "kullomadata" if "kulloma" in admin.email.lower() else "meledata"
+
     try:
         from app.services.push_notification import PushNotificationService
-        success = PushNotificationService.send_broadcast(
-            title=payload.title.strip(),
-            body=payload.message.strip(),
-            data={"type": "announcement_push_only"},
-            image_url=payload.image_url.strip() if payload.image_url else None
-        )
+        if target_brand == "all":
+            mele_tokens = _get_tokens_for_brand(db, "meledata")
+            ok_mele = PushNotificationService.send_broadcast(
+                title=payload.title.strip(),
+                body=payload.message.strip(),
+                data={"type": "announcement_push_only", "brand": "meledata"},
+                image_url=payload.image_url.strip() if payload.image_url else None,
+                tokens=mele_tokens,
+                target_brand="meledata",
+            )
+            kulloma_tokens = _get_tokens_for_brand(db, "kullomadata")
+            ok_kul = PushNotificationService.send_broadcast(
+                title=payload.title.strip(),
+                body=payload.message.strip(),
+                data={"type": "announcement_push_only", "brand": "kullomadata"},
+                image_url=payload.image_url.strip() if payload.image_url else None,
+                tokens=kulloma_tokens,
+                target_brand="kullomadata",
+            )
+            success = ok_mele or ok_kul
+            total_device_count = len(mele_tokens) + len(kulloma_tokens)
+        else:
+            tokens = _get_tokens_for_brand(db, target_brand)
+            total_device_count = len(tokens)
+            success = PushNotificationService.send_broadcast(
+                title=payload.title.strip(),
+                body=payload.message.strip(),
+                data={"type": "announcement_push_only", "brand": target_brand},
+                image_url=payload.image_url.strip() if payload.image_url else None,
+                tokens=tokens,
+                target_brand=target_brand,
+            )
         if not success:
             raise HTTPException(status_code=500, detail="Failed to send push notification")
     except Exception as push_exc:
-        logger.warning("Failed to send push notification: %s", push_exc)
+        import logging
+        logging.getLogger(__name__).warning("Failed to send push notification: %s", push_exc)
         raise HTTPException(status_code=500, detail="Error occurred while sending push notification")
         
-    return {"status": "success", "message": "Push notification sent successfully"}
+    return {
+        "status": "success", 
+        "message": f"Push notification dispatched successfully to {target_brand} audience",
+        "target_brand": target_brand,
+        "device_recipients_count": total_device_count if 'total_device_count' in locals() else 0
+    }
 
-@router.post("/broadcast/admin/upload-image")
-def admin_upload_broadcast_image(
-    request: Request,
-    image: UploadFile = File(...),
-    admin: User = Depends(require_admin),
-):
-    _ = admin
-    if not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File provided is not an image.")
 
-    extension = image.filename.split(".")[-1] if "." in image.filename else "jpg"
-    
-    if settings.cloudinary_url:
-        try:
-            result = cloudinary.uploader.upload(
-                image.file,
-                folder="vtu_broadcasts",
-                public_id=f"broadcast_{uuid.uuid4().hex[:8]}",
-                overwrite=True,
-                resource_type="image"
-            )
-            image_url = result.get("secure_url")
-        except Exception as e:
-            logger.error(f"Cloudinary upload failed: {e}")
-            raise HTTPException(status_code=500, detail="Failed to upload image to cloud storage.")
-    else:
-        filename = f"broadcast_{uuid.uuid4().hex}.{extension}"
-        file_path = os.path.join("uploads", "profile_images", filename) # reusing the existing uploads dir
-
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(image.file, buffer)
-
-        host_header = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
-        proto_header = request.headers.get("x-forwarded-proto", "https")
-        origin_header = request.headers.get("origin") or request.headers.get("referer") or ""
-
-        # If proxy passes internal Docker IP or localhost, determine public origin
-        if not host_header or "10." in host_header or "localhost" in host_header or "127." in host_header:
-            if "mzdata.org" in origin_header:
-                host_url = "https://mzdata.org"
-            else:
-                host_url = "https://api.mzdata.org"
-        else:
-            host_url = f"{proto_header}://{host_header}".rstrip("/")
-            if host_url.startswith("http://") and not ("localhost" in host_url or "127.0.0.1" in host_url):
-                host_url = "https://" + host_url[7:]
-
-        image_url = f"{host_url}/static/profile_images/{filename}"
-
-    return {"image_url": image_url}

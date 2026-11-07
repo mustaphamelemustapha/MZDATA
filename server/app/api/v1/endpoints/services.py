@@ -70,12 +70,21 @@ def _client_request_reference(prefix: str, user_id: int, request_id: str | None)
 
 
 def _provider_status(result) -> str:
+    if getattr(result, "pending", False):
+        return "pending"
     meta = result.meta or {}
-    for provider_key in ("vtpass", "clubkonnect", "autosync"):
+    for provider_key in ("vtpass", "clubkonnect", "autosync", "telecom_abode"):
         status = str((meta.get(provider_key) or {}).get("status") or "").strip().lower()
         if status:
             return status
-    return str(meta.get("status") or "").strip().lower()
+    raw = meta.get("raw")
+    if isinstance(raw, dict):
+        raw_status = str(raw.get("status") or raw.get("Status") or "").strip().lower()
+        if raw_status:
+            return raw_status
+    if meta.get("status"):
+        return str(meta.get("status")).strip().lower()
+    return "success" if getattr(result, "success", False) else ""
 
 
 def _is_transport_error(exc: Exception) -> bool:
@@ -142,6 +151,8 @@ def _fetch_exam_packages(provider, exam_key: str) -> list[dict]:
         amount_raw = row.get("amount")
         try:
             amount = float(amount_raw) if amount_raw not in (None, "") else None
+            if amount and amount >= 50000:
+                amount = round(amount / 100.0, 2)
         except Exception:
             amount = None
         packages.append({"code": code, "name": name or code, "amount": amount, "exam": exam_key})
@@ -571,24 +582,34 @@ def cable_packages(provider: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Provider is required.")
     service = get_bills_provider("cable")
     fetcher = getattr(service, "fetch_cable_packages", None)
-    if not callable(fetcher):
-        return {"provider": provider_key, "packages": []}
-    try:
-        rows = fetcher(provider_key) or []
-    except Exception as exc:
-        logger.warning("Cable packages fetch failed provider=%s error=%s", provider_key, exc)
-        return {"provider": provider_key, "packages": []}
+    rows = []
+    if callable(fetcher):
+        try:
+            rows = fetcher(provider_key) or []
+        except Exception as exc:
+            logger.warning("Cable packages fetch failed provider=%s error=%s", provider_key, exc)
+            rows = []
+
+    if not rows:
+        try:
+            from app.providers.telecom_abode_provider import _DEFAULT_CABLE_PACKAGES
+            rows = _DEFAULT_CABLE_PACKAGES.get(provider_key, [])
+        except Exception:
+            rows = []
+
     normalized = []
     for row in rows:
         if not isinstance(row, dict):
             continue
-        code = str(row.get("code") or "").strip()
+        code = str(row.get("code") or row.get("id") or row.get("variation_code") or row.get("plan_id") or "").strip()
         if not code:
             continue
-        name = str(row.get("name") or code).strip()
-        amount_raw = row.get("amount")
+        name = str(row.get("name") or row.get("plan_name") or code).strip()
+        amount_raw = row.get("amount") or row.get("price") or row.get("variation_amount")
         try:
-            amount = float(amount_raw) if amount_raw not in (None, "") else None
+            amount = float(str(amount_raw).replace(",", "").strip()) if amount_raw not in (None, "") else None
+            if amount and amount >= 50000:
+                amount = round(amount / 100.0, 2)
         except Exception:
             amount = None
         normalized.append(
@@ -737,7 +758,18 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
                 tx.meta = {**(tx.meta or {}), **result.meta}
             tx.failure_reason = result.message or _PENDING_CONFIRMATION_MESSAGE
             db2.commit()
-            return {"reference": reference, "status": tx.status, "token": (tx.meta or {}).get("token"), "message": tx.failure_reason}
+            return {
+                "reference": reference,
+                "status": tx.status,
+                "token": (tx.meta or {}).get("token") or "",
+                "units": (tx.meta or {}).get("units") or "",
+                "amount": float(charge_amount),
+                "customer_name": (tx.meta or {}).get("customer_name") or "",
+                "meter_number": payload.meter_number,
+                "disco": payload.disco,
+                "message": tx.failure_reason,
+                "meta": tx.meta or {},
+            }
         if result.success:
             tx.status = TransactionStatus.SUCCESS.value
             tx.external_reference = result.external_reference
@@ -759,7 +791,18 @@ def purchase_electricity(request: Request, payload: ElectricityPurchaseRequest, 
                     )
                 except Exception as e:
                     logger.warning("Failed to send push notification: %s", e)
-            return {"reference": reference, "status": tx.status, "token": (tx.meta or {}).get("token")}
+            return {
+                "reference": reference,
+                "status": tx.status,
+                "token": (tx.meta or {}).get("token") or "",
+                "units": (tx.meta or {}).get("units") or "",
+                "amount": float(charge_amount),
+                "customer_name": (tx.meta or {}).get("customer_name") or "",
+                "meter_number": payload.meter_number,
+                "disco": payload.disco,
+                "message": result.message or "Electricity purchase successful",
+                "meta": tx.meta or {},
+            }
 
         tx.failure_reason = result.message or "Provider failed"
         if result.meta:

@@ -1872,7 +1872,13 @@ class TelecomAbodeBillsProvider:
         return self._parse_result(res_data, "data")
 
     def purchase_cable(self, provider: str, smartcard_number: str, package_code: str, amount: float = 0.0, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
-        res_data = self.abode.purchase_cable(provider, smartcard_number, package_code, reference or _vtpass_request_id())
+        res_data = self.abode.purchase_cable(
+            provider,
+            smartcard_number,
+            package_code,
+            reference or _vtpass_request_id(),
+            phone=phone_number,
+        )
         return self._parse_result(res_data, "cable")
 
     def fetch_cable_packages(self, provider: str) -> list[dict]:
@@ -1882,7 +1888,14 @@ class TelecomAbodeBillsProvider:
         return self.abode.verify_cable_smartcard(provider, smartcard_number)
 
     def purchase_electricity(self, disco: str, meter_number: str, meter_type: str, amount: float, phone_number: str | None = None, reference: str | None = None) -> ProviderResult:
-        res_data = self.abode.purchase_electricity(disco, meter_number, meter_type, amount, reference or _vtpass_request_id())
+        res_data = self.abode.purchase_electricity(
+            disco,
+            meter_number,
+            meter_type,
+            amount,
+            reference or _vtpass_request_id(),
+            phone=phone_number,
+        )
         return self._parse_result(res_data, "electricity")
 
     def fetch_electricity_discos(self) -> list[dict]:
@@ -1904,7 +1917,12 @@ class TelecomAbodeBillsProvider:
         return self.abode.verify_electricity_meter(disco, meter_number, meter_type)
 
     def purchase_exam_pin(self, exam: str, quantity: int = 1, phone_number: str | None = None, exam_type: str | None = None, reference: str | None = None) -> ProviderResult:
-        res_data = self.abode.purchase_exam_pin(exam_type or exam, quantity, reference or _vtpass_request_id())
+        res_data = self.abode.purchase_exam_pin(
+            exam_type or exam,
+            quantity,
+            reference or _vtpass_request_id(),
+            phone=phone_number,
+        )
         return self._parse_result(res_data, "exam")
 
     def fetch_exam_packages(self, exam: str | None = None) -> list[dict]:
@@ -1983,7 +2001,10 @@ def get_bills_provider(service_type: str | None = None):
         return AutosyncBillsProvider()
 
     # 2. If service is supported and Telecom Abode is enabled in env/key configured, route to Telecom Abode
-    if service_type in ("airtime", "cable", "electricity", "exam") and has_telecom_abode:
+    # Cable, electricity, and exam pins are managed by Telecom Abode
+    if service_type in ("cable", "electricity", "exam"):
+        return TelecomAbodeBillsProvider()
+    if service_type == "airtime" and has_telecom_abode:
         return TelecomAbodeBillsProvider()
 
     db = SessionLocal()
@@ -2176,17 +2197,17 @@ class MockBillsProvider:
     def fetch_exam_packages(self, exam: str) -> list[dict]:
         key = _normalize_exam_key(exam)
         defaults = {
-            "waec": [{"code": "waecdirect", "name": "WAEC Result Checker PIN", "amount": 2000.0, "exam": "waec"}],
-            "jamb": [
-                {"code": "de", "name": "Direct Entry (DE)", "amount": 2000.0, "exam": "jamb"},
-                {"code": "utme-mock", "name": "UTME PIN (with mock)", "amount": 2000.0, "exam": "jamb"},
-                {"code": "utme-no-mock", "name": "UTME PIN (without mock)", "amount": 2000.0, "exam": "jamb"},
-            ],
+            "waec": [{"code": "1", "name": "WAEC Result Checker", "amount": 3500.0, "exam": "waec"}],
+            "neco": [{"code": "2", "name": "NECO Result Checker", "amount": 2250.0, "exam": "neco"}],
+            "nabteb": [{"code": "3", "name": "NABTEB Result Checker", "amount": 1000.0, "exam": "nabteb"}],
+            "jamb": [{"code": "4", "name": "JAMB Result Checker / Registration", "amount": 1050.0, "exam": "jamb"}],
         }
         return defaults.get(key, [])
 
     def fetch_cable_packages(self, provider: str) -> list[dict]:
-        return []
+        from app.providers.telecom_abode_provider import _DEFAULT_CABLE_PACKAGES
+        key = str(provider or "").strip().lower()
+        return _DEFAULT_CABLE_PACKAGES.get(key, [])
 
     def verify_cable_customer(self, provider: str, smartcard_number: str) -> dict:
         if str(smartcard_number).strip().startswith("0000"):

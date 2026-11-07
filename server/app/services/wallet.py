@@ -20,8 +20,11 @@ def _find_matching_ledger(db: Session, *, wallet: Wallet, amount: Decimal, refer
     )
 
 
-def get_or_create_wallet(db: Session, user_id: int, *, commit: bool = True) -> Wallet:
-    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+def get_or_create_wallet(db: Session, user_id: int, *, commit: bool = True, for_update: bool = False) -> Wallet:
+    query = db.query(Wallet).filter(Wallet.user_id == user_id)
+    if for_update:
+        query = query.with_for_update()
+    wallet = query.first()
     if not wallet:
         wallet = Wallet(user_id=user_id, balance=0)
         db.add(wallet)
@@ -77,38 +80,39 @@ def credit_wallet(
         reference=reference,
         description=description,
     )
-    db.add(entry)
+    try:
+        db.add(entry)
+        if commit:
+            db.commit()
+            db.refresh(entry)
+            db.refresh(wallet)
+        else:
+            db.flush()
+            db.refresh(wallet)
+    except Exception as exc:
+        db.rollback()
+        import logging
+        logging.getLogger(__name__).error("Failed to commit credit_wallet ledger entry: %s", exc)
+        raise
+
     if commit:
-        db.commit()
-        db.refresh(entry)
-        db.refresh(wallet)
         try:
             if wallet.user and wallet.user.fcm_token:
                 from app.services.push_notification import PushNotificationService
-                import threading
-                
-                def _send_push():
-                    try:
-                        if sender_name:
-                            body_msg = f"Your wallet has been credited with ₦{amount:,.2f} from {sender_name.strip()}."
-                        else:
-                            body_msg = f"Your wallet has been credited with ₦{amount:,.2f}. Ref: {reference}"
-                        PushNotificationService.send_to_token(
-                            token=wallet.user.fcm_token,
-                            title="Wallet Credited ₦" + f"{amount:,.2f}",
-                            body=body_msg,
-                            data={"type": "wallet", "reference": reference, "action": "credit"},
-                            sound_type="balance_success"
-                        )
-                    except Exception as push_exc:
-                        import logging
-                        logging.getLogger(__name__).warning("Failed to send credit wallet push notification: %s", push_exc)
-                threading.Thread(target=_send_push, daemon=True).start()
-        except Exception as e:
-            pass
-    else:
-        db.flush()
-        db.refresh(wallet)
+                if sender_name:
+                    body_msg = f"Your wallet has been credited with ₦{amount:,.2f} from {sender_name.strip()}."
+                else:
+                    body_msg = f"Your wallet has been credited with ₦{amount:,.2f}. Ref: {reference}"
+                PushNotificationService.send_to_token(
+                    token=wallet.user.fcm_token,
+                    title="Wallet Credited ₦" + f"{amount:,.2f}",
+                    body=body_msg,
+                    data={"type": "wallet", "reference": reference, "action": "credit"},
+                    sound_type="balance_success"
+                )
+        except Exception as push_exc:
+            import logging
+            logging.getLogger(__name__).warning("Failed to send credit wallet push notification: %s", push_exc)
     return entry
 
 
@@ -148,28 +152,28 @@ def debit_wallet(db: Session, wallet: Wallet, amount: Decimal, reference: str, d
         reference=reference,
         description=description,
     )
-    db.add(entry)
-    db.commit()
-    db.refresh(entry)
-    db.refresh(wallet)
+    try:
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        db.refresh(wallet)
+    except Exception as exc:
+        db.rollback()
+        import logging
+        logging.getLogger(__name__).error("Failed to commit debit_wallet ledger entry: %s", exc)
+        raise
     try:
         if wallet.user and wallet.user.fcm_token:
             from app.services.push_notification import PushNotificationService
-            import threading
-            def _send_push():
-                try:
-                    PushNotificationService.send_to_token(
-                        token=wallet.user.fcm_token,
-                        title="Wallet Debited ₦" + f"{amount:,.2f}",
-                        body=f"Your wallet has been debited with ₦{amount:,.2f}. Ref: {reference}",
-                        data={"type": "wallet", "reference": reference, "action": "debit"}
-                    )
-                except Exception as push_exc:
-                    import logging
-                    logging.getLogger(__name__).warning("Failed to send debit wallet push notification: %s", push_exc)
-            threading.Thread(target=_send_push, daemon=True).start()
-    except Exception as e:
-        pass
+            PushNotificationService.send_to_token(
+                token=wallet.user.fcm_token,
+                title="Wallet Debited ₦" + f"{amount:,.2f}",
+                body=f"Your wallet has been debited with ₦{amount:,.2f}. Ref: {reference}",
+                data={"type": "wallet", "reference": reference, "action": "debit"}
+            )
+    except Exception as push_exc:
+        import logging
+        logging.getLogger(__name__).warning("Failed to send debit wallet push notification: %s", push_exc)
     return entry
 
 def verify_transfer_recipient(db: Session, identifier: str) -> User | None:

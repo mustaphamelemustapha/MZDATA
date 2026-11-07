@@ -3,7 +3,11 @@ import json
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import AnyHttpUrl, BaseSettings, PostgresDsn
+from pydantic import AnyHttpUrl, PostgresDsn
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    from pydantic import BaseSettings
 
 
 def parse_cors_origins(value: str) -> list[str]:
@@ -31,9 +35,10 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # Security
-    secret_key: str = "changethis-secret-key-32-chars-min"
-    access_token_expire_minutes: int = 144000
-    refresh_token_expire_days: int = 7
+    secret_key: str = ""
+    legacy_secret_keys: str = ""  # Comma-separated fallback secret keys (e.g. from Render or legacy migrations)
+    access_token_expire_minutes: int = 525600  # 1 full year (365 days)
+    refresh_token_expire_days: int = 365
     password_bcrypt_rounds: int = 12
     pin_bcrypt_rounds: int = 12
     pin_max_failed_attempts: int = 5
@@ -41,7 +46,7 @@ class Settings(BaseSettings):
     pin_reset_token_minutes: int = 30
 
     # Database
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/mzdata_db"
+    database_url: str = "sqlite:///./test.db"
     db_pool_size: int = 5
     db_max_overflow: int = 5
     db_pool_timeout: int = 15
@@ -49,13 +54,13 @@ class Settings(BaseSettings):
     db_pool_pre_ping: bool = True
 
     # Redis (optional)
-    redis_url: Optional[str] = None
+    redis_url: str = ""
 
     # Cloudinary (optional)
-    cloudinary_url: Optional[str] = None
+    cloudinary_url: str = ""
 
     # Paystack
-    paystack_secret_key: str = "changethis-secret-key-32-chars-min"
+    paystack_secret_key: str = ""
     paystack_webhook_secret: str = ""
     paystack_dedicated_enabled: bool = False
     paystack_dedicated_preferred_bank: str = "titan-paystack"
@@ -65,35 +70,42 @@ class Settings(BaseSettings):
 
     # Monnify
     monnify_api_key: str = ""
-    monnify_secret_key: str = "changethis-secret-key-32-chars-min"
+    monnify_secret_key: str = ""
     monnify_contract_code: str = ""
-    monnify_base_url: str = "https://api.monnify.com"
-    monnify_webhook_secret: Optional[str] = None
+    monnify_base_url: str = "https://sandbox.monnify.com"
+    monnify_webhook_secret: str = ""
     monnify_currency: str = "NGN"
     monnify_payment_methods: str = "CARD,ACCOUNT_TRANSFER,USSD"
 
     # Billstack
     billstack_api_key: str = ""
-    billstack_webhook_secret: Optional[str] = None
+    billstack_webhook_secret: str = ""
     billstack_enabled: bool = False
     billstack_preferred_bank: str = "9PSB"
 
-    # Aspify settings
-    aspify_base_url: str = "https://api-v1.aspfiy.com"
-    aspify_secret_key: str = ""
+    # Aspfiy
     aspfiy_secret_key: str = ""
     aspfiy_base_url: str = "https://api-v1.aspfiy.com"
     aspfiy_enabled: bool = False
-    aspfiy_webhook_url: str = "https://api.mzdata.org/api/v1/webhooks/aspfiy"
+    aspfiy_webhook_url: str = "https://api.meledata.ng/api/v1/webhooks/aspfiy"
 
+    # Amigo API
+    amigo_base_url: str = "https://amigo.ng/api"
+    amigo_api_key: str = ""
+    amigo_timeout_seconds: int = 15
+    amigo_retry_count: int = 2
+    amigo_test_mode: bool = False
+    # Provider endpoint paths (Amigo deployments differ; keep these configurable).
+    amigo_data_purchase_path: str = "/data/"
+    amigo_plans_path: str = "/plans/"
     pending_reconcile_enabled: bool = True
     pending_reconcile_interval_seconds: int = 25
     pending_reconcile_batch_size: int = 30
-    pending_reconcile_min_age_seconds: int = 5
+    pending_reconcile_min_age_seconds: int = 120
     # If a data transaction stays pending beyond this window with no definitive
     # provider failure signal, we settle it as success to prevent false-negative
     # customer experience for already-delivered data.
-    pending_reconcile_auto_success_seconds: int = 120
+    pending_reconcile_auto_success_seconds: int = 180
     promo_mtn_1gb_enabled: bool = False
     promo_mtn_1gb_limit: int = 50
     promo_mtn_1gb_price: Decimal = Decimal("199")
@@ -101,55 +113,51 @@ class Settings(BaseSettings):
     promo_mtn_1gb_plan_code: str = "1001"
 
     # VTPass API (airtime, cable, electricity, exam)
-    vtpass_base_url: AnyHttpUrl = "https://vtpass.com/api"
-    vtpass_api_key: Optional[str] = None
-    vtpass_public_key: Optional[str] = None
-    vtpass_secret_key: Optional[str] = None
+    vtpass_base_url: str = "https://vtpass.com/api"
+    vtpass_api_key: str = ""
+    vtpass_public_key: str = ""
+    vtpass_secret_key: str = ""
     vtpass_timeout_seconds: int = 20
     vtpass_enabled: bool = False
 
     # Bills provider routing:
     # - auto: prefer ClubKonnect when enabled, else VTPass, else mock
-    # - clubkonnect|vtpass|mock: force a specific provider
+    # - clubkonnect|vtpass|autosync|mock: force a specific provider
     bills_provider: str = "auto"
 
     # ClubKonnect / NelloByte API
-    clubkonnect_base_url: AnyHttpUrl = "https://www.nellobytesystems.com"
-    clubkonnect_user_id: Optional[str] = None
-    clubkonnect_api_key: Optional[str] = None
-    nello_user_id: Optional[str] = None
-    nello_api_key: Optional[str] = None
+    clubkonnect_base_url: str = "https://www.nellobytesystems.com"
+    clubkonnect_user_id: str = ""
+    clubkonnect_api_key: str = ""
+    nello_user_id: str = ""
+    nello_api_key: str = ""
     clubkonnect_timeout_seconds: int = 20
     clubkonnect_enabled: bool = False
-    clubkonnect_callback_url: Optional[str] = None
+    clubkonnect_callback_url: str = ""
 
     # SMEPlug API
-    smeplug_base_url: AnyHttpUrl = "https://smeplug.ng/api/v1"
+    smeplug_base_url: str = "https://smeplug.ng/api/v1"
     smeplug_api_key: str = ""
     smeplug_network_airtel: int = 2
-    smeplug_webhook_secret: Optional[str] = None
+    smeplug_webhook_secret: str = ""
 
     # Autosync API
-    autosync_base_url: AnyHttpUrl = "https://autosyncng.com/api"
+    autosync_base_url: str = "https://autosyncng.com/api"
     autosync_api_key: str = ""
     autosync_webhook_pin: str = ""
 
     # Boltnet API
-    boltnet_base_url: AnyHttpUrl = "https://api.boltnet.com.ng"
+    boltnet_base_url: str = "https://boltnet.com.ng"
     boltnet_api_key: str = ""
-    boltnet_webhook_secret: Optional[str] = None
+    boltnet_timeout_seconds: int = 30
 
-    # Mele Data API
-    meledata_base_url: AnyHttpUrl = "https://meledata.ng/api/v1/developer"
+    # MZDATA API
+    mzdata_base_url: str = "https://mzdata-1.onrender.com/api/v1"
+    mzdata_api_key: str = ""
+
+    # MELE DATA API (Airtime & Data provider)
+    meledata_base_url: str = "https://api.meledata.ng/api/v1"
     meledata_api_key: str = ""
-
-    # Brendysubs API
-    brendysubs_base_url: AnyHttpUrl = "https://brendysubs.com.ng/api"
-    brendysubs_api_key: str = ""
-
-    # Wallettopup API
-    wallettopup_base_url: AnyHttpUrl = "https://wallettopup.com/api"
-    wallettopup_api_key: str = ""
 
     # Telecom Abode API
     telecom_abode_base_url: str = "https://telecomabode.com.ng/api"
@@ -169,24 +177,24 @@ class Settings(BaseSettings):
     # App Update Config
     min_app_version: str = "1.0.0"
     latest_app_version: str = "1.0.0"
-    play_store_url: str = "https://play.google.com/store/apps/details?id=com.mmtech.mzdata"
+    play_store_url: str = "https://play.google.com/store/apps/details?id=com.mmtech.axisvtu"
     app_store_url: str = "https://apps.apple.com/ng/app/mele-data/id6779367547"
 
     # Email (password reset)
     email_provider: str = "console"  # console|resend|smtp|brevo
-    email_from: str = "MZDATA <no-reply@mzdata.local>"
+    email_from: str = "KULLOMA DATA <no-reply@axisvtu.local>"
 
     # Resend
-    resend_api_key: Optional[str] = None
+    resend_api_key: str = ""
 
     # Brevo
-    brevo_api_key: Optional[str] = None
+    brevo_api_key: str = ""
 
     # SMTP
-    smtp_host: Optional[str] = None
+    smtp_host: str = ""
     smtp_port: int = 587
-    smtp_username: Optional[str] = None
-    smtp_password: Optional[str] = None
+    smtp_username: str = ""
+    smtp_password: str = ""
     smtp_use_tls: bool = True
 
     # CORS
@@ -196,6 +204,11 @@ class Settings(BaseSettings):
     # Ops: bootstrap admin users (comma-separated emails). Useful when the platform
     # doesn't provide a shell/psql access on free plans.
     bootstrap_admin_emails: str = ""
+
+    # Termii OTP / SMS
+    termii_api_key: str = ""
+    termii_base_url: str = "https://v4.api.termii.com/"
+    termii_sender_id: str = "N-Alert"
 
     class Config:
         env_file = ".env"

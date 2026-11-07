@@ -39,6 +39,26 @@ app.add_middleware(SlowAPIMiddleware)
 _started_at = time.time()
 
 
+@app.middleware("http")
+async def request_logger_middleware(request: Request, call_next):
+    start_time = time.time()
+    method = request.method
+    path = request.url.path
+
+    response = await call_next(request)
+
+    duration_ms = round((time.time() - start_time) * 1000, 2)
+    client_ip = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "-")
+    if "," in client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+
+    status_code = response.status_code
+    logging.getLogger("app.access").info(
+        f'{client_ip} - "{method} {path}" {status_code} ({duration_ms}ms)'
+    )
+    return response
+
+
 @app.exception_handler(SQLAlchemyTimeoutError)
 async def sqlalchemy_timeout_handler(request, exc):
     logging.getLogger(__name__).warning("Database pool timeout on %s %s: %s", request.method, request.url.path, exc)
@@ -1187,6 +1207,8 @@ def _run_alembic_upgrade() -> None:
             logging.getLogger(__name__).info("Programmatic alembic upgrade head finished successfully.")
     except Exception as exc:
         logging.getLogger(__name__).warning("Programmatic alembic upgrade failed: %s", exc)
+    finally:
+        configure_logging()
 
 
 @app.get("/healthz")

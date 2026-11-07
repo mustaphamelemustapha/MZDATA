@@ -1,6 +1,7 @@
 from decimal import Decimal
+from typing import Any
 from sqlalchemy.orm import Session
-from app.models import PricingRule, PricingRole, DataPlan, UserRole, UserPricingOverride
+from app.models import PricingRule, PricingRole, DataPlan, UserRole
 
 
 SERVICE_KEY_PREFIX = "svc"
@@ -9,8 +10,6 @@ SERVICE_KEY_PREFIX = "svc"
 def pricing_role_for_user(user_role: UserRole) -> PricingRole:
     # Only explicit resellers get reseller pricing.
     # Admins should see the same pricing as normal users (simplifies operations).
-    if user_role == UserRole.DEVELOPER:
-        return PricingRole.DEVELOPER
     return PricingRole.RESELLER if user_role == UserRole.AGENT else PricingRole.USER
 
 
@@ -30,10 +29,22 @@ def parse_pricing_key(network: str) -> dict:
 
 def get_margin_for_key(db: Session, key: str, role: PricingRole) -> tuple[Decimal, str]:
     """Return (margin_amount, margin_type) for a pricing key and role."""
-    rule = db.query(PricingRule).filter(
-        PricingRule.network == str(key or "").strip().lower(),
-        PricingRule.role == role,
-    ).first()
+    rule = None
+    try:
+        rule = db.query(PricingRule).filter(
+            PricingRule.network == str(key or "").strip().lower(),
+            PricingRule.role == role,
+        ).first()
+    except Exception:
+        try:
+            from sqlalchemy import cast, String
+            role_val = getattr(role, "value", str(role)).lower()
+            rule = db.query(PricingRule).filter(
+                PricingRule.network == str(key or "").strip().lower(),
+                cast(PricingRule.role, String) == role_val,
+            ).first()
+        except Exception:
+            rule = None
     if not rule:
         return Decimal("0"), "fixed"
     margin_type = str(getattr(rule, "margin_type", None) or "fixed").strip().lower()
@@ -51,46 +62,35 @@ def apply_margin(base_price: Decimal, margin: Decimal, margin_type: str) -> Deci
     return base + m
 
 
-def get_price_for_user(db: Session, plan: DataPlan, user_or_role) -> Decimal:
-    # Handle passing either a User object or a UserRole
-    # (import locally to avoid circular imports if needed, though we can just check type)
-    try:
-        from app.models import User
-        if isinstance(user_or_role, User):
-            role = user_or_role.role
-            user_id = user_or_role.id
-        else:
-            role = user_or_role
-            user_id = None
-    except ImportError:
-        role = user_or_role
-        user_id = None
-
+def get_price_for_user(db: Session, plan: DataPlan, role: Any, is_developer: bool = False) -> Decimal:
+    # 0. Check custom per-user pricing override first (takes highest precedence)
+    user_id = getattr(role, "id", None)
+    if user_id is None and isinstance(role, int):
+        user_id = role
     if user_id:
-        override = db.query(UserPricingOverride).filter(
-            UserPricingOverride.user_id == user_id,
-            UserPricingOverride.data_plan_id == plan.id
-        ).first()
-        if override:
-            return Decimal(override.custom_price)
+        try:
+            from app.models.user_pricing_override import UserPricingOverride
+            override = db.query(UserPricingOverride).filter(
+                UserPricingOverride.user_id == user_id,
+                UserPricingOverride.data_plan_id == plan.id
+            ).first()
+            if override:
+                return Decimal(str(override.custom_price))
+        except Exception:
+            pass
 
-    pricing_role = pricing_role_for_user(role)
-    
-    if pricing_role == PricingRole.DEVELOPER:
+    # 1. Check if user is accessing as an API developer, or has developer flag
+    if is_developer or getattr(role, "is_developer", False) or str(getattr(role, "role", role)).lower() in ("developer", "api"):
         api_price = getattr(plan, "api_price", None)
         if api_price is not None:
             try:
                 return Decimal(api_price)
             except Exception:
                 pass
-        # Fallback to agent price if developer price is not set
-        agent_price = getattr(plan, "agent_price", None)
-        if agent_price is not None:
-            try:
-                return Decimal(agent_price)
-            except Exception:
-                pass
-                
+
+    user_role = getattr(role, "role", role)
+    pricing_role = pricing_role_for_user(user_role)
+    
     if pricing_role == PricingRole.RESELLER:
         agent_price = getattr(plan, "agent_price", None)
         if agent_price is not None:

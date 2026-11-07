@@ -419,7 +419,7 @@ def claim_campaign_reward(db: Session, user: User, campaign_id: int) -> dict:
                 if camp_time is None or stx_time >= camp_time:
                     stxs.append(stx)
         
-        if campaign.target_metric in ("data_volume_gb", "data_gb"):
+        if campaign.target_metric in ("data_volume_gb", "data_gb", "data_volume_mb", "data_mb"):
             from app.models.data_plan import DataPlan
             all_plans = db.query(DataPlan).all()
             plan_map = {p.plan_code: _parse_size_gb(p.data_size) for p in all_plans}
@@ -456,6 +456,9 @@ def claim_campaign_reward(db: Session, user: User, campaign_id: int) -> dict:
                         total_gb += gb or 0.0
                     
             progress = total_gb
+            if campaign.target_metric in ("data_volume_mb", "data_mb"):
+                progress = total_gb * 1024
+            
             is_qualified = progress >= float(campaign.target_value)
             
         elif campaign.target_metric in ("airtime_volume", "airtime_amount"):
@@ -527,6 +530,10 @@ def claim_campaign_reward(db: Session, user: User, campaign_id: int) -> dict:
         transaction_reference=tx_ref,
     )
     db.add(reward)
+    
+    # 3. Ambassador 50GB Milestone Bonus (Discontinued to protect margin)
+    # Milestone bonus payouts have been removed. Agent role auto-qualification is preserved.
+                    
     try:
         db.commit()
     except Exception as e:
@@ -549,7 +556,7 @@ def get_agent_referrals(db: Session, user: User) -> list[dict]:
     for ref in referrals:
         referred_user_name = "Unknown User"
         if ref.referred_user:
-            referred_user_name = f"{ref.referred_user.first_name or ''} {ref.referred_user.last_name or ''}".strip() or ref.referred_user.email
+            referred_user_name = getattr(ref.referred_user, "full_name", "").strip() or getattr(ref.referred_user, "email", "Unknown User")
             
         results.append({
             "id": ref.id,

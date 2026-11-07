@@ -17,7 +17,7 @@ class DataPlan(Base, TimestampMixin):
     display_price = Column(Numeric(12, 2), nullable=True, default=None)
     # Admin-set override for agents (resellers): when set, this price is used for agents.
     agent_price = Column(Numeric(12, 2), nullable=True, default=None)
-    # Admin-set override for developers (API users): when set, this price is used for developers.
+    # Admin-set override for API developers: when set, this price is used for developers.
     api_price = Column(Numeric(12, 2), nullable=True, default=None)
     is_active = Column(Boolean, default=True, nullable=False)
     provider = Column(String(64), nullable=True, index=True)
@@ -25,6 +25,10 @@ class DataPlan(Base, TimestampMixin):
     fallback_provider = Column(String(64), nullable=True, index=True)
     fallback_provider_plan_id = Column(String(64), nullable=True, index=True)
     data_type = Column(String(64), nullable=True, index=True)
+
+    # Multi-dispatch / Bundle Splitting (e.g. 10GB = 2 x 5GB)
+    dispatch_count = Column(Integer, default=1, nullable=False, server_default="1")
+    dispatch_plan_id = Column(String(64), nullable=True, default=None)
 
     # Marketing/Promotion Fields
     promo_active = Column(Boolean, default=False, nullable=False)

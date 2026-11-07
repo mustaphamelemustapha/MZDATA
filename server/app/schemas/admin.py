@@ -65,16 +65,18 @@ class AdminTransactionsResponse(BaseModel):
 
 class AdminUserOut(BaseModel):
     id: int
-    created_at: datetime
-    email: str
+    created_at: Optional[datetime] = None
+    email: Optional[str] = ""
     phone_number: Optional[str] = None
-    full_name: str
-    role: UserRole
-    is_active: bool
-    is_verified: bool
-    referral_count: int = 0
-    developer_status: str = "none"
-    total_spending: float = 0.0
+    full_name: Optional[str] = ""
+    role: Optional[str] = "customer"
+    is_active: Optional[bool] = True
+    is_verified: Optional[bool] = False
+    referral_count: Optional[int] = 0
+    developer_status: Optional[str] = "none"
+    total_spending: Optional[float] = 0.0
+    wallet_balance: Optional[float] = 0.0
+
     class Config:
         orm_mode = True
 
@@ -146,7 +148,6 @@ class ServiceToggleOut(BaseModel):
 
 
 class DataPlanUpdate(BaseModel):
-    id: Optional[int] = None
     network: Optional[str] = None
     plan_code: Optional[str] = None
     plan_name: Optional[str] = None
@@ -187,6 +188,11 @@ class DataPlanUpdate(BaseModel):
     data_type: Optional[str] = None
     clear_data_type: bool = False
 
+    # Multi-dispatch / Bundle Splitting
+    dispatch_count: Optional[int] = None
+    dispatch_plan_id: Optional[str] = None
+    clear_dispatch_plan_id: bool = False
+
 
 class AdminDataPlanOut(BaseModel):
     id: int
@@ -198,13 +204,14 @@ class AdminDataPlanOut(BaseModel):
     base_price: float
     display_price: Optional[float] = None
     agent_price: Optional[float] = None
-    api_price: Optional[float] = None
     is_active: bool
     provider: Optional[str] = None
     provider_plan_id: Optional[str] = None
     fallback_provider: Optional[str] = None
     fallback_provider_plan_id: Optional[str] = None
     data_type: Optional[str] = None
+    dispatch_count: int = 1
+    dispatch_plan_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     promo_active: bool = False
@@ -306,24 +313,26 @@ class PayCommissionRequest(BaseModel):
     vendor_id: int
     commission_type: str # '10_PERCENT' or '50GB_MILESTONE'
 
+
 class UpgradeApiUserResponse(BaseModel):
     user_id: int
     is_developer: bool
     developer_status: str
     role: str
-    api_public_key: str | None = None
-    api_secret_key: str | None = None
+    api_public_key: Optional[str] = None
+    api_secret_key: Optional[str] = None
+
 
 class UserPricingOverrideCreate(BaseModel):
     data_plan_id: int
     custom_price: Decimal
+
 
 class UserPricingOverrideOut(BaseModel):
     id: int
     user_id: int
     data_plan_id: int
     custom_price: Decimal
-    
+
     class Config:
         orm_mode = True
-

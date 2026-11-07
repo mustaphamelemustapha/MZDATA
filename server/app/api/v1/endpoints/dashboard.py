@@ -47,7 +47,7 @@ def get_dashboard_summary(
         partial_failures.append("bank_transfer_accounts")
         bank_transfer_accounts = {
             "provider": settings.bank_transfer_provider.lower(),
-            "account_reference": f"MZDATA_{user.id}",
+            "account_reference": f"AXISVTU_{user.id}",
             "accounts": [],
             "requires_kyc": True,
             "requires_phone": False,
@@ -57,7 +57,7 @@ def get_dashboard_summary(
         partial_failures.append("bank_transfer_accounts")
         bank_transfer_accounts = {
             "provider": settings.bank_transfer_provider.lower(),
-            "account_reference": f"MZDATA_{user.id}",
+            "account_reference": f"AXISVTU_{user.id}",
             "accounts": [],
             "requires_kyc": True,
             "requires_phone": False,

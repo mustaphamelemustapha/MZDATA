@@ -1,3 +1,4 @@
+
 import hashlib
 import httpx
 import logging
@@ -7,29 +8,68 @@ import time
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.config import get_settings
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, get_optional_user, require_admin
 from app.models import User, UserRole, DataPlan, Transaction, TransactionStatus, TransactionType, ApiLog
 from app.schemas.data import DataPlanOut, BuyDataRequest
-def canonical_plan_code(provider: str, network: str, plan_code: str) -> str:
-    """Generate a consistent unique identifier for a plan."""
-    return f"{provider.lower()}-{network.lower()}-{str(plan_code).strip()}"
+from app.services.amigo import (
+    AmigoClient,
+    AmigoApiError,
+    canonical_plan_code,
+    normalize_plan_code,
+    resolve_network_id,
+     split_plan_code,
+)
 from app.providers.smeplug_provider import SMEPlugProvider
 from app.providers.autosync_provider import AutosyncProvider
+from app.providers.mzdata_provider import MZDataProvider
 from app.providers.boltnet_provider import BoltnetProvider
-from app.providers.meledata_provider import MeleDataProvider
-from app.providers.brendysubs_provider import BrendysubsProvider
-from app.providers.wallettopup_provider import WallettopupProvider
+from app.models.integration import IntegrationProvider
+
+def get_amigo_client(db: Optional[Session] = None) -> AmigoClient:
+    if db is None:
+        from app.core.database import SessionLocal
+        _db = SessionLocal()
+        try:
+            provider = _db.query(IntegrationProvider).filter(
+                IntegrationProvider.identifier == "amigo",
+                IntegrationProvider.is_active == True
+            ).first()
+            if provider:
+                return AmigoClient(api_key=provider.api_key, base_url=provider.base_url)
+        except Exception:
+            pass
+        finally:
+            _db.close()
+        return AmigoClient()
+    try:
+        provider = db.query(IntegrationProvider).filter(
+            IntegrationProvider.identifier == "amigo",
+            IntegrationProvider.is_active == True
+        ).first()
+        if provider:
+            return AmigoClient(api_key=provider.api_key, base_url=provider.base_url)
+    except Exception:
+        pass
+    return AmigoClient()
 from app.services.bills import get_bills_provider
 from app.services.fraud import enforce_purchase_limits
 from app.services.wallet import get_or_create_wallet, debit_wallet, credit_wallet
 from app.services.pricing import get_price_for_user
 from app.middlewares.rate_limit import limiter
+
+
+def _client_request_reference(prefix: str, user_id: int, request_id: str | None) -> str | None:
+    raw = str(request_id or "").strip()
+    if not raw:
+        return None
+    digest = hashlib.sha256(f"{prefix}:{user_id}:{raw}".encode()).hexdigest()[:24].upper()
+    return f"{prefix}_{digest}"
 
 router = APIRouter()
 settings = get_settings()
@@ -193,47 +233,11 @@ def _upsert_plan_from_provider(db: Session, item: dict) -> bool:
 
 # --- ENDPOINTS ---
 
-def _background_sync_plans(db: Session, breakdown: dict):
-    # 1. AIRTEL -> SMEPlug Sync (If low)
-    if breakdown.get("airtel", 0) < 5:
-        logger.info("Airtel plans low. Syncing from SMEPlug (Background)...")
-        try:
-            sme = SMEPlugProvider()
-            items = sme.get_airtel_plans()
-            if items:
-                touched = 0
-                for item in items:
-                    item["provider"] = "smeplug"
-                    touched += 1 if _upsert_plan_from_provider(db, item) else 0
-                if touched:
-                    db.commit()
-                    logger.info("SMEPlug sync finished (Airtel). Touched %d plans.", touched)
-        except Exception as exc:
-            logger.warning("SMEPlug Airtel sync failed: %s", exc)
-
-    # 2. 9MOBILE -> ClubKonnect/Bills Sync (If low)
-    if breakdown.get("9mobile", 0) < 5:
-        logger.info("9mobile plans low. Syncing from Bills Provider (Background)...")
-        try:
-            provider = get_bills_provider()
-            if hasattr(provider, "fetch_data_variations"):
-                items = provider.fetch_data_variations("9mobile")
-                if items:
-                    touched = 0
-                    for item in items:
-                        item["network"] = "9mobile"
-                        item["provider"] = str(getattr(provider, "name", "clubkonnect")).lower()
-                        touched += 1 if _upsert_plan_from_provider(db, item) else 0
-                    if touched:
-                        db.commit()
-                        logger.info("9mobile sync finished. Touched %d plans.", touched)
-        except Exception as exc:
-            logger.warning("9mobile sync failed: %s", exc)
-
 @router.get("/plans", response_model=list[DataPlanOut])
-def list_data_plans(background_tasks: BackgroundTasks, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_data_plans(user: Optional[User] = Depends(get_optional_user), db: Session = Depends(get_db)):
     all_count = db.query(DataPlan).count()
-    plans = db.query(DataPlan).filter(DataPlan.is_active == True).all()
+    # Match plans where is_active is True or NULL (never drop plans unless is_active is explicitly False)
+    plans = db.query(DataPlan).filter(DataPlan.is_active != False).all()
     
     if all_count > 0 and not plans:
         logger.warning("DB has %d plans but none are active. Returning empty list.", all_count)
@@ -245,141 +249,135 @@ def list_data_plans(background_tasks: BackgroundTasks, user: User = Depends(get_
 
     logger.info(
         "User %s requested plans. Total in DB: %d, Active: %d, Breakdown: %s",
-        user.email, all_count, len(plans), breakdown
+        getattr(user, "email", "guest"), all_count, len(plans), breakdown
     )
 
-    if breakdown.get("airtel", 0) < 5 or breakdown.get("9mobile", 0) < 5:
-        # Create a new session for the background task to avoid concurrency issues with the main request
-        from app.core.database import SessionLocal
-        bg_db = SessionLocal()
-        
-        def bg_task():
-            try:
-                _background_sync_plans(bg_db, breakdown)
-            finally:
-                bg_db.close()
-                
-        background_tasks.add_task(bg_task)
+    promo_snapshot = {"active": False, "remaining": 0, "limit": 0, "price": Decimal("250")}
+    try:
+        promo_snapshot = _mtn_1gb_promo_snapshot(db)
+    except Exception as promo_exc:
+        logger.warning("Failed to get promo snapshot: %s", promo_exc)
 
-
-    # PERFORMANCE OPTIMIZATION: Fetch pricing rules once to avoid N+1 query timeout
-    from app.models import PricingRule, PricingRole, UserRole
-    pricing_role = PricingRole.RESELLER if user.role == UserRole.AGENT else PricingRole.USER
-    all_rules = db.query(PricingRule).filter(PricingRule.role == pricing_role).all()
-    rule_map = {str(r.network or "").strip().lower(): r for r in all_rules}
+    user_promo_used = False
+    if user:
+        try:
+            user_promo_used = _user_has_used_mtn_1gb_promo(db, user.id)
+        except Exception as promo_user_exc:
+            logger.warning("Failed to check user promo: %s", promo_user_exc)
     
+    # PERFORMANCE OPTIMIZATION: Fetch pricing rules safely
+    rule_map = {}
+    pricing_role = None
+    try:
+        from app.models import PricingRule, PricingRole, UserRole
+        pricing_role = PricingRole.RESELLER if (user and getattr(user, "role", None) == UserRole.AGENT) else PricingRole.USER
+        all_rules = db.query(PricingRule).filter(PricingRule.role == pricing_role).all()
+        rule_map = {str(r.network or "").strip().lower(): r for r in all_rules}
+    except Exception as rule_exc:
+        logger.warning("Failed to load pricing rules: %s", rule_exc)
+        try:
+            from sqlalchemy import cast, String
+            role_val = getattr(pricing_role, "value", str(pricing_role)).lower()
+            all_rules = db.query(PricingRule).filter(cast(PricingRule.role, String) == role_val).all()
+            rule_map = {str(r.network or "").strip().lower(): r for r in all_rules}
+        except Exception:
+            rule_map = {}
+    
+    user_overrides = {}
+    if user and getattr(user, "id", None):
+        try:
+            from app.models.user_pricing_override import UserPricingOverride
+            overrides = db.query(UserPricingOverride).filter(UserPricingOverride.user_id == user.id).all()
+            user_overrides = {o.data_plan_id: Decimal(str(o.custom_price)) for o in overrides}
+        except Exception as ov_exc:
+            logger.warning("Failed to fetch user pricing overrides: %s", ov_exc)
+
     priced = []
     for plan in plans:
         try:
-            # User role specific price
-            display = getattr(plan, "display_price", None)
-            agent_price = getattr(plan, "agent_price", None)
-            api_price = getattr(plan, "api_price", None)
-            
-            if pricing_role == PricingRole.DEVELOPER and api_price is not None:
-                price = Decimal(str(api_price))
-            elif pricing_role in (PricingRole.DEVELOPER, PricingRole.RESELLER) and agent_price is not None:
-                price = Decimal(str(agent_price))
-            elif display is not None:
-                price = Decimal(str(display))
+            if plan.id in user_overrides:
+                price = user_overrides[plan.id]
             else:
-                rule = rule_map.get(str(plan.network or "").strip().lower())
-                margin = Decimal(str(rule.margin)) if rule else Decimal("0")
-                margin_type = str(getattr(rule, "margin_type", None) or "fixed").strip().lower()
-                if margin_type not in ("fixed", "percentage"):
-                    margin_type = "fixed"
+                # 1. Calculate price safely
+                display = getattr(plan, "display_price", None)
+                agent_price = getattr(plan, "agent_price", None)
+                base = Decimal(str(plan.base_price if plan.base_price is not None else "0"))
                 
-                base = Decimal(str(plan.base_price or "0"))
-                if margin_type == "percentage":
-                    price = base + (base * margin / Decimal("100"))
+                if pricing_role is not None and str(pricing_role).lower() in ("reseller", "agent") and agent_price is not None:
+                    price = Decimal(str(agent_price))
+                elif display is not None:
+                    price = Decimal(str(display))
                 else:
-                    price = base + margin
-            
-            # Promo logic from database fields
-            promo_active = bool(getattr(plan, "promo_active", False))
-            promo_old_price = getattr(plan, "promo_old_price", None)
-            promo_label = getattr(plan, "promo_label", None)
-            cashback_amount = getattr(plan, "cashback_amount", None)
-            cashback_label = getattr(plan, "cashback_label", None)
-            promo_remaining = None
-            promo_limit = None
-
-            # Calculate previous price and percent off if not set but promo is active
-            if promo_active:
-                standard_price = price
-                if display is not None:
-                    # price is already display_price. Standard price would be calculated:
                     rule = rule_map.get(str(plan.network or "").strip().lower())
-                    margin = Decimal(str(rule.margin)) if rule else Decimal("0")
+                    margin = Decimal("0")
+                    if rule and getattr(rule, "margin", None) is not None:
+                        try:
+                            margin = Decimal(str(rule.margin))
+                        except Exception:
+                            margin = Decimal("0")
                     margin_type = str(getattr(rule, "margin_type", None) or "fixed").strip().lower()
-                    base = Decimal(str(plan.base_price or "0"))
                     if margin_type == "percentage":
-                        standard_price = base + (base * margin / Decimal("100"))
+                        price = base + (base * margin / Decimal("100"))
                     else:
-                        standard_price = base + margin
-                
-                if promo_old_price is None:
-                    promo_old_price = standard_price
-                
-                # If old price is higher than price, calculate percentage off if label is missing
-                if promo_label is None and promo_old_price > price and promo_old_price > 0:
-                    discount_pct = int(round((promo_old_price - price) / promo_old_price * Decimal("100")))
-                    if discount_pct > 0:
-                        promo_label = f"{discount_pct}% off"
+                        price = base + margin
+        except Exception as price_err:
+            logger.warning("Pricing calculation error for plan %s: %s", plan.id, price_err)
+            price = Decimal(str(getattr(plan, "display_price", None) or getattr(plan, "base_price", None) or "0"))
 
-            # Fallback/Legacy MTN 1GB Promo config settings compatibility
-            if not promo_active and plan.network == "mtn" and _is_mtn_1gb_promo_plan(plan):
-                promo_active = True
-                promo_old_price = price
-                price = settings.promo_mtn_1gb_price
-                promo_label = "PROMO"
-                promo_limit = settings.promo_mtn_1gb_limit
-                
+        # Promo logic
+        promo_active = bool(getattr(plan, "promo_active", False))
+        promo_old_price = getattr(plan, "promo_old_price", None)
+        promo_label = getattr(plan, "promo_label", None)
+        cashback_amount = getattr(plan, "cashback_amount", None)
+        cashback_label = getattr(plan, "cashback_label", None)
+        promo_remaining = None
+        promo_limit = None
+
+        if promo_active and promo_old_price is None:
+            promo_old_price = price
+
+        try:
             priced.append(
                 DataPlanOut(
-                    id=plan.id,
-                    network=plan.network,
-                    plan_code=plan.plan_code,
-                    plan_name=_clean_plan_label(plan.plan_name),
-                    data_size=plan.data_size,
-                    validity=plan.validity,
+                    id=int(plan.id),
+                    network=str(plan.network or "").strip().lower(),
+                    plan_code=str(plan.plan_code or ""),
+                    plan_name=_clean_plan_label(plan.plan_name or "Data Bundle"),
+                    data_size=str(plan.data_size or "—"),
+                    validity=str(plan.validity or "30 Days"),
                     price=price,
-                    base_price=plan.base_price,
+                    base_price=Decimal(str(plan.base_price)) if getattr(plan, "base_price", None) is not None else None,
                     promo_active=promo_active,
-                    promo_old_price=promo_old_price,
-                    promo_label=promo_label,
+                    promo_old_price=Decimal(str(promo_old_price)) if promo_old_price is not None else None,
+                    promo_label=str(promo_label) if promo_label is not None else None,
                     promo_remaining=promo_remaining,
                     promo_limit=promo_limit,
-                    provider=plan.provider,
-                    provider_plan_id=plan.provider_plan_id,
-                    cashback_amount=cashback_amount,
-                    cashback_label=cashback_label,
-                    data_type=getattr(plan, "data_type", None),
+                    provider=str(plan.provider) if plan.provider else None,
+                    provider_plan_id=str(plan.provider_plan_id) if plan.provider_plan_id else None,
+                    cashback_amount=Decimal(str(cashback_amount)) if cashback_amount is not None else None,
+                    cashback_label=str(cashback_label) if cashback_label is not None else None,
+                    data_type=str(getattr(plan, "data_type", None)) if getattr(plan, "data_type", None) else None,
                 )
             )
-        except Exception as e:
-            logger.warning("Failed to price plan %s: %s", plan.id, e)
+        except Exception as ser_err:
+            logger.warning("Failed to serialize plan %s: %s", plan.id, ser_err)
             continue
     
     try:
-        # Sort criteria: 
-        # 1. Network (alphabetical: 9mobile, airtel, glo, mtn)
-        # 2. Price (lowest to highest)
-        # 3. Data size (fallback for same-price bundles)
         priced.sort(key=lambda p: (
             str(p.network or "").lower(),
             float(p.price or 0),
             _parse_size_gb(p.data_size or p.plan_name) or 0
         ))
-    except Exception as e:
-        logger.warning("Failed to sort data plans: %s", e)
+    except Exception as sort_err:
+        logger.warning("Failed to sort data plans: %s", sort_err)
         
-    logger.info("Returning %d active data plans for user %s", len(priced), user.email)
+    logger.info("Returning %d active data plans for user %s", len(priced), getattr(user, "email", "guest"))
     return priced
 
 
 @router.post("/purchase")
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 def buy_data(request: Request, payload: BuyDataRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         return _buy_data_impl(request, payload, user, db)
@@ -394,6 +392,9 @@ def buy_data(request: Request, payload: BuyDataRequest, user: User = Depends(get
 def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Session):
     plan_code_input = str(payload.plan_code or "").strip()
     payload_network = str(payload.network or "").strip().lower()
+    phone = str(payload.phone_number or "").strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="Recipient phone number is required.")
     
     plan_query = db.query(DataPlan).filter(DataPlan.plan_code == plan_code_input, DataPlan.is_active == True)
     if payload_network:
@@ -411,32 +412,120 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
         if len(suffix_matches) == 1:
             plan = suffix_matches[0]
             
+    reference = _client_request_reference("DATA", user.id, getattr(payload, "client_request_id", None)) or f"DATA-{int(time.time())}-{secrets.token_hex(4)}".upper()
+
     if not plan:
-        raise HTTPException(status_code=404, detail="Active data plan not found.")
+        inactive_plan = db.query(DataPlan).filter(DataPlan.plan_code == plan_code_input).first()
+        reason = f"Data plan '{plan_code_input}' is currently deactivated" if inactive_plan else f"Unknown or invalid plan code '{plan_code_input}'"
+        try:
+            failed_tx = Transaction(
+                user_id=user.id,
+                amount=Decimal("0"),
+                tx_type=TransactionType.DATA,
+                status=TransactionStatus.FAILED,
+                reference=reference,
+                network=payload_network or (inactive_plan.network if inactive_plan else "unknown"),
+                recipient_phone=phone,
+                data_plan_code=plan_code_input,
+                failure_reason=reason
+            )
+            db.add(failed_tx)
+            db.commit()
+        except Exception:
+            db.rollback()
+        raise HTTPException(status_code=404, detail=f"Active data plan not found: {reason}")
 
-    phone = str(payload.phone_number or "").strip()
-    if not phone:
-        raise HTTPException(status_code=400, detail="Recipient phone number is required.")
-
-    enforce_purchase_limits(db, user_id=user.id, amount=Decimal(str(plan.base_price)), tx_type="data")
+    try:
+        enforce_purchase_limits(db, user_id=user.id, amount=Decimal(str(plan.base_price)), tx_type="data")
+    except HTTPException as lim_err:
+        try:
+            failed_tx = Transaction(
+                user_id=user.id,
+                amount=Decimal(str(plan.base_price)),
+                tx_type=TransactionType.DATA,
+                status=TransactionStatus.FAILED,
+                reference=reference,
+                network=plan.network,
+                recipient_phone=phone,
+                data_plan_code=plan.plan_code,
+                provider=plan.provider,
+                failure_reason=str(lim_err.detail)
+            )
+            db.add(failed_tx)
+            db.commit()
+        except Exception:
+            db.rollback()
+        raise
     
     price = get_price_for_user(db, plan, user)
-    if _is_mtn_1gb_promo_plan(plan):
+    
+    # Apply promo discount if provided
+    user_promo = None
+    if payload.user_promo_id:
+        from app.models.promo import UserPromo
+        from datetime import datetime, timezone
+        user_promo = db.query(UserPromo).filter(
+            UserPromo.id == payload.user_promo_id,
+            UserPromo.user_id == user.id,
+            UserPromo.status == "READY"
+        ).first()
+        if not user_promo:
+            raise HTTPException(status_code=400, detail="Invalid or expired promo.")
+            
+        promo_code = user_promo.promo_code
+        if not promo_code.is_active or (promo_code.expires_at and promo_code.expires_at < datetime.now(timezone.utc)):
+            raise HTTPException(status_code=400, detail="Promo code is inactive or expired.")
+            
+        if promo_code.applicable_network != "ALL" and promo_code.applicable_network.upper() != plan.network.upper():
+            raise HTTPException(status_code=400, detail=f"Promo is only applicable for {promo_code.applicable_network}.")
+            
+        if promo_code.applicable_plan_size != "ALL":
+            s1 = promo_code.applicable_plan_size.upper().replace(" ", "")
+            s2 = plan.plan_name.upper().replace(" ", "")
+            s3 = plan.data_size.upper().replace(" ", "")
+            if s1 not in s2 and s1 not in s3:
+                raise HTTPException(status_code=400, detail=f"Promo is only applicable for {promo_code.applicable_plan_size}.")
+                
+        discount = Decimal(str(promo_code.discount_amount))
+        if promo_code.is_percentage:
+            discount = price * (discount / Decimal(100))
+            price = max(Decimal(0), price - discount)
+        elif promo_code.is_fixed_price:
+            price = min(price, discount)
+        else:
+            price = max(Decimal(0), price - discount)
+        
+    if _is_mtn_1gb_promo_plan(plan) and not user_promo:
         promo = _mtn_1gb_promo_snapshot(db)
         if promo["active"] and not _user_has_used_mtn_1gb_promo(db, user.id):
             promo_price = Decimal(str(promo["price"]))
             if promo_price < price:
                 price = promo_price
 
-    wallet = get_or_create_wallet(db, user.id)
-    if wallet.balance < price:
-        raise HTTPException(status_code=400, detail="Insufficient wallet balance.")
+    wallet = get_or_create_wallet(db, user.id, for_update=True)
+    if Decimal(wallet.balance) < price:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient wallet balance. (Available: ₦{Decimal(wallet.balance):,.2f}, Required: ₦{price:,.2f}). Please fund your wallet to continue."
+        )
 
-    reference = f"DATA-{int(time.time())}-{secrets.token_hex(4)}".upper()
-    
+    existing = db.query(Transaction).filter(
+        Transaction.user_id == user.id,
+        Transaction.reference == reference
+    ).first()
+    if existing:
+        return {
+            "status": existing.status.value if hasattr(existing.status, "value") else str(existing.status),
+            "message": "Duplicate request: returning existing transaction",
+            "reference": existing.reference,
+            "provider_reference": existing.external_reference or "",
+        }
+
     # 1. DEBIT WALLET
     try:
         debit_wallet(db, wallet, price, reference, f"Data Purchase: {plan.plan_name} ({phone})")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Wallet debit failed: {e}")
         raise HTTPException(status_code=400, detail="Wallet debit failed.")
@@ -454,8 +543,17 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
         provider=plan.provider,
         provider_plan_id=plan.provider_plan_id
     )
-    db.add(transaction)
-    db.commit()
+    try:
+        db.add(transaction)
+        db.commit()
+    except Exception as tx_err:
+        db.rollback()
+        logger.error(f"Failed to save pending transaction {reference}: {tx_err}")
+        try:
+            credit_wallet(db, wallet, price, f"{reference}_err_refund", "Refund: failed to initialize order")
+        except Exception:
+            db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to initialize purchase transaction.")
 
     # -----------------------------
     # Release DB connection to avoid pool starvation on slow HTTP requests
@@ -473,6 +571,9 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
     plan_fallback_provider = str(plan.fallback_provider or "").strip().lower() if plan.fallback_provider and plan.fallback_provider.lower() != "none" else None
     plan_fallback_provider_plan_id = plan.fallback_provider_plan_id
     
+    plan_dispatch_count = int(getattr(plan, "dispatch_count", 1) or 1)
+    plan_dispatch_plan_id = getattr(plan, "dispatch_plan_id", None)
+
     db.close()
 
     # 3. ROUTE TO PROVIDER
@@ -481,7 +582,8 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
     
     start_time = time.time()
 
-    def _execute_provider(p_name, p_plan_id):
+    def _execute_provider(p_name, p_plan_id, p_ref=None):
+        target_ref = p_ref or reference
         p_res = {"status": "pending", "error": "Provider routing failed"}
         tx_provider = p_name
         try:
@@ -489,7 +591,7 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
                 sme = SMEPlugProvider()
                 sme_network_map = {"mtn": 1, "airtel": 2, "9mobile": 3, "glo": 4}
                 net_id = sme_network_map.get(network_key, 2)
-                p_res = sme.purchase_network_data(net_id, phone, p_plan_id or plan_plan_code, reference)
+                p_res = sme.purchase_network_data(net_id, phone, p_plan_id or plan_plan_code, target_ref)
                 tx_provider = "smeplug"
 
             elif p_name == "autosync":
@@ -498,67 +600,150 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
                     network=network_key, 
                     phone=phone, 
                     plan_id=p_plan_id or plan_plan_code, 
-                    client_request_id=reference,
+                    client_request_id=target_ref,
                     data_type=getattr(plan, "data_type", "Gifting")
                 )
                 tx_provider = "autosync"
 
+            elif p_name == "mzdata":
+                mzdata = MZDataProvider()
+                mzdata_network_map = {"mtn": 1, "airtel": 2, "glo": 3, "9mobile": 4}
+                net_id = mzdata_network_map.get(network_key, 1)
+                p_res = mzdata.purchase_network_data(net_id, phone, p_plan_id or plan_plan_code, target_ref)
+                tx_provider = "mzdata"
+
             elif p_name == "boltnet":
                 boltnet = BoltnetProvider()
-                p_res = boltnet.purchase_network_data(
-                    network=network_key,
-                    phone=phone,
-                    plan_id=p_plan_id or plan_plan_code,
-                    client_request_id=reference
-                )
+                boltnet_network_map = {"mtn": 1, "airtel": 2, "glo": 3, "9mobile": 4}
+                net_id = boltnet_network_map.get(network_key, 1)
+                p_res = boltnet.purchase_network_data(net_id, phone, str(p_plan_id or plan_plan_code), target_ref)
                 tx_provider = "boltnet"
 
-            elif p_name == "meledata":
-                mele = MeleDataProvider()
-                p_res = mele.purchase_network_data(
-                    network=network_key,
-                    phone=phone,
-                    plan_id=p_plan_id or plan_plan_code,
-                    client_request_id=reference
-                )
-                tx_provider = "meledata"
-
-            elif p_name == "brendysubs":
-                brendy = BrendysubsProvider()
-                p_res = brendy.purchase_network_data(
-                    network=network_key,
-                    phone=phone,
-                    plan_id=p_plan_id or plan_plan_code,
-                    client_request_id=reference
-                )
-                tx_provider = "brendysubs"
-
-            elif p_name == "wallettopup":
-                wallettopup = WallettopupProvider()
-                p_res = wallettopup.purchase_network_data(
-                    network=network_key,
-                    phone=phone,
-                    plan_id=p_plan_id or plan_plan_code,
-                    client_request_id=reference
-                )
-                tx_provider = "wallettopup"
-
-
+            elif p_name == "amigo" or (not p_name and network_key in {"mtn", "glo", "airtel", "9mobile"}):
+                amigo = get_amigo_client()
+                amigo_network_id = resolve_network_id(network_key)
+                amigo_payload = {
+                    "network": amigo_network_id,
+                    "mobile_number": phone,
+                    "plan": normalize_plan_code(p_plan_id or plan_plan_code),
+                    "Ported_number": True
+                }
+                tx_provider = "amigo"
+                try:
+                    res = amigo.purchase_data(amigo_payload, idempotency_key=target_ref)
+                    if res.get("success") or str(res.get("status")).lower() in {"delivered", "success", "successful"}:
+                        p_res = {"status": "success", "provider_reference": str(res.get("reference") or "")}
+                    elif str(res.get("status")).lower() in {"pending", "processing"}:
+                        p_res = {"status": "pending", "provider_reference": str(res.get("reference") or "")}
+                    else:
+                        p_res = {"status": "failed", "error": res.get("message") or "Amigo reported failure"}
+                except AmigoApiError as e:
+                    err_msg = str(e)
+                    if _is_ambiguous_provider_error(e):
+                        logger.warning("Amigo reported ambiguous error for reference %s. Marking as pending for safety: %s", target_ref, err_msg)
+                        p_res = {"status": "pending", "error": err_msg}
+                    else:
+                        logger.warning("Amigo reported hard failure for reference %s. Failing immediately: %s", target_ref, err_msg)
+                        p_res = {"status": "failed", "error": err_msg}
 
             elif p_name == "clubkonnect" or (not p_name and network_key == "9mobile"):
-                bills = get_bills_provider()
+                from app.services.bills import ClubKonnectBillsProvider
+                bills = ClubKonnectBillsProvider()
                 tx_provider = "clubkonnect"
-                res = bills.purchase_data(network_key, phone, p_plan_id or plan_plan_code, amount=float(price), request_id=reference)
+                res = bills.purchase_data(network_key, phone, p_plan_id or plan_plan_code, amount=float(price), request_id=target_ref)
                 if res.ok:
                     p_res = {"status": "success", "provider_reference": res.external_reference}
                 elif res.is_pending:
                     p_res = {"status": "pending", "provider_reference": res.external_reference}
                 else:
                     p_res = {"status": "failed", "error": res.message}
+
+            elif p_name == "meledata":
+                from app.providers.meledata_provider import MeleDataProvider
+                mele = MeleDataProvider()
+                clean_plan_id = str(p_plan_id or plan_plan_code or "").strip()
+                if ":" in clean_plan_id:
+                    clean_plan_id = clean_plan_id.split(":")[-1]
+                elif clean_plan_id.startswith("meledata.") and clean_plan_id.count(".") >= 2:
+                    clean_plan_id = clean_plan_id.split(".")[-1]
+                p_res = mele.purchase_network_data(
+                    network_id=network_key,
+                    phone=phone,
+                    plan_id=clean_plan_id,
+                    client_request_id=target_ref,
+                    data_size=plan_data_size,
+                    plan_name=plan_plan_name,
+                )
+                tx_provider = "meledata"
+
+            elif p_name and p_name not in ("amigo", "clubkonnect", "smeplug", "sim", "autosync", "mzdata", "boltnet"):
+                from app.core.database import SessionLocal
+                _db = SessionLocal()
+                try:
+                    prov = _db.query(IntegrationProvider).filter(IntegrationProvider.identifier == p_name).first()
+                    if prov and prov.api_key:
+                        tx_provider = p_name
+                        raw_b = str(prov.base_url or "").strip().rstrip("/")
+                        if raw_b.endswith("/developer"):
+                            raw_b = raw_b[:-10].rstrip("/")
+                        if not raw_b.endswith("/api/v1"):
+                            b_url = f"{raw_b}/api/v1"
+                            alt_b_url = raw_b
+                        else:
+                            b_url = raw_b
+                            alt_b_url = raw_b[:-7].rstrip("/")
+
+                        buy_url = f"{b_url}/developer/data/purchase"
+                        alt_buy_url = f"{alt_b_url}/developer/data/purchase"
+
+                        hdrs = {
+                            "Authorization": f"Bearer {prov.api_key}",
+                            "X-API-Key": prov.api_key,
+                            "Content-Type": "application/json"
+                        }
+                        clean_plan_id = str(p_plan_id or plan_plan_code or "").strip()
+                        if ":" in clean_plan_id:
+                            clean_plan_id = clean_plan_id.split(":")[-1]
+                        elif clean_plan_id.startswith(f"{p_name}.") and clean_plan_id.count(".") >= 2:
+                            clean_plan_id = clean_plan_id.split(".")[-1]
+
+                        payload = {
+                            "network": network_key.upper(),
+                            "phone_number": phone,
+                            "plan_id": int(clean_plan_id) if clean_plan_id.isdigit() else clean_plan_id,
+                            "reference": target_ref
+                        }
+                        import requests
+                        r = requests.post(buy_url, json=payload, headers=hdrs, timeout=25)
+                        if r.status_code == 404 and alt_buy_url != buy_url:
+                            logger.warning("Generic provider 404 on %s, trying %s", buy_url, alt_buy_url)
+                            r = requests.post(alt_buy_url, json=payload, headers=hdrs, timeout=25)
+
+                        r_data = r.json() if "application/json" in r.headers.get("content-type", "") else {}
+                        inner_st = str(r_data.get("data", {}).get("status", "")).lower()
+                        if r.status_code in (200, 201) and (inner_st in ("success", "delivered") or (r_data.get("status") and not inner_st)):
+                            p_res = {
+                                "status": "success",
+                                "provider_reference": str(r_data.get("data", {}).get("reference") or target_ref)
+                            }
+                        elif r.status_code in (200, 201, 202) and (inner_st in ("pending", "processing") or str(r_data.get("status", "")).lower() == "pending"):
+                            p_res = {
+                                "status": "pending",
+                                "provider_reference": str(r_data.get("data", {}).get("reference") or target_ref)
+                            }
+                        else:
+                            p_res = {
+                                "status": "failed",
+                                "error": r_data.get("message") or f"Upstream error HTTP {r.status_code}"
+                            }
+                    else:
+                        p_res = {"status": "failed", "error": f"Provider '{p_name}' not configured or missing API key."}
+                finally:
+                    _db.close()
                     
             elif network_key == "airtel":
                 sme = SMEPlugProvider()
-                p_res = sme.purchase_network_data(2, phone, p_plan_id or plan_plan_code, reference)
+                p_res = sme.purchase_network_data(2, phone, p_plan_id or plan_plan_code, target_ref)
                 tx_provider = "smeplug"
 
             else:
@@ -573,16 +758,100 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
                 
         return p_res, tx_provider
 
-    provider_res, transaction_provider = _execute_provider(plan_provider, plan_provider_plan_id)
-    
-    # Fallback Routing
-    if provider_res.get("status") == "failed" and plan_fallback_provider:
-        logger.warning(f"Primary provider {plan_provider} failed for {reference} ({provider_res.get('error')}). Routing to fallback: {plan_fallback_provider}")
-        # Optionally append a suffix to reference so the second provider doesn't treat it as duplicate if it's the same provider
-        # But we'll just use the same reference as it's a completely different provider API.
-        provider_res, transaction_provider = _execute_provider(plan_fallback_provider, plan_fallback_provider_plan_id)
-        # We also need to remember the fallback plan id so we can update the transaction record
-        plan_provider_plan_id = plan_fallback_provider_plan_id or plan_plan_code
+    is_multi_dispatch = bool(plan_dispatch_count > 1)
+    partial_refund_amount = Decimal("0")
+    success_parts_count = 0
+
+    if not is_multi_dispatch:
+        # 1. Standard Single Dispatch
+        provider_res, transaction_provider = _execute_provider(plan_provider, plan_provider_plan_id, reference)
+        
+        # Fallback Routing
+        if provider_res.get("status") == "failed" and plan_fallback_provider:
+            logger.warning(f"Primary provider {plan_provider} failed for {reference} ({provider_res.get('error')}). Routing to fallback: {plan_fallback_provider}")
+            from app.core.database import SessionLocal
+            _db_fb = SessionLocal()
+            try:
+                _tx_fb = _db_fb.query(Transaction).get(tx_id)
+                if _tx_fb:
+                    _tx_fb.provider = plan_fallback_provider
+                    _db_fb.commit()
+            except Exception as _fb_err:
+                logger.warning("Failed to record fallback provider in DB: %s", _fb_err)
+            finally:
+                _db_fb.close()
+
+            provider_res, transaction_provider = _execute_provider(plan_fallback_provider, plan_fallback_provider_plan_id, reference)
+            plan_provider_plan_id = plan_fallback_provider_plan_id or plan_plan_code
+    else:
+        # 2. Multi-Dispatch / Bundle Splitting Engine
+        logger.info(
+            "Executing Multi-Dispatch (%d parts) for %s (ref=%s) to %s",
+            plan_dispatch_count, plan_plan_name, reference, phone
+        )
+        sub_plan_id = plan_dispatch_plan_id or plan_provider_plan_id
+        dispatch_results = []
+        providers_used = []
+        
+        for idx in range(plan_dispatch_count):
+            if idx > 0:
+                time.sleep(1.5)  # Buffer to prevent duplicate rejection by provider
+            part_ref = f"{reference}_p{idx+1}"
+            sub_res, sub_prov = _execute_provider(plan_provider, sub_plan_id, part_ref)
+            
+            # Sub-part fallback routing
+            if sub_res.get("status") == "failed" and plan_fallback_provider:
+                fallback_sub_id = plan_fallback_provider_plan_id or sub_plan_id
+                logger.warning(
+                    "Multi-dispatch part %d/%d failed with %s; falling back to %s",
+                    idx + 1, plan_dispatch_count, plan_provider, plan_fallback_provider
+                )
+                from app.core.database import SessionLocal
+                _db_fb = SessionLocal()
+                try:
+                    _tx_fb = _db_fb.query(Transaction).get(tx_id)
+                    if _tx_fb:
+                        _tx_fb.provider = plan_fallback_provider
+                        _db_fb.commit()
+                except Exception as _fb_err:
+                    logger.warning("Failed to record fallback provider in DB: %s", _fb_err)
+                finally:
+                    _db_fb.close()
+
+                sub_res, sub_prov = _execute_provider(plan_fallback_provider, fallback_sub_id, part_ref)
+                
+            dispatch_results.append(sub_res)
+            providers_used.append(sub_prov)
+            
+        success_parts = [r for r in dispatch_results if r.get("status") == "success"]
+        pending_parts = [r for r in dispatch_results if r.get("status") == "pending"]
+        failed_parts = [r for r in dispatch_results if r.get("status") == "failed"]
+        success_parts_count = len(success_parts)
+        
+        all_ext_refs = [str(r.get("provider_reference")) for r in dispatch_results if r.get("provider_reference")]
+        combined_ext_ref = ", ".join(all_ext_refs) if all_ext_refs else None
+        transaction_provider = providers_used[0] if providers_used else plan_provider
+
+        if len(success_parts) == plan_dispatch_count:
+            # All parts delivered successfully
+            provider_res = {"status": "success", "provider_reference": combined_ext_ref}
+        elif len(failed_parts) == plan_dispatch_count:
+            # All parts failed
+            first_err = failed_parts[0].get("error") if failed_parts else "All dispatch parts failed"
+            provider_res = {"status": "failed", "error": first_err}
+        elif len(pending_parts) > 0 and len(failed_parts) == 0:
+            # At least one succeeded or pending, none definitively failed
+            provider_res = {"status": "pending", "provider_reference": combined_ext_ref}
+        else:
+            # Partial success: some succeeded, some failed
+            failed_ratio = Decimal(str(len(failed_parts))) / Decimal(str(plan_dispatch_count))
+            partial_refund_amount = (price * failed_ratio).quantize(Decimal("0.01"))
+            provider_res = {
+                "status": "partial_success",
+                "provider_reference": combined_ext_ref,
+                "partial_info": f"{len(success_parts)}/{plan_dispatch_count} delivered",
+                "failed_count": len(failed_parts),
+            }
 
     duration_ms = (time.time() - start_time) * 1000
     
@@ -590,60 +859,103 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
     from app.core.database import SessionLocal
     db2 = SessionLocal()
     try:
-        transaction = db2.query(Transaction).with_for_update().get(tx_id)
-        if not transaction:
-            return provider_res
-            
+        transaction = db2.query(Transaction).get(tx_id)
         user = db2.query(User).get(user_id)
         wallet = get_or_create_wallet(db2, user_id)
-        
-        # Check if transaction was already processed by a webhook or pending reconcile
-        if transaction.status in {TransactionStatus.SUCCESS, TransactionStatus.REFUNDED}:
-            logger.info(f"Transaction {tx_id} was already processed asynchronously. Current status: {transaction.status}")
-            db2.commit()
-            return {
-                "status": "success" if transaction.status == TransactionStatus.SUCCESS else "failed",
-                "message": "Transaction already processed",
-                "reference": reference,
-                "amount": float(price)
-            }
         
         transaction.provider = transaction_provider
         transaction.provider_plan_id = plan_provider_plan_id
 
         # 4. HANDLE RESULT
         final_status = provider_res.get("status", "pending")
-        transaction.status = TransactionStatus.SUCCESS if final_status == "success" else (TransactionStatus.FAILED if final_status == "failed" else TransactionStatus.PENDING)
-        transaction.external_reference = provider_res.get("provider_reference")
         
-        # Save raw provider trace/payload into meta if available
-        if "raw" in provider_res:
-            try:
-                current_meta = getattr(transaction, "meta", {}) or {}
-                current_meta["provider_payload"] = provider_res.get("raw")
-                if hasattr(Transaction, "meta"):
-                    transaction.meta = current_meta
-            except Exception as e:
-                logger.error(f"Could not save provider payload to meta: {e}")
-
-        if final_status == "failed":
+        if final_status == "partial_success":
+            # Partial delivery: mark SUCCESS with details and auto-refund the failed portion
+            transaction.status = TransactionStatus.SUCCESS
+            transaction.external_reference = provider_res.get("provider_reference")
+            transaction.failure_reason = f"Partial delivery: {provider_res.get('partial_info')}. ₦{partial_refund_amount:,.2f} refunded."
+            if partial_refund_amount > Decimal("0") and transaction.status != TransactionStatus.REFUNDED:
+                credit_wallet(
+                    db2, 
+                    wallet, 
+                    partial_refund_amount, 
+                    f"{reference}_partial_refund", 
+                    f"Partial Refund: {provider_res.get('failed_count')}/{plan_dispatch_count} parts of {plan_plan_name} failed"
+                )
+            final_status = "success"  # User response status
+            
+        elif final_status == "failed":
             transaction.failure_reason = _safe_reason(provider_res.get("error"))
-            credit_wallet(db2, wallet, price, reference, f"Refund: {plan_plan_name} purchase failed", commit=False)
+            if transaction.status != TransactionStatus.REFUNDED:
+                credit_wallet(db2, wallet, price, reference, f"Refund: {plan_plan_name} purchase failed")
             transaction.status = TransactionStatus.REFUNDED
+            
+        elif final_status == "success":
+            # CRITICAL SECURITY FIX:
+            # If transaction was already marked REFUNDED by a premature webhook or reconcile worker,
+            # re-debit the user's wallet so they do not receive free data while keeping their money!
+            if transaction.status == TransactionStatus.REFUNDED:
+                logger.warning(
+                    "SECURITY REVERSAL: Transaction %s was prematurely refunded during fallback, but fallback provider %s succeeded. Re-debiting wallet ₦%s",
+                    reference, transaction_provider, price
+                )
+                try:
+                    debit_wallet(
+                        db2,
+                        wallet,
+                        price,
+                        f"{reference}_reversal",
+                        f"Reversal of premature refund: {plan_plan_name} delivered successfully via {transaction_provider}"
+                    )
+                except Exception as debit_err:
+                    logger.critical(
+                        "CRITICAL: Failed to re-debit wallet for prematurely refunded successful transaction %s: %s",
+                        reference, debit_err
+                    )
+            transaction.status = TransactionStatus.SUCCESS
+            transaction.external_reference = provider_res.get("provider_reference")
+            transaction.failure_reason = None
+            
+        else:
+            transaction.status = TransactionStatus.PENDING
+            transaction.external_reference = provider_res.get("provider_reference")
 
         db2.commit()
 
         if final_status == "success":
             try:
                 from app.services.referrals import record_referral_data_activity
-                mb_size = _parse_size_gb(plan_data_size) * 1024.0
-                record_referral_data_activity(db2, user=user, tx_type="data", amount=price, data_mb=mb_size)
+                delivered_ratio = Decimal(str(success_parts_count)) / Decimal(str(plan_dispatch_count)) if is_multi_dispatch else Decimal("1")
+                mb_size = float(_parse_size_gb(plan_data_size) * 1024.0 * float(delivered_ratio))
+                record_referral_data_activity(db2, user=user, tx_type="data", amount=price - partial_refund_amount, data_mb=mb_size)
                 db2.commit()
             except Exception as ref_exc:
                 logger.error("Failed to record referral activity: %s", ref_exc)
 
+            try:
+                from app.services.commissions import record_agent_data_commission
+                record_agent_data_commission(
+                    db2,
+                    user=user,
+                    amount=price - partial_refund_amount,
+                    reference=reference,
+                    network=plan_network,
+                    plan_name=plan_plan_name,
+                    request=request,
+                )
+            except Exception as comm_exc:
+                logger.warning("Failed to record agent data commission for %s: %s", reference, comm_exc)
+
         from app.services.push_notification import PushNotificationService
-        if final_status == "success" and fcm_token:
+        if partial_refund_amount > Decimal("0") and fcm_token:
+            PushNotificationService.send_to_token(
+                token=fcm_token,
+                title="Partial Data Delivery & Refund",
+                body=f"{provider_res.get('partial_info')} for {phone}. ₦{partial_refund_amount:,.2f} has been refunded to your wallet.",
+                sound_type="balance_success",
+                data={"type": "transaction", "reference": reference, "status": "partial_success"}
+            )
+        elif final_status == "success" and fcm_token:
             PushNotificationService.send_to_token(
                 token=fcm_token,
                 title="Data Purchase Successful",
@@ -670,6 +982,15 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
         )
         db2.add(api_log)
         db2.commit()
+
+        if final_status in ["success", "pending"] and payload.user_promo_id:
+            from app.models.promo import UserPromo
+            from datetime import datetime, timezone
+            up = db2.query(UserPromo).get(payload.user_promo_id)
+            if up:
+                up.status = "USED"
+                up.used_at = datetime.now(timezone.utc)
+                db2.commit()
 
         return {
             "status": final_status,
@@ -704,6 +1025,18 @@ def sync_data_plans(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error("SMEPlug sync failed: %s", e)
 
+    # 2. Amigo (All Networks - MTN/GLO/AIRTEL/9MOBILE)
+    try:
+        amigo = get_amigo_client(db)
+        res = amigo.fetch_data_plans()
+        items = res.get("data", [])
+        for item in items:
+            # Amigo usually sends MTN and GLO
+            _upsert_plan_from_provider(db, item)
+        db.commit()
+        logger.info("Amigo sync finished (MTN/Glo).")
+    except Exception as e:
+        logger.error("Amigo sync failed: %s", e)
 
     # 3. ClubKonnect (Strictly 9MOBILE)
     try:
