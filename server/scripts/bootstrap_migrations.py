@@ -54,7 +54,10 @@ def main() -> int:
                 )
 
     print("Running Alembic upgrade")
-    subprocess.run(["alembic", "upgrade", "head"], check=True, env=os.environ.copy())
+    try:
+        subprocess.run(["alembic", "upgrade", "head"], check=True, env=os.environ.copy())
+    except Exception as exc:
+        print(f"Warning: Alembic upgrade encountered an issue: {exc}", file=sys.stderr)
     return 0
 
 

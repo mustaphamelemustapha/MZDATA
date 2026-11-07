@@ -16,7 +16,7 @@ from app import models  # noqa: F401
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 settings = get_settings()
 resolved_db_url = _resolve_database_url(str(settings.database_url))
