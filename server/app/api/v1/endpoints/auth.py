@@ -116,11 +116,13 @@ def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)
     identifier = (payload.email or "").strip()
     user = None
     if "@" in identifier:
-        user = db.query(User).filter(User.email == identifier).first()
+        user = db.query(User).filter(User.email.ilike(identifier)).first()
     else:
         phone = _normalize_phone(identifier)
         if phone:
             user = db.query(User).filter(User.phone_number == phone).first()
+        if not user:
+            user = db.query(User).filter(User.email.ilike(identifier)).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
@@ -144,11 +146,13 @@ def pin_login(request: Request, payload: PinLoginRequest, db: Session = Depends(
     identifier = (payload.identifier or "").strip()
     user = None
     if "@" in identifier:
-        user = db.query(User).filter(User.email == identifier).first()
+        user = db.query(User).filter(User.email.ilike(identifier)).first()
     else:
         phone = _normalize_phone(identifier)
         if phone:
             user = db.query(User).filter(User.phone_number == phone).first()
+        if not user:
+            user = db.query(User).filter(User.email.ilike(identifier)).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     if not user.is_active:
@@ -177,11 +181,13 @@ def lookup_user(request: Request, payload: LookupRequest, db: Session = Depends(
     identifier = (payload.identifier or "").strip()
     user = None
     if "@" in identifier:
-        user = db.query(User).filter(User.email == identifier).first()
+        user = db.query(User).filter(User.email.ilike(identifier)).first()
     else:
         phone = _normalize_phone(identifier)
         if phone:
             user = db.query(User).filter(User.phone_number == phone).first()
+        if not user:
+            user = db.query(User).filter(User.email.ilike(identifier)).first()
     if not user:
         return {"exists": False}
     return {"exists": True}

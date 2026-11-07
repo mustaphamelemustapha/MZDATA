@@ -106,22 +106,29 @@ allow_origins = list(
     dict.fromkeys(
         configured_origins
         + [
+            "https://mzdata.org",
+            "https://www.mzdata.org",
+            "https://api.mzdata.org",
             "https://kullomadata.com",
             "https://www.kullomadata.com",
+            "https://api.kullomadata.com",
+            "https://meledata.ng",
+            "https://www.meledata.ng",
+            "https://api.meledata.ng",
             "https://vtu-frontend-beta.vercel.app",
             "https://vtu-frontend-git-main-mmt-ech-globe.vercel.app",
             "https://axisvtu.vercel.app",
             "https://axisvtu.com",
             "https://www.axisvtu.com",
-            "https://kullomadata.com",
-            "https://www.kullomadata.com",
             "https://meledata.vercel.app",
+            "http://localhost:3000",
+            "http://localhost:5173",
             *([frontend_origin] if frontend_origin else []),
         ]
     )
 )
 allow_origin_regex = (
-    r"^https:\/\/(?:vtu-frontend|axisvtu|meledata|kullomadata)(?:-[A-Za-z0-9-]+)?\.(?:vercel\.app|com|ng)$"
+    r"^https:\/\/(?:vtu-frontend|axisvtu|meledata|kullomadata|mzdata)(?:-[A-Za-z0-9-]+)?\.(?:vercel\.app|com|ng|org)$"
     r"|^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$"
 )
 
@@ -239,7 +246,6 @@ def ensure_tables():
     _ensure_all_database_enums()
     _ensure_virtual_account_provider_enum()
     if not settings.auto_create_tables:
-        _bootstrap_admins()
         _ensure_user_phone_column()
         _ensure_user_state_column()
         _ensure_user_security_pin_columns()
@@ -268,6 +274,7 @@ def ensure_tables():
         _ensure_user_brand_column()
         _ensure_broadcast_announcement_brand_column()
         _ensure_userrole_enum()
+        _bootstrap_admins()
         _run_alembic_upgrade()
         try:
             from app.services.push_notification import PushNotificationService
