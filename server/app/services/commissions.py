@@ -22,18 +22,18 @@ BRAND_COMMISSION_DEFAULTS = {
     },
     "meledata": {
         "ambassador_deposit_percent": Decimal("10.0"),  # 10% of 1st deposit
-        "agent_data_commission_percent": Decimal("0.0"),# Uses fixed plan agent_price
-        "enable_agent_data_commission": False,
+        "agent_data_commission_percent": Decimal("2.0"),# 2% on data purchases (configurable by admin)
+        "enable_agent_data_commission": True,
     },
     "mzdata": {
         "ambassador_deposit_percent": Decimal("5.0"),
-        "agent_data_commission_percent": Decimal("0.0"),
-        "enable_agent_data_commission": False,
+        "agent_data_commission_percent": Decimal("2.0"),
+        "enable_agent_data_commission": True,
     },
     "default": {
         "ambassador_deposit_percent": Decimal("5.0"),
-        "agent_data_commission_percent": Decimal("0.0"),
-        "enable_agent_data_commission": False,
+        "agent_data_commission_percent": Decimal("2.0"),
+        "enable_agent_data_commission": True,
     },
 }
 
@@ -99,6 +99,7 @@ def update_brand_commission_config(
     ambassador_deposit_percent: Optional[float] = None,
     agent_data_commission_percent: Optional[float] = None,
     enable_agent_data_commission: Optional[bool] = None,
+    request: Optional[Request] = None,
 ) -> dict:
     """
     Updates or inserts commission settings into system_settings.
@@ -129,7 +130,7 @@ def update_brand_commission_config(
             enable_setting.value = val
 
     db.commit()
-    return get_brand_commission_config(db)
+    return get_brand_commission_config(db, request=request)
 
 
 def record_agent_data_commission(
@@ -221,7 +222,7 @@ def record_agent_data_commission(
 
 def reconcile_missing_agent_commissions(
     db: Session,
-    limit: int = 100,
+    limit: int = 300,
     request: Optional[Request] = None,
 ) -> list[dict]:
     """

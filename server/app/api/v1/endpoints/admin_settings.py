@@ -85,6 +85,7 @@ def update_commissions(
         ambassador_deposit_percent=payload.ambassador_deposit_percent,
         agent_data_commission_percent=payload.agent_data_commission_percent,
         enable_agent_data_commission=payload.enable_agent_data_commission,
+        request=request,
     )
 
 
