@@ -38,25 +38,48 @@ BRAND_COMMISSION_DEFAULTS = {
 }
 
 
-def get_brand_commission_config(db: Session, request: Optional[Request] = None, brand: Optional[str] = None) -> dict:
+def get_brand_commission_config(
+    db: Session,
+    request: Optional[Request] = None,
+    brand: Optional[str] = None,
+    admin: Optional[User] = None,
+) -> dict:
     """
     Retrieves the active commission and cashback configuration for the tenant.
     Checks DB (system_settings) overrides first; falls back to brand-specific defaults.
     """
-    effective_brand = (brand or get_tenant_brand(request)).strip().lower()
-    if effective_brand == "default":
-        # Check if database records indicate the tenant brand
-        try:
-            if db.query(User).filter(User.email.ilike("%kulloma%")).first():
-                effective_brand = "kullomadata"
-            elif db.query(User).filter(User.email.ilike("%mzdata%")).first():
-                effective_brand = "mzdata"
-            elif db.query(User).filter(User.email.ilike("%meledata%")).first():
-                effective_brand = "meledata"
-        except Exception:
-            pass
+    effective_brand = (brand or "").strip().lower()
+    if not effective_brand and request is not None:
+        effective_brand = get_tenant_brand(request).strip().lower()
 
-    defaults = BRAND_COMMISSION_DEFAULTS.get(effective_brand) or BRAND_COMMISSION_DEFAULTS["default"]
+    if not effective_brand or effective_brand == "default":
+        # 1. Check logged in admin identity if available
+        if admin and getattr(admin, "email", None):
+            admin_email = str(admin.email).lower()
+            if "mele" in admin_email:
+                effective_brand = "meledata"
+            elif "mz" in admin_email:
+                effective_brand = "mzdata"
+            elif "kulloma" in admin_email:
+                effective_brand = "kullomadata"
+
+        # 2. Check SystemSetting for explicit brand override
+        if not effective_brand or effective_brand == "default":
+            brand_setting = db.query(SystemSetting).filter(SystemSetting.key.in_(["brand_name", "tenant_brand", "app_brand"])).first()
+            if brand_setting and brand_setting.value:
+                val = str(brand_setting.value).strip().lower()
+                if "mele" in val:
+                    effective_brand = "meledata"
+                elif "mz" in val:
+                    effective_brand = "mzdata"
+                elif "kulloma" in val:
+                    effective_brand = "kullomadata"
+
+        # 3. Default to meledata as the primary platform brand
+        if not effective_brand or effective_brand == "default":
+            effective_brand = "meledata"
+
+    defaults = BRAND_COMMISSION_DEFAULTS.get(effective_brand) or BRAND_COMMISSION_DEFAULTS["meledata"]
 
     # 1. Ambassador Deposit Commission %
     amb_pct = defaults["ambassador_deposit_percent"]
@@ -100,6 +123,7 @@ def update_brand_commission_config(
     agent_data_commission_percent: Optional[float] = None,
     enable_agent_data_commission: Optional[bool] = None,
     request: Optional[Request] = None,
+    admin: Optional[User] = None,
 ) -> dict:
     """
     Updates or inserts commission settings into system_settings.
@@ -130,7 +154,7 @@ def update_brand_commission_config(
             enable_setting.value = val
 
     db.commit()
-    return get_brand_commission_config(db, request=request)
+    return get_brand_commission_config(db, request=request, admin=admin)
 
 
 def record_agent_data_commission(
@@ -224,12 +248,13 @@ def reconcile_missing_agent_commissions(
     db: Session,
     limit: int = 300,
     request: Optional[Request] = None,
+    admin: Optional[User] = None,
 ) -> list[dict]:
     """
     Finds recent successful data transactions made by agents that missed commission
     (e.g. before this feature was deployed), and credits them retroactively.
     """
-    cfg = get_brand_commission_config(db, request=request)
+    cfg = get_brand_commission_config(db, request=request, admin=admin)
     logger.info("Reconciling agent commissions with config: %s", cfg)
     if not cfg["enable_agent_data_commission"] or cfg["agent_data_commission_rate"] <= Decimal("0"):
         logger.info("Agent data commission is not enabled for brand '%s', skipping reconcile.", cfg.get("brand"))
