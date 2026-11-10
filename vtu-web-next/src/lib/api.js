@@ -620,18 +620,6 @@ export async function adminGetDevelopers(params = {}) {
   return apiFetch(`/admin/developers${toQuery(params)}`);
 }
 
-export async function adminApproveDeveloper(userId) {
-  return apiFetch(`/admin/developers/${userId}/approve`, {
-    method: 'POST',
-  });
-}
-
-export async function adminSuspendDeveloper(userId) {
-  return apiFetch(`/admin/developers/${userId}/suspend`, {
-    method: 'POST',
-  });
-}
-
 export async function adminResetDeveloperKeys(userId) {
   return apiFetch(`/admin/developers/${userId}/reset-keys`, {
     method: 'POST',
