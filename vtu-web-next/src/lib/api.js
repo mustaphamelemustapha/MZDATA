@@ -416,6 +416,12 @@ export async function adminReconcileWelcomeBonuses() {
   });
 }
 
+export async function adminPurgeWelcomeBonuses() {
+  return apiFetch('/admin/settings/commissions/purge-welcome-bonuses', {
+    method: 'POST',
+  });
+}
+
 export async function adminFundWallet(payload) {
   return apiFetch('/admin/fund-wallet', {
     method: 'POST',

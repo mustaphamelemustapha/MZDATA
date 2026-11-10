@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, RefreshCw, ShieldCheck, X, Plus, Award, CheckCircle2, Sparkles, UserCheck, Gift } from 'lucide-react';
-import { adminGetAnalytics, adminGetPricingRules, adminGetServiceToggles, adminUpdatePricingRule, adminUpdateServiceToggle, adminGetCommissionSettings, adminUpdateCommissionSettings, adminReconcileAgentCommissions, adminReconcileWelcomeBonuses, apiFetch, getProfile } from '@/lib/api';
+import { AlertTriangle, RefreshCw, ShieldCheck, X, Plus, Award, CheckCircle2, Sparkles, UserCheck, Trash2 } from 'lucide-react';
+import { adminGetAnalytics, adminGetPricingRules, adminGetServiceToggles, adminUpdatePricingRule, adminUpdateServiceToggle, adminGetCommissionSettings, adminUpdateCommissionSettings, adminReconcileAgentCommissions, adminPurgeWelcomeBonuses, apiFetch, getProfile } from '@/lib/api';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import { getActiveBrand } from '@/lib/brand';
 import { Button } from '@/components/ui/button';
@@ -36,8 +36,8 @@ export default function AdminSettingsPage() {
   const [commissionSavedMsg, setCommissionSavedMsg] = useState('');
   const [reconciling, setReconciling] = useState(false);
   const [reconcileMsg, setReconcileMsg] = useState('');
-  const [reconcilingWelcome, setReconcilingWelcome] = useState(false);
-  const [reconcileWelcomeMsg, setReconcileWelcomeMsg] = useState('');
+  const [purging, setPurging] = useState(false);
+  const [purgeMsg, setPurgeMsg] = useState('');
 
   // Margin Edit State
   const [editingMarginFor, setEditingMarginFor] = useState(null);
@@ -109,17 +109,18 @@ export default function AdminSettingsPage() {
     }
   };
 
-  const handleReconcileWelcomeBonuses = async () => {
-    setReconcilingWelcome(true);
-    setReconcileWelcomeMsg('');
+  const handlePurgeWelcomeBonuses = async () => {
+    if (!confirm('Are you sure you want to purge any mistaken ₦300 welcome bonuses and deduct the funds from affected user wallets?')) return;
+    setPurging(true);
+    setPurgeMsg('');
     try {
-      const res = await adminReconcileWelcomeBonuses();
-      setReconcileWelcomeMsg(`Awarded ₦300 welcome gift to ${res.count || 0} qualifying users!`);
-      setTimeout(() => setReconcileWelcomeMsg(''), 5000);
+      const res = await adminPurgeWelcomeBonuses();
+      setPurgeMsg(`Successfully purged ${res.reverted_count || 0} mistaken bonuses (Total deducted: ₦${res.total_amount || 0})!`);
+      setTimeout(() => setPurgeMsg(''), 6000);
     } catch (err) {
-      alert(err?.message || 'Failed to reconcile welcome bonuses');
+      alert(err?.message || 'Failed to purge welcome bonuses');
     } finally {
-      setReconcilingWelcome(false);
+      setPurging(false);
     }
   };
 
@@ -343,102 +344,6 @@ export default function AdminSettingsPage() {
                   </div>
                 </div>
               </div>
-
-              {/* Welcome 2GB Marketing Gift Campaign */}
-              <div className="rounded-2xl border border-border/60 bg-background/50 p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Gift className="h-4 w-4 text-purple-500" />
-                    <span className="font-bold text-sm text-foreground">Welcome Data Bonus Campaign</span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant={commissionConfig.enable_welcome_data_bonus ? 'default' : 'secondary'}
-                    size="sm"
-                    className="h-7 text-xs rounded-lg font-bold"
-                    onClick={() => setCommissionConfig({
-                      ...commissionConfig,
-                      enable_welcome_data_bonus: !commissionConfig.enable_welcome_data_bonus,
-                    })}
-                  >
-                    {commissionConfig.enable_welcome_data_bonus ? 'Active' : 'Disabled'}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Gifts ₦{commissionConfig.welcome_data_bonus_amount || 300} to user&apos;s wallet when they deposit &amp; reach {commissionConfig.welcome_data_bonus_min_gb || 2.0}GB cumulative data (e.g. 1GB + 1GB).
-                </p>
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-muted-foreground">Reward (₦)</label>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        step="50"
-                        min="0"
-                        placeholder="300"
-                        value={commissionConfig.welcome_data_bonus_amount ?? ''}
-                        onChange={(e) => setCommissionConfig({
-                          ...commissionConfig,
-                          welcome_data_bonus_amount: e.target.value,
-                        })}
-                        className="h-10 font-bold text-sm rounded-xl pl-6 bg-background border-border"
-                      />
-                      <span className="absolute left-2.5 top-2.5 text-xs font-bold text-muted-foreground">₦</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1">
-                      {[200, 300, 500, 1000].map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => setCommissionConfig({ ...commissionConfig, welcome_data_bonus_amount: preset })}
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-bold transition-all ${
-                            parseFloat(commissionConfig.welcome_data_bonus_amount) === preset
-                              ? 'bg-purple-600 text-white shadow-sm'
-                              : 'bg-secondary/70 hover:bg-secondary text-muted-foreground'
-                          }`}
-                        >
-                          ₦{preset}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-muted-foreground">Milestone (GB)</label>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        step="0.5"
-                        min="0.5"
-                        placeholder="2.0"
-                        value={commissionConfig.welcome_data_bonus_min_gb ?? ''}
-                        onChange={(e) => setCommissionConfig({
-                          ...commissionConfig,
-                          welcome_data_bonus_min_gb: e.target.value,
-                        })}
-                        className="h-10 font-bold text-sm rounded-xl pr-8 bg-background border-border"
-                      />
-                      <span className="absolute right-2.5 top-2.5 text-xs font-bold text-muted-foreground">GB</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1">
-                      {[1.0, 2.0, 3.0, 5.0].map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => setCommissionConfig({ ...commissionConfig, welcome_data_bonus_min_gb: preset })}
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-bold transition-all ${
-                            parseFloat(commissionConfig.welcome_data_bonus_min_gb) === preset
-                              ? 'bg-purple-600 text-white shadow-sm'
-                              : 'bg-secondary/70 hover:bg-secondary text-muted-foreground'
-                          }`}
-                        >
-                          {preset}G
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
 
             <div className="mt-5 flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-border/40">
@@ -448,10 +353,10 @@ export default function AdminSettingsPage() {
                     <CheckCircle2 className="h-4 w-4" />
                     {commissionSavedMsg}
                   </div>
-                ) : reconcileWelcomeMsg ? (
-                  <div className="flex items-center gap-2 text-xs font-bold text-purple-600 dark:text-purple-400">
+                ) : purgeMsg ? (
+                  <div className="flex items-center gap-2 text-xs font-bold text-red-600 dark:text-red-400">
                     <CheckCircle2 className="h-4 w-4" />
-                    {reconcileWelcomeMsg}
+                    {purgeMsg}
                   </div>
                 ) : reconcileMsg ? (
                   <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
@@ -468,12 +373,13 @@ export default function AdminSettingsPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={handleReconcileWelcomeBonuses}
-                  disabled={reconcilingWelcome}
-                  className="rounded-xl h-10 px-3.5 text-xs font-bold border-purple-500/30 text-purple-500 hover:bg-purple-500/10"
-                  title="Scan users who met the 2GB cumulative purchase milestone and award missing ₦300 welcome gifts"
+                  onClick={handlePurgeWelcomeBonuses}
+                  disabled={purging}
+                  className="rounded-xl h-10 px-3.5 text-xs font-bold border-red-500/40 text-red-500 hover:bg-red-500/10"
+                  title="Purge accidental ₦300 welcome bonuses and restore affected user wallet balances"
                 >
-                  {reconcilingWelcome ? 'Scanning...' : 'Reconcile Past 2GB Welcome Gifts'}
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  {purging ? 'Purging...' : 'Purge Mistaken ₦300 Welcome Gifts'}
                 </Button>
                 <Button
                   type="button"

@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from sqlalchemy import text, inspect
+from sqlalchemy import text, inspect, or_
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from app.api.v1.routes import router as api_router
 from app.core.config import get_settings, parse_cors_origins
@@ -1169,55 +1169,12 @@ def _revert_accidental_welcome_bonuses() -> None:
     from the MZ DATA database and deducts the funds from affected user wallets.
     """
     try:
-        from app.models.transaction import Transaction
-        from app.models.wallet import Wallet
-        from app.models.wallet_ledger import WalletLedger
-        from decimal import Decimal
-
+        from app.services.commissions import purge_accidental_welcome_bonuses
         db = SessionLocal()
         try:
-            bogus_txs = (
-                db.query(Transaction)
-                .filter(
-                    or_(
-                        Transaction.reference.like("WELCOME_2GB_%"),
-                        Transaction.network == "KULLOMA_BONUS",
-                        Transaction.provider == "KULLOMA_BONUS",
-                    )
-                )
-                .all()
-            )
-
-            if not bogus_txs:
-                return
-
-            logger = logging.getLogger(__name__)
-            logger.info("Found %d accidental welcome bonus transactions to purge from MZ DATA.", len(bogus_txs))
-
-            for tx in bogus_txs:
-                user_id = tx.user_id
-                amount = Decimal(str(tx.amount or 0))
-                ref = tx.reference
-
-                # 1. Deduct the credited amount from the user's wallet
-                if user_id and amount > Decimal("0"):
-                    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
-                    if wallet and wallet.balance is not None:
-                        old_bal = wallet.balance
-                        wallet.balance = max(Decimal("0.0"), wallet.balance - amount)
-                        logger.info("Reverted ₦%s from wallet of user %d (bal: %s -> %s)", amount, user_id, old_bal, wallet.balance)
-
-                # 2. Delete the wallet ledger entry
-                if ref:
-                    db.query(WalletLedger).filter(WalletLedger.reference == ref).delete(synchronize_session=False)
-
-                # 3. Delete the transaction record
-                db.delete(tx)
-
-            db.commit()
-            logger.info("Successfully purged %d accidental welcome bonus transactions from MZ DATA.", len(bogus_txs))
+            res = purge_accidental_welcome_bonuses(db)
+            logging.getLogger(__name__).info("Startup welcome bonus purge result: %s", res)
         except Exception as e:
-            db.rollback()
             logging.getLogger(__name__).warning("Error purging accidental welcome bonuses: %s", e)
         finally:
             db.close()
