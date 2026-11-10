@@ -563,17 +563,9 @@ def check_and_award_welcome_data_bonus(
     brand: Optional[str] = None,
 ) -> Optional[Decimal]:
     """
-    Kulloma Data Marketing Campaign:
-    When a user signs up, deposits/funds their wallet, and buys data totaling 2GB or above
-    (either in a single purchase or cumulatively, e.g. 1GB + 1GB), their wallet is
-    gifted ₦300 automatically.
-
-    Guards:
-    1. Tenant campaign must be enabled (enable_welcome_data_bonus).
-    2. User must have deposited / funded their wallet at least once.
-    3. User cumulative data volume >= welcome_data_bonus_min_gb (default 2.0 GB).
-    4. Idempotency: award exactly once per user using reference WELCOME_2GB_{user.id}.
+    Disabled on MZ DATA - MZ DATA does not offer Kulloma Data welcome bonuses.
     """
+    return None
     if not user or not getattr(user, "id", None):
         return None
 
@@ -678,9 +670,9 @@ def reconcile_missing_welcome_bonuses(
     limit: int = 1000,
 ) -> list[dict]:
     """
-    Scans users who have funded their wallet and purchased >= 2GB of data
-    but haven't yet received their ₦300 welcome gift, and awards it retroactively.
+    Disabled on MZ DATA.
     """
+    return []
     target_brand = (brand or "").strip().lower()
     if not target_brand and request is not None:
         target_brand = get_tenant_brand(request).strip().lower()

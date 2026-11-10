@@ -276,6 +276,7 @@ def ensure_tables():
         _ensure_userrole_enum()
         _bootstrap_admins()
         _run_alembic_upgrade()
+        _revert_accidental_welcome_bonuses()
         try:
             from app.services.push_notification import PushNotificationService
             PushNotificationService._initialize()
@@ -1160,6 +1161,68 @@ def _ensure_broadcast_announcement_brand_column() -> None:
             pass
     except Exception as exc:
         logging.getLogger(__name__).warning("Could not ensure broadcast_announcements.brand column: %s", exc)
+
+
+def _revert_accidental_welcome_bonuses() -> None:
+    """
+    Purges any accidental welcome bonus transactions (WELCOME_2GB_* / KULLOMA_BONUS)
+    from the MZ DATA database and deducts the funds from affected user wallets.
+    """
+    try:
+        from app.models.transaction import Transaction
+        from app.models.wallet import Wallet
+        from app.models.wallet_ledger import WalletLedger
+        from decimal import Decimal
+
+        db = SessionLocal()
+        try:
+            bogus_txs = (
+                db.query(Transaction)
+                .filter(
+                    or_(
+                        Transaction.reference.like("WELCOME_2GB_%"),
+                        Transaction.network == "KULLOMA_BONUS",
+                        Transaction.provider == "KULLOMA_BONUS",
+                    )
+                )
+                .all()
+            )
+
+            if not bogus_txs:
+                return
+
+            logger = logging.getLogger(__name__)
+            logger.info("Found %d accidental welcome bonus transactions to purge from MZ DATA.", len(bogus_txs))
+
+            for tx in bogus_txs:
+                user_id = tx.user_id
+                amount = Decimal(str(tx.amount or 0))
+                ref = tx.reference
+
+                # 1. Deduct the credited amount from the user's wallet
+                if user_id and amount > Decimal("0"):
+                    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+                    if wallet and wallet.balance is not None:
+                        old_bal = wallet.balance
+                        wallet.balance = max(Decimal("0.0"), wallet.balance - amount)
+                        logger.info("Reverted ₦%s from wallet of user %d (bal: %s -> %s)", amount, user_id, old_bal, wallet.balance)
+
+                # 2. Delete the wallet ledger entry
+                if ref:
+                    db.query(WalletLedger).filter(WalletLedger.reference == ref).delete(synchronize_session=False)
+
+                # 3. Delete the transaction record
+                db.delete(tx)
+
+            db.commit()
+            logger.info("Successfully purged %d accidental welcome bonus transactions from MZ DATA.", len(bogus_txs))
+        except Exception as e:
+            db.rollback()
+            logging.getLogger(__name__).warning("Error purging accidental welcome bonuses: %s", e)
+        finally:
+            db.close()
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not execute _revert_accidental_welcome_bonuses: %s", exc)
 
 
 def _ensure_all_database_enums() -> None:
