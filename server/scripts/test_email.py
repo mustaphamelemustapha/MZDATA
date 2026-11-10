@@ -10,7 +10,7 @@ from app.core.config import get_settings
 def test_brevo(recipient_email: str):
     settings = get_settings()
     api_key = settings.brevo_api_key or os.getenv("BREVO_API_KEY")
-    email_from = settings.email_from or os.getenv("EMAIL_FROM", "MZDATA <support@kullomadata.com>")
+    email_from = settings.email_from or os.getenv("EMAIL_FROM", "MZDATA <support@mzdata.org>")
 
     if not api_key:
         print("[ERROR] BREVO_API_KEY is not set.")

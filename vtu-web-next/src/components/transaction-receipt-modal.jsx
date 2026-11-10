@@ -183,7 +183,7 @@ export function TransactionReceiptModal({ open, receipt, onClose, onDownload, on
                 </div>
                 {actionNote ? <p className="mt-2 text-xs text-slate-500">{actionNote}</p> : null}
               </div>
-              <div className="pb-1 text-center text-xs font-medium text-slate-400">meledata.ng</div>
+              <div className="pb-1 text-center text-xs font-medium text-slate-400">{brand?.domain || 'mzdata.org'}</div>
             </div>
           </motion.div>
 
@@ -224,7 +224,7 @@ export function TransactionReceiptModal({ open, receipt, onClose, onDownload, on
                   ) : null}
                 </div>
 
-                <div className="mt-6 text-center text-[22px] font-medium text-slate-500">www.meledata.ng</div>
+                <div className="mt-6 text-center text-[22px] font-medium text-slate-500">www.{brand?.domain || 'mzdata.org'}</div>
               </div>
             </div>
           </div>

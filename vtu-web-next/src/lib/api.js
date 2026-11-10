@@ -1,6 +1,6 @@
 import { getActiveBrand } from './brand';
 
-const DEFAULT_API_BASE = 'https://api.meledata.ng/api/v1';
+const DEFAULT_API_BASE = 'https://api.mzdata.org/api/v1';
 const TOKEN_KEY = 'axisvtu_access_token';
 const REFRESH_KEY = 'axisvtu_refresh_token';
 const PROFILE_KEY = 'axisvtu_profile';
@@ -14,6 +14,12 @@ function normalizeBase(raw) {
 }
 
 function getApiBase() {
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const host = window.location.hostname.toLowerCase();
+    if (host.includes('mzdata')) {
+      return 'https://api.mzdata.org/api/v1';
+    }
+  }
   const env = typeof window !== 'undefined' ? window.__AXISVTU_API_BASE__ : undefined;
   const candidate = normalizeBase(
     env || 

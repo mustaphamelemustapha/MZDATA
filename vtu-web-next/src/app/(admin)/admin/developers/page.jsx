@@ -573,28 +573,6 @@ function AdminDevelopersPageContent() {
               </button>
             ))}
           </div>
-
-          {/* Brand Filter */}
-          <div className="flex items-center rounded-xl border border-border/60 bg-secondary/30 p-1">
-            {[
-              { key: 'all', label: 'All Brands' },
-              { key: 'meledata', label: 'Mele' },
-              { key: 'kullomadata', label: 'Kulloma' },
-              { key: 'mzdata', label: 'MZ' },
-            ].map((br) => (
-              <button
-                key={br.key}
-                onClick={() => updateURL({ brand: br.key, page: 1 })}
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${
-                  brandFilter === br.key
-                    ? 'bg-secondary text-foreground shadow-sm border border-border/50'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {br.label}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 

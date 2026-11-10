@@ -182,7 +182,7 @@ class Settings(BaseSettings):
 
     # Email (password reset)
     email_provider: str = "console"  # console|resend|smtp|brevo
-    email_from: str = "KULLOMA DATA <no-reply@axisvtu.local>"
+    email_from: str = "MZ DATA <no-reply@mzdata.org>"
 
     # Resend
     resend_api_key: str = ""

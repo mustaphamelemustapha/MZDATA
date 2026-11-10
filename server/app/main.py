@@ -282,15 +282,14 @@ def ensure_tables():
         except Exception as e:
             logging.getLogger(__name__).warning("Firebase Admin initialization on startup skipped: %s", e)
         try:
-            from app.services.commissions import reconcile_missing_agent_commissions, reconcile_missing_welcome_bonuses
+            from app.services.commissions import reconcile_missing_agent_commissions
             db_rec = SessionLocal()
             try:
                 reconcile_missing_agent_commissions(db_rec, limit=100)
-                reconcile_missing_welcome_bonuses(db_rec, brand="kullomadata", limit=1000)
             finally:
                 db_rec.close()
         except Exception as e:
-            logging.getLogger(__name__).warning("Commission / welcome bonus reconciliation on startup skipped: %s", e)
+            logging.getLogger(__name__).warning("Commission reconciliation on startup skipped: %s", e)
         return
 
     # Optional local fallback for fresh environments.

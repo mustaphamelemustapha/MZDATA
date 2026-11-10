@@ -112,7 +112,7 @@ class BrandConfig {
     brand: AppBrand.mzData,
     appName: 'MZ DATA',
     tagline: 'Next-Gen SME Telecom & Digital Bill Hub',
-    baseUrl: 'https://api.meledata.ng/api/v1',
+    baseUrl: 'https://api.mzdata.org/api/v1',
     primaryColor: Color(0xFF0A2540), // Corporate Deep Navy
     secondaryColor: Color(0xFF10B981), // Emerald Green Accent
     accentColor: Color(0xFF059669),

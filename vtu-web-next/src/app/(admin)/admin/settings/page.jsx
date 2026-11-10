@@ -211,7 +211,7 @@ export default function AdminSettingsPage() {
               </div>
             </div>
             <span className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-black uppercase tracking-wider text-primary">
-              {getActiveBrand()?.name || 'MELE DATA'}
+              MZ DATA
             </span>
           </CardHeader>
           <CardContent className="p-6">
