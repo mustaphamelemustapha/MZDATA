@@ -325,72 +325,9 @@ def reconcile_missing_agent_commissions(
     admin: Optional[User] = None,
 ) -> list[dict]:
     """
-    Finds recent successful data transactions made by agents that missed commission
-    (e.g. before this feature was deployed), and credits them retroactively.
+    Disabled on MZ DATA - MZ DATA does not run retroactive commission reconciliation.
     """
-    cfg = get_brand_commission_config(db, request=request, admin=admin)
-    logger.info("Reconciling agent commissions with config: %s", cfg)
-    if not cfg["enable_agent_data_commission"] or cfg["agent_data_commission_rate"] <= Decimal("0"):
-        logger.info("Agent data commission is not enabled for brand '%s', skipping reconcile.", cfg.get("brand"))
-        return []
-
-    recent_txs = (
-        db.query(Transaction)
-        .join(User, Transaction.user_id == User.id)
-        .filter(
-            or_(
-                Transaction.tx_type == TransactionType.DATA,
-                Transaction.tx_type == "data",
-                Transaction.tx_type == "DATA",
-            ),
-            or_(
-                Transaction.status == TransactionStatus.SUCCESS,
-                Transaction.status == "success",
-                Transaction.status == "SUCCESS",
-            ),
-            Transaction.amount > 0,
-        )
-        .order_by(Transaction.id.desc())
-        .limit(limit)
-        .all()
-    )
-
-    logger.info("Found %d recent successful data transactions to evaluate for agent cashback.", len(recent_txs))
-    credited = []
-    for tx in recent_txs:
-        role_str = (tx.user.role.value if hasattr(tx.user.role, "value") else str(tx.user.role or "")).strip().lower()
-        if role_str not in ("agent", "reseller") and not role_str.endswith(".agent"):
-            continue
-
-        comm_ref = f"COMM_{tx.reference}"
-        already_has = db.query(Transaction).filter(Transaction.reference == comm_ref).first()
-        if already_has:
-            continue
-
-        comm_earned = record_agent_data_commission(
-            db,
-            user=tx.user,
-            amount=Decimal(str(tx.amount)),
-            reference=tx.reference,
-            network=tx.network or "DATA",
-            plan_name=tx.data_plan_code or "Data Plan",
-            request=request,
-        )
-        if comm_earned:
-            credited.append({
-                "user_id": tx.user_id,
-                "email": tx.user.email,
-                "amount": float(comm_earned),
-                "reference": comm_ref,
-                "tx_reference": tx.reference,
-            })
-            logger.info("Reconciled ₦%s agent cashback to %s for tx %s", comm_earned, tx.user.email, tx.reference)
-
-    logger.info("Reconciliation complete. Credited %d agent commissions.", len(credited))
-
-    if credited:
-        logger.info("Reconciled %d missing agent data commissions.", len(credited))
-    return credited
+    return []
 
 
 def parse_size_gb(size_str: Optional[str]) -> float:
@@ -792,6 +729,69 @@ def purge_accidental_welcome_bonuses(db: Session, brand: Optional[str] = None) -
 
     db.commit()
     logger.info("Purged %d accidental welcome bonuses, deducted total ₦%s", len(reverted), total_deducted)
+    return {
+        "status": "ok",
+        "reverted_count": len(reverted),
+        "total_amount": float(total_deducted),
+        "details": reverted,
+    }
+
+
+def purge_accidental_agent_commissions(db: Session, brand: Optional[str] = None) -> dict:
+    """
+    Finds and reverts any accidental retroactive COMM_DATA_* / COMM_* transactions:
+    - Deducts the amount from the user's wallet
+    - Deletes the ledger entry
+    - Deletes the transaction record
+    """
+    from sqlalchemy import or_
+    from app.models.transaction import Transaction
+    from app.models.wallet import Wallet
+    from app.models.wallet_ledger import WalletLedger
+
+    query = db.query(Transaction).filter(
+        or_(
+            Transaction.reference.like("COMM_%"),
+            Transaction.data_plan_code.like("AGENT_COMM_%"),
+        )
+    )
+
+    bogus_txs = query.all()
+    if not bogus_txs:
+        return {"status": "ok", "reverted_count": 0, "total_amount": 0.0, "details": []}
+
+    reverted = []
+    total_deducted = Decimal("0.0")
+
+    for tx in bogus_txs:
+        user_id = tx.user_id
+        amount = Decimal(str(tx.amount or 0))
+        ref = tx.reference
+        old_bal = None
+        new_bal = None
+
+        if user_id and amount > Decimal("0"):
+            wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+            if wallet and wallet.balance is not None:
+                old_bal = float(wallet.balance)
+                wallet.balance = max(Decimal("0.0"), wallet.balance - amount)
+                new_bal = float(wallet.balance)
+                total_deducted += amount
+
+        if ref:
+            db.query(WalletLedger).filter(WalletLedger.reference == ref).delete(synchronize_session=False)
+
+        db.delete(tx)
+        reverted.append({
+            "user_id": user_id,
+            "reference": ref,
+            "amount": float(amount),
+            "old_balance": old_bal,
+            "new_balance": new_bal,
+        })
+
+    db.commit()
+    logger.info("Purged %d accidental agent commissions, deducted total ₦%s", len(reverted), total_deducted)
     return {
         "status": "ok",
         "reverted_count": len(reverted),

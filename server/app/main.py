@@ -282,15 +282,6 @@ def ensure_tables():
             PushNotificationService._initialize()
         except Exception as e:
             logging.getLogger(__name__).warning("Firebase Admin initialization on startup skipped: %s", e)
-        try:
-            from app.services.commissions import reconcile_missing_agent_commissions
-            db_rec = SessionLocal()
-            try:
-                reconcile_missing_agent_commissions(db_rec, limit=100)
-            finally:
-                db_rec.close()
-        except Exception as e:
-            logging.getLogger(__name__).warning("Commission reconciliation on startup skipped: %s", e)
         return
 
     # Optional local fallback for fresh environments.
@@ -1166,16 +1157,19 @@ def _ensure_broadcast_announcement_brand_column() -> None:
 def _revert_accidental_welcome_bonuses() -> None:
     """
     Purges any accidental welcome bonus transactions (WELCOME_2GB_* / KULLOMA_BONUS)
-    from the MZ DATA database and deducts the funds from affected user wallets.
+    and accidental agent commissions (COMM_*) from the MZ DATA database
+    and deducts the funds from affected user wallets.
     """
     try:
-        from app.services.commissions import purge_accidental_welcome_bonuses
+        from app.services.commissions import purge_accidental_welcome_bonuses, purge_accidental_agent_commissions
         db = SessionLocal()
         try:
-            res = purge_accidental_welcome_bonuses(db)
-            logging.getLogger(__name__).info("Startup welcome bonus purge result: %s", res)
+            res_welcome = purge_accidental_welcome_bonuses(db)
+            logging.getLogger(__name__).info("Startup welcome bonus purge result: %s", res_welcome)
+            res_comm = purge_accidental_agent_commissions(db)
+            logging.getLogger(__name__).info("Startup agent commission purge result: %s", res_comm)
         except Exception as e:
-            logging.getLogger(__name__).warning("Error purging accidental welcome bonuses: %s", e)
+            logging.getLogger(__name__).warning("Error purging accidental bonuses/commissions: %s", e)
         finally:
             db.close()
     except Exception as exc:

@@ -110,15 +110,15 @@ export default function AdminSettingsPage() {
   };
 
   const handlePurgeWelcomeBonuses = async () => {
-    if (!confirm('Are you sure you want to purge any mistaken ₦300 welcome bonuses and deduct the funds from affected user wallets?')) return;
+    if (!confirm('Are you sure you want to purge all mistaken credits (both ₦300 welcome gifts and retroactive agent commissions) and deduct the funds from affected user wallets?')) return;
     setPurging(true);
     setPurgeMsg('');
     try {
       const res = await adminPurgeWelcomeBonuses();
-      setPurgeMsg(`Successfully purged ${res.reverted_count || 0} mistaken bonuses (Total deducted: ₦${res.total_amount || 0})!`);
+      setPurgeMsg(`Successfully purged ${res.reverted_count || 0} mistaken records (Total deducted: ₦${res.total_amount || 0})!`);
       setTimeout(() => setPurgeMsg(''), 6000);
     } catch (err) {
-      alert(err?.message || 'Failed to purge welcome bonuses');
+      alert(err?.message || 'Failed to purge mistaken credits');
     } finally {
       setPurging(false);
     }
@@ -376,20 +376,10 @@ export default function AdminSettingsPage() {
                   onClick={handlePurgeWelcomeBonuses}
                   disabled={purging}
                   className="rounded-xl h-10 px-3.5 text-xs font-bold border-red-500/40 text-red-500 hover:bg-red-500/10"
-                  title="Purge accidental ₦300 welcome bonuses and restore affected user wallet balances"
+                  title="Purge accidental ₦300 welcome bonuses and retroactive agent commissions, and restore affected user wallet balances"
                 >
                   <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                  {purging ? 'Purging...' : 'Purge Mistaken ₦300 Welcome Gifts'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleReconcileCommissions}
-                  disabled={reconciling}
-                  className="rounded-xl h-10 px-3.5 text-xs font-bold border-border/70 hover:bg-secondary"
-                  title={`Scan recent data transactions by agents and award any missing ${commissionConfig.agent_data_commission_percent || 2}% cashback`}
-                >
-                  {reconciling ? 'Scanning...' : 'Reconcile Past Agent Cashback'}
+                  {purging ? 'Purging...' : 'Purge Mistaken Credits (₦300 & Commissions)'}
                 </Button>
                 <Button
                   onClick={handleSaveCommission}
