@@ -1,9 +1,11 @@
-const DEFAULT_API_BASE = 'https://api.mzdata.org/api/v1';
-const TOKEN_KEY = 'mzdata_access_token';
-const REFRESH_KEY = 'mzdata_refresh_token';
-const PROFILE_KEY = 'mzdata_profile';
-const ACTIVE_SCOPE_KEY = 'mzdata_active_scope';
-const CACHE_PREFIX = 'mzdata_cache_v1:';
+import { getActiveBrand } from './brand';
+
+const DEFAULT_API_BASE = 'https://api.meledata.ng/api/v1';
+const TOKEN_KEY = 'axisvtu_access_token';
+const REFRESH_KEY = 'axisvtu_refresh_token';
+const PROFILE_KEY = 'axisvtu_profile';
+const ACTIVE_SCOPE_KEY = 'axisvtu_active_scope';
+const CACHE_PREFIX = 'axisvtu_cache_v1:';
 
 let refreshPromise = null;
 
@@ -12,10 +14,9 @@ function normalizeBase(raw) {
 }
 
 function getApiBase() {
-  const env = typeof window !== 'undefined' ? window.__MELEDATA_API_BASE__ : undefined;
+  const env = typeof window !== 'undefined' ? window.__AXISVTU_API_BASE__ : undefined;
   const candidate = normalizeBase(
     env || 
-    process.env.NEXT_PUBLIC_API_URL || 
     process.env.NEXT_PUBLIC_API_BASE || 
     process.env.NEXT_PUBLIC_API_BASE_URL || 
     DEFAULT_API_BASE
@@ -191,17 +192,31 @@ export async function apiFetch(path, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const headers = { ...(options.headers || {}) };
+  if (!headers['X-App-Brand']) {
+    try {
+      const activeBrand = getActiveBrand();
+      if (activeBrand?.key) {
+        headers['X-App-Brand'] = activeBrand.key;
+      }
+    } catch {}
+  }
   const token = getToken();
   if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
-  if (options.body && !headers['Content-Type'] && !(options.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
+  let body = options.body;
+  if (body !== undefined && body !== null) {
+    if (typeof body === 'object' && !(body instanceof FormData) && !(body instanceof Blob)) {
+      body = JSON.stringify(body);
+    }
+    if (!headers['Content-Type'] && !(body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+    }
   }
   let res;
   try {
     res = await fetch(`${base}${path}`, {
       method,
       headers,
-      body: options.body,
+      body,
       cache: 'no-store',
       signal: controller.signal,
     });
@@ -259,7 +274,7 @@ export async function registerRequest(payload) {
 export async function forgotPasswordRequest(email) {
   return apiFetch('/auth/forgot-password', {
     method: 'POST',
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ identifier: email }),
   });
 }
 
@@ -289,6 +304,10 @@ function toQuery(params = {}) {
 
 export async function adminGetAnalytics() {
   return apiFetch('/admin/analytics');
+}
+
+export async function adminGetProviderBalances() {
+  return apiFetch('/admin/provider-balances');
 }
 
 export async function adminGetUsers(params = {}) {
@@ -346,6 +365,13 @@ export async function adminUpdateReport(reportId, payload) {
   });
 }
 
+export async function adminCreatePromo(payload) {
+  return apiFetch('/promos/admin/create', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
 export async function adminGetPricingRules() {
   return apiFetch('/admin/pricing');
 }
@@ -360,6 +386,29 @@ export async function adminUpdatePricingRule(payload) {
 // Aliases for margin specific functions, pointing to the same endpoints
 export const adminGetServiceMargins = adminGetPricingRules;
 export const adminSetServiceMargin = adminUpdatePricingRule;
+
+export async function adminGetCommissionSettings() {
+  return apiFetch('/admin/settings/commissions');
+}
+
+export async function adminUpdateCommissionSettings(payload) {
+  return apiFetch('/admin/settings/commissions', {
+    method: 'PUT',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function adminReconcileAgentCommissions() {
+  return apiFetch('/admin/settings/commissions/reconcile-agents', {
+    method: 'POST',
+  });
+}
+
+export async function adminReconcileWelcomeBonuses() {
+  return apiFetch('/admin/settings/commissions/reconcile-welcome-bonus', {
+    method: 'POST',
+  });
+}
 
 export async function adminFundWallet(payload) {
   return apiFetch('/admin/fund-wallet', {
@@ -376,6 +425,22 @@ export async function adminCreateBroadcast(payload) {
   return apiFetch('/notifications/broadcast/admin', {
     method: 'POST',
     body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function adminSendPushOnly(payload) {
+  return apiFetch('/notifications/broadcast/admin/push-only', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function adminUploadBroadcastImage(file) {
+  const formData = new FormData();
+  formData.append('image', file);
+  return apiFetch('/notifications/broadcast/admin/upload-image', {
+    method: 'POST',
+    body: formData,
   });
 }
 
@@ -397,12 +462,6 @@ export async function adminCleanLegacyDataPlans() {
 export async function adminDeleteAutosyncedPlans(scope = 'autosynced') {
   return apiFetch(`/admin/data-plans/delete-autosynced?scope=${encodeURIComponent(scope)}`, {
     method: 'POST',
-  });
-}
-
-export async function adminDeletePlansByNetwork(network) {
-  return apiFetch(`/admin/data-plans/by-network/${encodeURIComponent(network)}`, {
-    method: 'DELETE',
   });
 }
 
@@ -480,6 +539,12 @@ export async function adminDeleteDataPlan(planId) {
   });
 }
 
+export async function adminDeletePlansByNetwork(network) {
+  return apiFetch(`/admin/data-plans/by-network/${encodeURIComponent(network)}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function adminGetReferrals(params = {}) {
   return apiFetch(`/admin/referrals${toQuery(params)}`);
 }
@@ -503,31 +568,18 @@ export async function adminGetPricingOverrides(userId) {
   return apiFetch(`/admin/users/${userId}/pricing-overrides`, { method: 'GET' });
 }
 
-export async function adminSendPushOnly(payload) {
-  return apiFetch('/notifications/broadcast/admin/push-only', {
-    method: 'POST',
-    body: JSON.stringify(payload || {}),
+export async function adminDeletePricingOverride(userId, overrideId) {
+  return apiFetch(`/admin/users/${userId}/pricing-overrides/${overrideId}`, {
+    method: 'DELETE',
   });
-}
-
-export async function adminUploadBroadcastImage(file) {
-  const formData = new FormData();
-  formData.append('image', file);
-  return apiFetch('/notifications/broadcast/admin/upload-image', {
-    method: 'POST',
-    body: formData,
-    timeoutMs: 120000,
-  });
-}
-
-
-// Added for Enhanced Admin Pages
-export async function adminGetProviderBalances() {
-  return apiFetch('/admin/provider-balances');
 }
 
 export async function adminGetFinanceOverview() {
   return apiFetch('/admin/finance/overview');
+}
+
+export async function adminGetLeakAudit() {
+  return apiFetch('/admin/finance/leak-audit');
 }
 
 export async function adminGetFinanceLedger(params = {}) {
@@ -537,8 +589,13 @@ export async function adminGetFinanceLedger(params = {}) {
 export async function adminCreateFinanceLedgerEntry(payload) {
   return apiFetch('/admin/finance/ledger', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload || {}),
   });
+}
+
+export async function adminGetAgents(params = {}) {
+  return apiFetch(`/admin/agents${toQuery(params)}`);
 }
 
 export async function adminGetAmbassadors(params = {}) {
@@ -552,20 +609,48 @@ export async function adminPayAmbassadorCommission(payload) {
   });
 }
 
-export async function adminGetAgents(params = {}) {
-  return apiFetch(`/admin/agents${toQuery(params)}`);
-}
-
-export async function adminCreatePromo(payload) {
-  return apiFetch('/promos/admin/create', {
-    method: 'POST',
-    body: JSON.stringify(payload || {}),
-  });
-}
-
 export async function adminUpdateReferralCode(payload) {
   return apiFetch('/admin/users/referral-code', {
     method: 'POST',
     body: JSON.stringify(payload || {}),
   });
 }
+
+export async function adminGetDevelopers(params = {}) {
+  return apiFetch(`/admin/developers${toQuery(params)}`);
+}
+
+export async function adminApproveDeveloper(userId) {
+  return apiFetch(`/admin/developers/${userId}/approve`, {
+    method: 'POST',
+  });
+}
+
+export async function adminSuspendDeveloper(userId) {
+  return apiFetch(`/admin/developers/${userId}/suspend`, {
+    method: 'POST',
+  });
+}
+
+export async function adminResetDeveloperKeys(userId) {
+  return apiFetch(`/admin/developers/${userId}/reset-keys`, {
+    method: 'POST',
+  });
+}
+
+export async function adminUpdateDeveloperWebhook(userId, payload) {
+  return apiFetch(`/admin/developers/${userId}/webhook`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function adminRegisterDeveloper(payload) {
+  return apiFetch('/admin/developers/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+}
+
