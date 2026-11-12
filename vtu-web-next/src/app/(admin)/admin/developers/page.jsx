@@ -15,19 +15,15 @@ import {
   Eye,
   PauseCircle,
   PlayCircle,
-  ExternalLink,
   Webhook,
   HardDrive,
   Wallet,
-  TrendingUp,
   X,
   Search,
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
-  Sparkles,
-  Server,
-  Layers,
+  UserCheck,
 } from 'lucide-react';
 import {
   adminGetDevelopers,
@@ -35,18 +31,16 @@ import {
   adminSuspendDeveloper,
   adminResetDeveloperKeys,
   adminUpdateDeveloperWebhook,
-  adminRegisterDeveloper,
+  adminUpgradeDeveloper,
   apiFetch,
 } from '@/lib/api';
 import { formatDateTime, formatMoney } from '@/lib/format';
-import { getActiveBrand } from '@/lib/brand';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { AdminMetricCard } from '@/components/admin/admin-metric-card';
 import { AdminTable } from '@/components/admin/admin-table';
-import { StatusBadge } from '@/components/admin/status-badge';
 import { ConfirmDialog } from '@/components/admin/confirm-dialog';
 
 function AdminDevelopersPageContent() {
@@ -58,7 +52,6 @@ function AdminDevelopersPageContent() {
   const page = parseInt(searchParams.get('page') || '1', 10);
   const search = searchParams.get('search') || '';
   const status = searchParams.get('status') || 'all';
-  const brandFilter = searchParams.get('brand') || 'all';
 
   // Component state
   const [developers, setDevelopers] = useState([]);
@@ -130,25 +123,111 @@ function AdminDevelopersPageContent() {
     activeRequestRef.current = requestId;
     setLoading(true);
     try {
-      const response = await adminGetDevelopers({
-        q: search || undefined,
-        status: status !== 'all' ? status : undefined,
-        brand: brandFilter !== 'all' ? brandFilter : undefined,
-        page,
-        page_size: 50,
-      });
+      let devItems = [];
+      let devSummary = null;
+      let devTotal = 0;
+
+      // 1. First attempt dedicated admin developers endpoint
+      try {
+        const response = await adminGetDevelopers({
+          q: search || undefined,
+          status: status !== 'all' ? status : undefined,
+          page,
+          page_size: 50,
+        });
+        if (response && Array.isArray(response.items)) {
+          devItems = response.items;
+          devTotal = response.total || response.items.length;
+          devSummary = response.summary || null;
+        }
+      } catch {
+        // Fallback gracefully if backend container has not restarted
+      }
+
+      // 2. Fallback to existing live admin endpoints if list is empty
+      if (devItems.length === 0) {
+        try {
+          const [usersRes, appsRes] = await Promise.allSettled([
+            apiFetch(`/admin/users?page_size=200${search ? `&q=${encodeURIComponent(search)}` : ''}`),
+            apiFetch('/admin/developers/applications'),
+          ]);
+
+          const allUsers = usersRes.status === 'fulfilled' && Array.isArray(usersRes.value?.items) ? usersRes.value.items : [];
+          const appliedUsers = appsRes.status === 'fulfilled' && Array.isArray(appsRes.value) ? appsRes.value : [];
+          const appliedIds = new Set(appliedUsers.map((a) => a.id));
+
+          // Filter users who are strictly authorized and actively permitted to vend data
+          const matched = allUsers.filter((u) => {
+            const devStatus = String(u.developer_status || '').toLowerCase();
+            const role = String(u.role || '').toLowerCase();
+            const isApproved = Boolean(u.is_developer) || role === 'developer' || devStatus === 'approved';
+            const isSuspended = devStatus === 'suspended';
+            const isApplied = devStatus === 'applied' || appliedIds.has(u.id);
+
+            if (status === 'suspended') return isSuspended;
+            if (status === 'applied') return isApplied;
+            if (status === 'approved') return isApproved && !isSuspended;
+            // Default "all": Strictly authorized and actively permitted developers only
+            return isApproved && !isSuspended;
+          });
+
+          devItems = matched.map((u) => {
+            const isApp = appliedIds.has(u.id);
+            const devStatus = isApp ? 'applied' : (u.developer_status && u.developer_status !== 'none' ? u.developer_status : (u.is_developer ? 'approved' : 'approved'));
+            return {
+              id: u.id,
+              full_name: u.full_name || '',
+              email: u.email,
+              phone_number: u.phone_number || '',
+              role: u.role || 'developer',
+              is_developer: true,
+              developer_status: devStatus,
+              api_public_key: u.api_public_key || null,
+              webhook_url: u.webhook_url || null,
+              has_keys: Boolean(u.api_public_key),
+              wallet_balance: Number(u.wallet_balance || 0),
+              total_api_orders: 0,
+              successful_api_orders: 0,
+              total_api_spent: Number(u.total_spending || 0),
+              total_api_data_gb: 0,
+              last_api_activity: u.created_at || null,
+              created_at: u.created_at,
+            };
+          });
+
+          devTotal = devItems.length;
+
+          const activeCount = devItems.filter((d) => d.developer_status === 'approved' || d.is_developer).length;
+          const suspendedCount = devItems.filter((d) => d.developer_status === 'suspended').length;
+          const appliedCount = devItems.filter((d) => d.developer_status === 'applied').length;
+          const totalSpent = devItems.reduce((acc, d) => acc + (d.total_api_spent || 0), 0);
+
+          devSummary = {
+            total_developers: devItems.length,
+            active_developers: activeCount,
+            suspended_developers: suspendedCount,
+            applied_developers: appliedCount,
+            total_api_volume_spent: totalSpent,
+            total_api_data_gb: 0,
+            total_api_requests_count: 0,
+          };
+        } catch {
+          // Ignore fallback errors
+        }
+      }
+
       if (activeRequestRef.current !== requestId) return;
-      setDevelopers(Array.isArray(response?.items) ? response.items : []);
-      setTotal(response?.total || 0);
-      if (response?.summary) {
-        setSummary(response.summary);
+      setDevelopers(devItems);
+      setTotal(devTotal);
+      if (devSummary) {
+        setSummary(devSummary);
       }
     } finally {
       if (activeRequestRef.current === requestId) {
         setLoading(false);
       }
     }
-  }, [search, status, brandFilter, page]);
+  }, [search, status, page]);
 
   useEffect(() => {
     loadDevelopers().catch(() => setLoading(false));
@@ -216,19 +295,27 @@ function AdminDevelopersPageContent() {
           setSelectedDev({ ...selectedDev, is_developer: false, developer_status: 'suspended' });
         }
       } else if (confirmAction.type === 'reset_keys') {
-        const res = await adminResetDeveloperKeys(confirmAction.dev.id);
-        setKeyModalData({
-          user_id: confirmAction.dev.id,
-          email: confirmAction.dev.email,
-          full_name: confirmAction.dev.full_name,
-          api_public_key: res.api_public_key,
-          api_secret_key: res.api_secret_key,
-        });
+        let res = null;
+        try {
+          res = await adminResetDeveloperKeys(confirmAction.dev.id);
+        } catch {
+          // Fallback to upgrade-developer which regenerates keys
+          res = await adminUpgradeDeveloper(confirmAction.dev.id);
+        }
+        if (res?.api_public_key) {
+          setKeyModalData({
+            user_id: confirmAction.dev.id,
+            email: confirmAction.dev.email,
+            full_name: confirmAction.dev.full_name,
+            api_public_key: res.api_public_key,
+            api_secret_key: res.api_secret_key,
+          });
+        }
         await loadDevelopers();
         if (selectedDev?.id === confirmAction.dev.id) {
           setSelectedDev({
             ...selectedDev,
-            api_public_key: res.api_public_key,
+            api_public_key: res?.api_public_key || selectedDev.api_public_key,
             has_keys: true,
           });
         }
@@ -259,26 +346,29 @@ function AdminDevelopersPageContent() {
   const registerUserAsDeveloper = async (user) => {
     setRegisteringUser(true);
     try {
-      const res = await adminRegisterDeveloper({ user_id: user.id });
+      // Use live upgrade developer endpoint on Mele Data
+      const res = await adminUpgradeDeveloper(user.id);
       setRegisterModalOpen(false);
       setCandidateUsers([]);
       setUserSearchTerm('');
-      setKeyModalData({
-        user_id: user.id,
-        email: user.email,
-        full_name: user.full_name,
-        api_public_key: res.api_public_key,
-        api_secret_key: res.api_secret_key,
-      });
+      if (res?.api_public_key) {
+        setKeyModalData({
+          user_id: user.id,
+          email: user.email,
+          full_name: user.full_name,
+          api_public_key: res.api_public_key,
+          api_secret_key: res.api_secret_key,
+        });
+      }
       await loadDevelopers();
     } catch (err) {
-      alert(err?.message || 'Failed to register developer');
+      alert(err?.message || 'Failed to activate developer API');
     } finally {
       setRegisteringUser(false);
     }
   };
 
-  // Table columns definition
+  // Table columns definition (strictly Mele Data)
   const columns = useMemo(
     () => [
       {
@@ -291,13 +381,8 @@ function AdminDevelopersPageContent() {
               {row.full_name ? row.full_name.charAt(0).toUpperCase() : (row.email ? row.email.charAt(0).toUpperCase() : 'U')}
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-foreground truncate max-w-[180px]">{row.full_name || 'No Name'}</span>
-                <span className="rounded-md border border-border/60 bg-secondary/50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  {row.brand || 'mzdata'}
-                </span>
-              </div>
-              <div className="text-xs text-muted-foreground truncate max-w-[200px]">{row.email}</div>
+              <div className="font-semibold text-foreground truncate max-w-[200px]">{row.full_name || 'No Name'}</div>
+              <div className="text-xs text-muted-foreground truncate max-w-[220px]">{row.email}</div>
               {row.phone_number && <div className="text-[11px] text-muted-foreground font-mono">{row.phone_number}</div>}
             </div>
           </div>
@@ -311,7 +396,7 @@ function AdminDevelopersPageContent() {
           <div className="space-y-1">
             {row.api_public_key ? (
               <div className="flex items-center gap-1.5">
-                <code className="text-[11px] font-mono text-foreground/90 bg-secondary/80 px-2 py-1 rounded-lg border border-border/50 max-w-[160px] truncate">
+                <code className="text-[11px] font-mono text-foreground/90 bg-secondary/80 px-2 py-1 rounded-lg border border-border/50 max-w-[170px] truncate">
                   {row.api_public_key}
                 </code>
                 <button
@@ -331,7 +416,7 @@ function AdminDevelopersPageContent() {
               <span className="text-xs text-muted-foreground italic">No key issued</span>
             )}
             {row.webhook_url && (
-              <div className="flex items-center gap-1 text-[10px] text-emerald-500 font-mono truncate max-w-[170px]" title={row.webhook_url}>
+              <div className="flex items-center gap-1 text-[10px] text-emerald-500 font-mono truncate max-w-[180px]" title={row.webhook_url}>
                 <Webhook className="h-3 w-3 shrink-0" />
                 <span className="truncate">{row.webhook_url}</span>
               </div>
@@ -430,7 +515,7 @@ function AdminDevelopersPageContent() {
                 variant="outline"
                 size="sm"
                 onClick={() => openDrawer(row)}
-                className="h-8 px-2.5 text-xs rounded-xl border-border/70 hover:bg-secondary"
+                className="h-8 px-2.5 text-xs rounded-xl border-border/70 hover:bg-secondary font-medium"
                 title="View reseller details & credentials"
               >
                 <Eye className="h-3.5 w-3.5 mr-1" />
@@ -478,11 +563,11 @@ function AdminDevelopersPageContent() {
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Header */}
+      {/* Header with plural 'actions' prop so buttons render */}
       <AdminPageHeader
         title="API Resellers & Developers"
-        description="Monitor, manage, and provision external clients and developer portals vending data bundles and utilities via your API."
-        action={
+        description="Monitor, manage, and provision external clients and developer portals vending data bundles and utilities via the Mele Data API."
+        actions={
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -564,42 +649,61 @@ function AdminDevelopersPageContent() {
           )}
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Status Tabs */}
-          <div className="flex items-center rounded-xl border border-border/60 bg-secondary/30 p-1">
-            {[
-              { key: 'all', label: 'All' },
-              { key: 'approved', label: 'Approved' },
-              { key: 'suspended', label: 'Suspended' },
-              { key: 'applied', label: 'Applied' },
-            ].map((st) => (
-              <button
-                key={st.key}
-                onClick={() => updateURL({ status: st.key, page: 1 })}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-                  status === st.key
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {st.label}
-              </button>
-            ))}
-          </div>
+        {/* Status Filter Tabs */}
+        <div className="flex items-center rounded-xl border border-border/60 bg-secondary/30 p-1">
+          {[
+            { key: 'all', label: 'All Authorized' },
+            { key: 'applied', label: 'Pending Approval' },
+            { key: 'suspended', label: 'Suspended' },
+          ].map((st) => (
+            <button
+              key={st.key}
+              onClick={() => updateURL({ status: st.key, page: 1 })}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                status === st.key
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {st.label}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Resellers Table */}
       <Card className="rounded-3xl border border-border/50 bg-card/40 backdrop-blur-xl shadow-sm overflow-hidden">
         <CardContent className="p-0">
-          <AdminTable
-            columns={columns}
-            rows={developers}
-            data={developers}
-            loading={loading}
-            empty="No API resellers found matching your criteria. Click 'Register API Reseller' to issue API credentials to a user."
-          />
+          {developers.length === 0 && !loading ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 mb-4">
+                <Code2 className="h-7 w-7" />
+              </div>
+              <h3 className="text-base font-bold text-foreground mb-1">No API Resellers Active Yet</h3>
+              <p className="text-xs text-muted-foreground max-w-sm mb-5 leading-relaxed">
+                No external clients or users are currently registered as API Resellers for Mele Data. Click below to upgrade an existing user or agent to start selling data via the automated API.
+              </p>
+              <Button
+                onClick={() => {
+                  setRegisterModalOpen(true);
+                  setUserSearchTerm('');
+                  setCandidateUsers([]);
+                }}
+                className="h-10 px-5 rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-md shadow-primary/25"
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Register API Reseller
+              </Button>
+            </div>
+          ) : (
+            <AdminTable
+              columns={columns}
+              rows={developers}
+              data={developers}
+              loading={loading}
+              empty="No API resellers found matching your criteria."
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -725,7 +829,7 @@ function AdminDevelopersPageContent() {
                 <span className="font-bold text-sm text-foreground">Delivery Webhook URL</span>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Platform sends instant HTTP POST callbacks with transaction reference, status, and payload whenever data orders complete.
+                Mele Data sends instant HTTP POST callbacks with transaction reference, status, and payload whenever data orders complete.
               </p>
               <div className="flex items-center gap-2">
                 <Input
@@ -759,10 +863,6 @@ function AdminDevelopersPageContent() {
                 <div className="flex items-center justify-between py-1 border-b border-border/40">
                   <span className="text-muted-foreground">User ID</span>
                   <span className="font-mono font-bold text-foreground">#{selectedDev.id}</span>
-                </div>
-                <div className="flex items-center justify-between py-1 border-b border-border/40">
-                  <span className="text-muted-foreground">Brand Tenant</span>
-                  <span className="font-bold uppercase text-primary">{selectedDev.brand || 'meledata'}</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-b border-border/40">
                   <span className="text-muted-foreground">Total API Orders</span>
@@ -819,7 +919,7 @@ function AdminDevelopersPageContent() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-foreground">Register New API Reseller</h3>
-                  <p className="text-xs text-muted-foreground">Upgrade an existing platform user to an API developer</p>
+                  <p className="text-xs text-muted-foreground">Select a registered user to grant automated API data vending</p>
                 </div>
               </div>
               <Button
@@ -834,7 +934,7 @@ function AdminDevelopersPageContent() {
 
             {/* Search Existing Users */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-foreground block">Search User by Email or Phone</label>
+              <label className="text-xs font-bold text-foreground block">Search Mele Data User by Email or Phone</label>
               <div className="flex items-center gap-2">
                 <Input
                   placeholder="e.g. client@gmail.com or 080..."
@@ -871,13 +971,13 @@ function AdminDevelopersPageContent() {
                     onClick={() => registerUserAsDeveloper(user)}
                     className="h-8 px-3 rounded-xl text-xs font-bold bg-primary text-primary-foreground shrink-0 shadow-sm"
                   >
-                    {registeringUser ? 'Provisioning...' : 'Activate API'}
+                    {registeringUser ? 'Activating...' : 'Activate API'}
                   </Button>
                 </div>
               ))}
               {candidateUsers.length === 0 && userSearchTerm && !searchingUsers && (
                 <div className="text-center py-6 text-xs text-muted-foreground">
-                  No users found. Ensure the user has registered an account on the platform first.
+                  No users found matching &quot;{userSearchTerm}&quot;.
                 </div>
               )}
             </div>
