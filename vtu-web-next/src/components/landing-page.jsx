@@ -734,36 +734,36 @@ const NETWORK_CONFIG = {
 
 const FALLBACK_PLANS = {
   mtn: [
-    { id: 546, name: '500MB(SME)', size: '500MB', days: '30d', type: 'SME', price: 299 },
-    { id: 530, name: '1GB (SME)', size: '1GB', days: '30d', type: 'SME', price: 439 },
-    { id: 531, name: '2GB (SME)', size: '2GB', days: '30d', type: 'SME', price: 849 },
-    { id: 539, name: '3GB (SME)', size: '3GB', days: '30d', type: 'SME', price: 1299 },
-    { id: 529, name: '5GB (SME)', size: '5GB', days: '30d', type: 'SME', price: 1800 },
-    { id: 591, name: '10GB', size: '10GB', days: '30d', type: 'SME', price: 3899 },
+    { id: 546, name: '500MB(SME)', size: '500MB', days: '30d', type: 'SME', price: 130 },
+    { id: 530, name: '1GB (SME)', size: '1GB', days: '30d', type: 'SME', price: 259 },
+    { id: 531, name: '2GB (SME)', size: '2GB', days: '30d', type: 'SME', price: 518 },
+    { id: 539, name: '3GB (SME)', size: '3GB', days: '30d', type: 'SME', price: 777 },
+    { id: 529, name: '5GB (SME)', size: '5GB', days: '30d', type: 'SME', price: 1295 },
+    { id: 591, name: '10GB', size: '10GB', days: '30d', type: 'SME', price: 2590 },
   ],
   airtel: [
-    { id: 448, name: '600MB (SME)', size: '600MB', days: '30d', type: 'SME', price: 230 },
-    { id: 571, name: '1GB (GIFTING)', size: '1GB', days: '30d', type: 'GIFTING', price: 500 },
-    { id: 451, name: '1.5GB (SME)', size: '1.5GB', days: '30d', type: 'SME', price: 550 },
-    { id: 454, name: '2GB (SME)', size: '2GB', days: '30d', type: 'SME', price: 630 },
-    { id: 455, name: '5GB (SME)', size: '5GB', days: '30d', type: 'SME', price: 1800 },
-    { id: 449, name: '10GB (SME)', size: '10GB', days: '30d', type: 'SME', price: 3600 },
+    { id: 448, name: '600MB (SME)', size: '600MB', days: '30d', type: 'SME', price: 160 },
+    { id: 571, name: '1GB (GIFTING)', size: '1GB', days: '30d', type: 'GIFTING', price: 265 },
+    { id: 451, name: '1.5GB (SME)', size: '1.5GB', days: '30d', type: 'SME', price: 395 },
+    { id: 454, name: '2GB (SME)', size: '2GB', days: '30d', type: 'SME', price: 530 },
+    { id: 455, name: '5GB (SME)', size: '5GB', days: '30d', type: 'SME', price: 1325 },
+    { id: 449, name: '10GB (SME)', size: '10GB', days: '30d', type: 'SME', price: 2650 },
   ],
   glo: [
-    { id: 570, name: '500MB (C.G)', size: '500MB', days: '30d', type: 'C.G', price: 250 },
-    { id: 587, name: '1GB(C.G)', size: '1GB', days: '30d', type: 'C.G', price: 410 },
-    { id: 588, name: '2GB(C.G)', size: '2GB', days: '30d', type: 'C.G', price: 820 },
-    { id: 589, name: '3GB(C.G)', size: '3GB', days: '30d', type: 'C.G', price: 1230 },
-    { id: 590, name: '5GB(C.G)', size: '5GB', days: '30d', type: 'C.G', price: 1980 },
-    { id: 580, name: '10GB (C.G)', size: '10GB', days: '30d', type: 'C.G', price: 4300 },
+    { id: 570, name: '500MB (C.G)', size: '500MB', days: '30d', type: 'C.G', price: 135 },
+    { id: 587, name: '1GB(C.G)', size: '1GB', days: '30d', type: 'C.G', price: 260 },
+    { id: 588, name: '2GB(C.G)', size: '2GB', days: '30d', type: 'C.G', price: 520 },
+    { id: 589, name: '3GB(C.G)', size: '3GB', days: '30d', type: 'C.G', price: 780 },
+    { id: 590, name: '5GB(C.G)', size: '5GB', days: '30d', type: 'C.G', price: 1300 },
+    { id: 580, name: '10GB (C.G)', size: '10GB', days: '30d', type: 'C.G', price: 2600 },
   ],
   '9mobile': [
-    { id: 510, name: '500MB (C.G)', size: '500MB', days: '30d', type: 'C.G', price: 250 },
-    { id: 595, name: '1GB [Corporate]', size: '1GB', days: '30d', type: 'Corp', price: 500 },
-    { id: 512, name: '2GB (C.G)', size: '2GB', days: '30d', type: 'C.G', price: 960 },
-    { id: 513, name: '3GB (C.G)', size: '3GB', days: '30d', type: 'C.G', price: 1500 },
-    { id: 514, name: '5GB (C.G)', size: '5GB', days: '30d', type: 'C.G', price: 2500 },
-    { id: 515, name: '10GB (C.G)', size: '10GB', days: '30d', type: 'C.G', price: 4900 },
+    { id: 510, name: '500MB (C.G)', size: '500MB', days: '30d', type: 'C.G', price: 115 },
+    { id: 595, name: '1GB [Corporate]', size: '1GB', days: '30d', type: 'Corp', price: 210 },
+    { id: 512, name: '2GB (C.G)', size: '2GB', days: '30d', type: 'C.G', price: 420 },
+    { id: 513, name: '3GB (C.G)', size: '3GB', days: '30d', type: 'C.G', price: 630 },
+    { id: 514, name: '5GB (C.G)', size: '5GB', days: '30d', type: 'C.G', price: 1050 },
+    { id: 515, name: '10GB (C.G)', size: '10GB', days: '30d', type: 'C.G', price: 2100 },
   ],
 };
 
@@ -779,14 +779,22 @@ function parseApiPlans(rawPlans) {
     else if (net.includes('glo')) key = 'glo';
     else if (net.includes('9mobile') || net.includes('etisalat')) key = '9mobile';
 
-    if (key && p.id && p.price !== undefined && p.price !== null) {
+    // Prioritize developer/wholesale api_price if set by admin, then fall back to regular price
+    const rawApiPrice = p.api_price !== null && p.api_price !== undefined ? Number(p.api_price) : null;
+    const finalPrice = (rawApiPrice !== null && !isNaN(rawApiPrice) && rawApiPrice > 0)
+      ? rawApiPrice
+      : Number(p.price || 0);
+
+    if (key && p.id && finalPrice > 0) {
       result[key].push({
         id: p.id,
         name: p.plan_name || `${p.data_size || ''} Plan`,
         size: p.data_size || p.plan_name || 'Bundle',
         days: p.validity ? p.validity.replace(/days?/i, 'd').trim() : '30d',
         type: p.data_type || (p.plan_name?.includes('SME') ? 'SME' : p.plan_name?.includes('GIFT') ? 'GIFT' : 'C.G'),
-        price: Number(p.price || 0),
+        price: finalPrice,
+        retailPrice: Number(p.price || 0),
+        apiPrice: rawApiPrice,
       });
     }
   });
@@ -810,7 +818,7 @@ function PricingPreviewSection() {
     let isMounted = true;
     async function loadPlans() {
       try {
-        const raw = await apiFetch('/data/plans', { cache: 'no-store' });
+        const raw = await apiFetch('/data/plans?role=developer', { cache: 'no-store' });
         const list = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
         if (list.length > 0 && isMounted) {
           const parsed = parseApiPlans(list);
