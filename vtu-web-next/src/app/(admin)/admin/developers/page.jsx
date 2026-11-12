@@ -282,17 +282,19 @@ function AdminDevelopersPageContent() {
   const columns = useMemo(
     () => [
       {
+        key: 'reseller',
+        label: 'API Reseller',
         header: 'API Reseller',
         render: (row) => (
           <div className="flex items-center gap-3 py-1">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/10 text-primary font-bold text-sm">
-              {row.full_name ? row.full_name.charAt(0).toUpperCase() : row.email.charAt(0).toUpperCase()}
+              {row.full_name ? row.full_name.charAt(0).toUpperCase() : (row.email ? row.email.charAt(0).toUpperCase() : 'U')}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-foreground truncate max-w-[180px]">{row.full_name || 'No Name'}</span>
                 <span className="rounded-md border border-border/60 bg-secondary/50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  {row.brand || 'meledata'}
+                  {row.brand || 'mzdata'}
                 </span>
               </div>
               <div className="text-xs text-muted-foreground truncate max-w-[200px]">{row.email}</div>
@@ -302,6 +304,8 @@ function AdminDevelopersPageContent() {
         ),
       },
       {
+        key: 'api_public_key',
+        label: 'API Public Key',
         header: 'API Public Key',
         render: (row) => (
           <div className="space-y-1">
@@ -336,6 +340,8 @@ function AdminDevelopersPageContent() {
         ),
       },
       {
+        key: 'wallet_balance',
+        label: 'Wallet Balance',
         header: 'Wallet Balance',
         render: (row) => (
           <div>
@@ -347,6 +353,8 @@ function AdminDevelopersPageContent() {
         ),
       },
       {
+        key: 'data_sold',
+        label: 'Data Sold (API)',
         header: 'Data Sold (API)',
         render: (row) => (
           <div>
@@ -361,6 +369,8 @@ function AdminDevelopersPageContent() {
         ),
       },
       {
+        key: 'api_orders',
+        label: 'API Orders',
         header: 'API Orders',
         render: (row) => (
           <div>
@@ -377,6 +387,8 @@ function AdminDevelopersPageContent() {
         ),
       },
       {
+        key: 'status',
+        label: 'Status',
         header: 'Status',
         render: (row) => {
           const isApproved = row.developer_status === 'approved' || (row.is_developer && row.developer_status !== 'suspended');
@@ -406,6 +418,8 @@ function AdminDevelopersPageContent() {
         },
       },
       {
+        key: 'actions',
+        label: 'Actions',
         header: 'Actions',
         align: 'right',
         render: (row) => {
@@ -581,9 +595,10 @@ function AdminDevelopersPageContent() {
         <CardContent className="p-0">
           <AdminTable
             columns={columns}
+            rows={developers}
             data={developers}
             loading={loading}
-            emptyMessage="No API resellers found matching your criteria. Click 'Register API Reseller' to issue API credentials to a user."
+            empty="No API resellers found matching your criteria. Click 'Register API Reseller' to issue API credentials to a user."
           />
         </CardContent>
       </Card>
