@@ -315,7 +315,7 @@ function Header() {
 function Hero() {
   const brand = useBrand();
   return (
-    <section className="bg-background relative overflow-hidden">
+    <section className="bg-background relative overflow-hidden w-full max-w-full">
       {/* Background Glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-[450px] bg-primary/20 blur-[130px] rounded-full pointer-events-none" />
       
@@ -327,13 +327,13 @@ function Hero() {
               initial="hidden"
               animate="show"
               custom={0}
-              className="inline-flex items-center gap-2.5 rounded-full border border-primary/30 bg-primary/10 backdrop-blur-md px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary shadow-sm"
+              className="inline-flex items-center gap-2.5 rounded-full border border-primary/30 bg-primary/10 backdrop-blur-md px-3.5 sm:px-4 py-2 text-[11px] sm:text-xs font-semibold uppercase tracking-[0.16em] text-primary shadow-sm max-w-full truncate"
             >
-              <span className="relative flex h-2 w-2">
+              <span className="relative flex h-2 w-2 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
               </span>
-              <span>{brand.name} • Official Telecom & VTU Switch Engine</span>
+              <span className="truncate">{brand.name} • Official Telecom &amp; VTU Switch Engine</span>
             </motion.div>
 
             <motion.h1
@@ -341,9 +341,9 @@ function Hero() {
               initial="hidden"
               animate="show"
               custom={0.08}
-              className="mt-6 max-w-3xl text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-6xl xl:text-7xl leading-[1.1]"
+              className="mt-6 max-w-3xl text-3xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-6xl xl:text-7xl leading-[1.15] break-words"
             >
-              Instant VTU & Telecom Infrastructure for Nigeria
+              Instant VTU &amp; Telecom Infrastructure for Nigeria
             </motion.h1>
 
             <motion.p
@@ -361,18 +361,18 @@ function Hero() {
               initial="hidden"
               animate="show"
               custom={0.24}
-              className="mt-8 flex flex-wrap gap-4 items-center justify-center lg:justify-start"
+              className="mt-8 flex flex-col sm:flex-row w-full sm:w-auto gap-3 sm:gap-4 items-stretch sm:items-center justify-center lg:justify-start"
             >
-              <Button asChild className="h-14 rounded-full bg-primary px-8 text-base font-semibold text-primary-foreground shadow-lg shadow-blue-500/25 hover:bg-primary/90 transition-all hover:scale-105">
-                <Link href="/register" className="inline-flex items-center gap-2">
+              <Button asChild className="h-12 sm:h-14 w-full sm:w-auto rounded-full bg-primary px-6 sm:px-8 text-sm sm:text-base font-semibold text-primary-foreground shadow-lg shadow-blue-500/25 hover:bg-primary/90 transition-all hover:scale-105">
+                <Link href="/register" className="inline-flex items-center justify-center gap-2">
                   <span>Create Free Account</span>
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="h-14 rounded-full border-white/10 bg-slate-900/80 hover:bg-slate-800 text-white px-7 text-base font-semibold shadow-md backdrop-blur-md transition-all hover:scale-105">
-                <Link href="/documentation" className="inline-flex items-center gap-2">
+              <Button asChild variant="outline" className="h-12 sm:h-14 w-full sm:w-auto rounded-full border-white/10 bg-slate-900/80 hover:bg-slate-800 text-white px-6 sm:px-7 text-sm sm:text-base font-semibold shadow-md backdrop-blur-md transition-all hover:scale-105">
+                <Link href="/documentation" className="inline-flex items-center justify-center gap-2">
                   <Code2 className="h-4 w-4 text-emerald-400" />
-                  <span>Developer API & Docs</span>
+                  <span>Developer API &amp; Docs</span>
                 </Link>
               </Button>
               {brand.playStoreLink && (
@@ -380,10 +380,10 @@ function Hero() {
                   href={brand.playStoreLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-14 items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
+                  className="inline-flex h-12 sm:h-14 w-full sm:w-auto items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
                 >
                   <div className="flex items-center gap-2.5 text-left">
-                    <svg className="h-6 w-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
+                    <svg className="h-6 w-6 text-primary shrink-0" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M5.002 3c-.116 0-.23.018-.342.049L13.882 12 4.66 20.951c.112.03.226.049.342.049.278 0 .546-.076.784-.216l12.44-7.108c.556-.317.9-.9.9-1.547 0-.647-.344-1.23-.9-1.547L5.786 3.216a1.564 1.564 0 0 0-.784-.216zm-1.042.825V20.18L13.06 12 3.96 3.825z" />
                     </svg>
                     <div>
@@ -398,10 +398,10 @@ function Hero() {
                   href={brand.appStoreLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-14 items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
+                  className="inline-flex h-12 sm:h-14 w-full sm:w-auto items-center justify-center rounded-full border border-border bg-card/50 backdrop-blur-md px-6 hover:border-blue-300 hover:bg-secondary/80 transition duration-200"
                 >
                   <div className="flex items-center gap-2.5 text-left">
-                    <svg className="h-6 w-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
+                    <svg className="h-6 w-6 text-primary shrink-0" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-1 .04-2.21.67-2.93 1.49-.62.69-1.16 1.84-1.01 2.96 1.12.09 2.27-.58 2.95-1.39z" />
                     </svg>
                     <div>
@@ -433,18 +433,18 @@ function Hero() {
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="relative h-[420px] lg:h-[620px] w-full mt-8 lg:mt-0"
+            className="relative h-[340px] sm:h-[420px] lg:h-[620px] w-full max-w-md lg:max-w-none mx-auto mt-8 lg:mt-0 overflow-hidden sm:overflow-visible"
           >
             {/* Animated Bubbles behind */}
             <motion.div 
               animate={{ y: [0, -20, 0], opacity: [0.5, 0.8, 0.5] }} 
               transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
-              className="absolute top-[10%] left-[10%] w-24 h-24 rounded-full bg-primary/20 blur-xl"
+              className="absolute top-[10%] left-[10%] w-24 h-24 rounded-full bg-primary/20 blur-xl pointer-events-none"
             />
             <motion.div 
               animate={{ y: [0, 30, 0], x: [0, 20, 0], opacity: [0.3, 0.7, 0.3] }} 
               transition={{ repeat: Infinity, duration: 6, ease: "easeInOut", delay: 1 }}
-              className="absolute bottom-[20%] right-[10%] w-40 h-40 rounded-full bg-blue-500/20 blur-2xl"
+              className="absolute bottom-[20%] right-[10%] w-40 h-40 rounded-full bg-blue-500/20 blur-2xl pointer-events-none"
             />
 
             {/* Floating Live Transaction Pill (Top-Right) */}
@@ -452,7 +452,7 @@ function Hero() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.6, duration: 0.6 }}
-              className="absolute top-6 sm:top-10 -right-2 sm:right-4 z-20 rounded-2xl bg-slate-900/90 border border-emerald-500/30 p-3 shadow-2xl backdrop-blur-xl flex items-center gap-3"
+              className="hidden sm:flex absolute top-6 sm:top-10 -right-2 sm:right-4 z-20 rounded-2xl bg-slate-900/90 border border-emerald-500/30 p-3 shadow-2xl backdrop-blur-xl items-center gap-3"
             >
               <div className="h-9 w-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
                 <CheckCircle2 className="w-5 h-5" />
@@ -471,7 +471,7 @@ function Hero() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.8, duration: 0.6 }}
-              className="absolute top-24 -left-2 sm:left-4 z-20 rounded-2xl bg-slate-900/90 border border-blue-500/30 p-2.5 shadow-2xl backdrop-blur-xl flex items-center gap-2.5"
+              className="hidden sm:flex absolute top-24 -left-2 sm:left-4 z-20 rounded-2xl bg-slate-900/90 border border-blue-500/30 p-2.5 shadow-2xl backdrop-blur-xl items-center gap-2.5"
             >
               <div className="relative flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -488,7 +488,7 @@ function Hero() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 1.0, duration: 0.6 }}
-              className="absolute bottom-10 -left-2 sm:left-6 z-20 rounded-2xl bg-slate-900/90 border border-purple-500/30 p-3 shadow-2xl backdrop-blur-xl flex items-center gap-3"
+              className="hidden sm:flex absolute bottom-10 -left-2 sm:left-6 z-20 rounded-2xl bg-slate-900/90 border border-purple-500/30 p-3 shadow-2xl backdrop-blur-xl items-center gap-3"
             >
               <div className="h-8 w-8 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
                 <Terminal className="w-4 h-4" />
@@ -502,12 +502,28 @@ function Hero() {
                 </div>
               </div>
             </motion.div>
+
+            {/* In-bounds mobile status badge */}
+            <div className="sm:hidden absolute bottom-3 inset-x-3 z-20 rounded-xl bg-slate-900/95 border border-emerald-500/30 p-2.5 shadow-xl backdrop-blur-md flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <div className="text-[11px] font-bold text-white leading-tight">Switch: 99.9% Uptime</div>
+                  <div className="text-[9px] text-slate-400 font-mono">Instant Gateway Delivery</div>
+                </div>
+              </div>
+              <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                ● LIVE
+              </span>
+            </div>
             
             {/* Customer Photo */}
             <img 
               src="/brand/hero_woman.png" 
               alt={`Customer using ${brand.name}`} 
-              className="absolute bottom-0 left-1/2 -translate-x-1/2 h-[105%] w-auto object-contain object-bottom drop-shadow-2xl z-10"
+              className="absolute bottom-0 left-1/2 -translate-x-1/2 h-[105%] w-auto object-contain object-bottom drop-shadow-2xl z-10 pointer-events-none"
             />
           </motion.div>
         </div>
@@ -525,20 +541,20 @@ function StatsStrip() {
   ];
 
   return (
-    <div className="border-y border-white/5 bg-[#0a0d14]/70 backdrop-blur-md py-8">
+    <div className="border-y border-white/5 bg-[#0a0d14]/70 backdrop-blur-md py-6 sm:py-8 w-full max-w-full overflow-hidden">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center md:text-left">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6 text-center md:text-left">
           {stats.map((s, idx) => {
             const Icon = s.icon;
             return (
-              <div key={idx} className="flex flex-col md:flex-row items-center md:items-start gap-3 p-2">
-                <div className="p-2.5 rounded-xl bg-primary/10 text-primary shrink-0">
-                  <Icon className="w-5 h-5" />
+              <div key={idx} className="flex flex-col md:flex-row items-center md:items-start gap-2 sm:gap-3 p-1 sm:p-2">
+                <div className="p-2 sm:p-2.5 rounded-xl bg-primary/10 text-primary shrink-0">
+                  <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
                 <div>
-                  <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">{s.value}</div>
-                  <div className="text-xs font-semibold text-slate-300 mt-0.5">{s.label}</div>
-                  <div className="text-[11px] text-slate-500 font-mono">{s.sub}</div>
+                  <div className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-white tracking-tight">{s.value}</div>
+                  <div className="text-[11px] sm:text-xs font-semibold text-slate-300 mt-0.5">{s.label}</div>
+                  <div className="text-[10px] sm:text-[11px] text-slate-500 font-mono hidden sm:block">{s.sub}</div>
                 </div>
               </div>
             );
@@ -650,7 +666,7 @@ function HowItWorksSection() {
   const steps = role === 'retail' ? retailSteps : developerSteps;
 
   return (
-    <section id="how-it-works" className="bg-[#090c14] px-4 py-24 sm:px-6 lg:px-8 border-t border-white/5">
+    <section id="how-it-works" className="bg-[#090c14] px-4 py-20 sm:py-24 sm:px-6 lg:px-8 border-t border-white/5 w-full max-w-full overflow-hidden">
       <div className="mx-auto max-w-7xl">
         <div className="text-center max-w-3xl mx-auto mb-14">
           <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs font-semibold text-primary mb-3">
@@ -664,28 +680,28 @@ function HowItWorksSection() {
           </p>
 
           {/* Toggle between Retail and Developer */}
-          <div className="mt-8 inline-flex p-1.5 rounded-2xl bg-slate-900 border border-white/10 shadow-lg">
+          <div className="mt-8 flex flex-col sm:inline-flex sm:flex-row p-1.5 rounded-2xl bg-slate-900 border border-white/10 shadow-lg max-w-full mx-auto gap-1 sm:gap-0">
             <button
               type="button"
               onClick={() => setRole('retail')}
-              className={`px-5 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all ${
+              className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all text-center ${
                 role === 'retail'
                   ? 'bg-primary text-white shadow-md'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              For Everyday Users & Resellers
+              For Everyday Users &amp; Resellers
             </button>
             <button
               type="button"
               onClick={() => setRole('developer')}
-              className={`px-5 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all ${
+              className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all text-center ${
                 role === 'developer'
                   ? 'bg-primary text-white shadow-md'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              For Developers & VTU Portals
+              For Developers &amp; VTU Portals
             </button>
           </div>
         </div>
@@ -695,7 +711,7 @@ function HowItWorksSection() {
           {steps.map((s, idx) => (
             <div
               key={idx}
-              className="relative rounded-3xl bg-slate-900/70 border border-white/10 p-8 shadow-xl backdrop-blur-xl hover:border-primary/40 hover:bg-slate-900/90 transition-all duration-300 group flex flex-col justify-between"
+              className="relative rounded-3xl bg-slate-900/70 border border-white/10 p-5 sm:p-8 shadow-xl backdrop-blur-xl hover:border-primary/40 hover:bg-slate-900/90 transition-all duration-300 group flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between mb-6">
@@ -1149,7 +1165,7 @@ function PricingPreviewSection() {
   const networks = ['mtn', 'airtel', 'glo', '9mobile'];
 
   return (
-    <section id="pricing" className="relative bg-[#07090E] px-4 py-24 sm:px-6 lg:px-8 border-t border-white/5 overflow-hidden">
+    <section id="pricing" className="relative bg-[#07090E] px-4 py-20 sm:py-24 sm:px-6 lg:px-8 border-t border-white/5 overflow-hidden w-full max-w-full">
       {/* Background ambient lighting */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-96 bg-gradient-to-b from-blue-500/10 via-emerald-500/5 to-transparent blur-3xl pointer-events-none" />
 
@@ -1169,21 +1185,21 @@ function PricingPreviewSection() {
           </div>
 
           <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
-            Live Pricing & Numerical Plan IDs
+            Live Pricing &amp; Numerical Plan IDs
           </h2>
           <p className="mt-4 text-slate-400 text-sm sm:text-base leading-relaxed">
             Real-time wholesale prices across all four Nigerian networks. Click any Plan ID to copy it instantly for developer API integration or retail vending on {brand.name}.
           </p>
 
           {/* Interactive Network Filter Tabs */}
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 max-w-full">
             <button
               type="button"
               onClick={() => {
                 setActiveTab('all');
                 setSearchQuery('');
               }}
-              className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+              className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                 activeTab === 'all'
                   ? 'bg-white/15 text-white border-white/30 shadow-lg backdrop-blur-md'
                   : 'bg-white/[0.03] text-slate-400 border-white/5 hover:bg-white/[0.07] hover:text-slate-200'
@@ -1204,7 +1220,7 @@ function PricingPreviewSection() {
                     setActiveTab(netKey);
                     setSearchQuery('');
                   }}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  className={`inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     isSelected
                       ? 'bg-white/15 text-white border-white/30 shadow-lg backdrop-blur-md'
                       : 'bg-white/[0.03] text-slate-400 border-white/5 hover:bg-white/[0.07] hover:text-slate-200'
@@ -1223,7 +1239,7 @@ function PricingPreviewSection() {
 
         {/* View Mode 1: 4-Network Overview Grid */}
         {activeTab === 'all' && (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {networks.map((netKey) => {
               const cfg = NETWORK_CONFIG[netKey];
               const displayPlans = getTopPlans(netKey);
@@ -1232,7 +1248,7 @@ function PricingPreviewSection() {
               return (
                 <div
                   key={netKey}
-                  className="group relative rounded-3xl bg-slate-900/70 border border-white/10 p-5 shadow-2xl backdrop-blur-xl transition-all duration-300 hover:border-white/20 hover:bg-slate-900/90 flex flex-col justify-between"
+                  className="group relative rounded-3xl bg-slate-900/70 border border-white/10 p-4 sm:p-5 shadow-2xl backdrop-blur-xl transition-all duration-300 hover:border-white/20 hover:bg-slate-900/90 flex flex-col justify-between"
                 >
                   {/* Subtle Top Network Glow */}
                   <div className={`absolute inset-x-0 top-0 h-1 rounded-t-3xl bg-gradient-to-r ${cfg.glow}`} />
@@ -1324,7 +1340,7 @@ function PricingPreviewSection() {
 
         {/* View Mode 2: Deep-Dive Single Network Table */}
         {activeTab !== 'all' && (
-          <div className="rounded-3xl bg-slate-900/80 border border-white/10 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
+          <div className="rounded-3xl bg-slate-900/80 border border-white/10 p-4 sm:p-6 lg:p-8 shadow-2xl backdrop-blur-xl max-w-full">
             {(() => {
               const cfg = NETWORK_CONFIG[activeTab];
               const allPlans = plans[activeTab] || [];
@@ -1361,8 +1377,8 @@ function PricingPreviewSection() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                      <div className="relative flex-1 sm:flex-initial">
                         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input
                           type="text"
@@ -1378,7 +1394,7 @@ function PricingPreviewSection() {
                           setActiveTab('all');
                           setSearchQuery('');
                         }}
-                        className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-medium border border-white/10 transition-colors whitespace-nowrap"
+                        className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-medium border border-white/10 transition-colors whitespace-nowrap text-center"
                       >
                         ← Back to All
                       </button>
@@ -1386,8 +1402,8 @@ function PricingPreviewSection() {
                   </div>
 
                   {/* Dense Detailed Plan Table */}
-                  <div className="mt-6 overflow-x-auto">
-                    <table className="w-full text-left text-xs">
+                  <div className="mt-6 overflow-x-auto -mx-2 sm:mx-0">
+                    <table className="w-full text-left text-xs min-w-[560px]">
                       <thead>
                         <tr className="text-[11px] text-slate-400 uppercase tracking-wider font-mono border-b border-white/10 pb-3">
                           <th className="py-3 px-3">Numerical Plan ID</th>
@@ -1575,7 +1591,7 @@ console.log(data);`
   };
 
   return (
-    <section className="bg-background px-4 py-24 sm:px-6 lg:px-8 border-t border-white/5">
+    <section className="bg-background px-4 py-20 sm:py-24 sm:px-6 lg:px-8 border-t border-white/5 w-full max-w-full overflow-hidden">
       <div className="mx-auto max-w-7xl">
         <div className="text-center max-w-3xl mx-auto mb-16">
           <div className="axis-label text-primary font-semibold">Dual Workspace</div>
@@ -1589,7 +1605,7 @@ console.log(data);`
 
         <div className="grid gap-8 lg:grid-cols-2">
           {/* Everyday Resellers */}
-          <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-8 flex flex-col justify-between hover:border-primary/40 transition-all duration-300">
+          <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-5 sm:p-8 flex flex-col justify-between hover:border-primary/40 transition-all duration-300">
             <div>
               <span className="text-xs font-semibold tracking-widest text-primary uppercase">For retail resellers</span>
               <h3 className="mt-4 text-2xl font-bold text-white">Top up data, send airtime, print receipts</h3>
@@ -1624,7 +1640,7 @@ console.log(data);`
           </div>
 
           {/* Developers */}
-          <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-8 flex flex-col justify-between hover:border-emerald-500/40 transition-all duration-300">
+          <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-5 sm:p-8 flex flex-col justify-between hover:border-emerald-500/40 transition-all duration-300">
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold tracking-widest text-emerald-400 uppercase font-mono">For Developers & VTU Portals</span>
@@ -1638,13 +1654,13 @@ console.log(data);`
               {/* Code snippet tabs */}
               <div className="mt-5 rounded-2xl bg-black/60 border border-white/10 overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 bg-white/5 border-b border-white/5">
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
                     {['curl', 'php', 'python', 'javascript'].map((lang) => (
                       <button
                         key={lang}
                         type="button"
                         onClick={() => setCodeTab(lang)}
-                        className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold uppercase transition-colors ${
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold uppercase transition-colors shrink-0 ${
                           codeTab === lang ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
@@ -1655,13 +1671,13 @@ console.log(data);`
                   <button
                     type="button"
                     onClick={copyCode}
-                    className="inline-flex items-center gap-1 text-[11px] font-mono text-slate-400 hover:text-white transition-colors"
+                    className="inline-flex items-center gap-1 text-[11px] font-mono text-slate-400 hover:text-white transition-colors shrink-0 ml-2"
                   >
                     {copiedCode ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                     <span>{copiedCode ? 'Copied!' : 'Copy'}</span>
                   </button>
                 </div>
-                <pre className="p-3 text-[11px] font-mono text-slate-300 overflow-x-auto leading-relaxed">
+                <pre className="p-3 text-[11px] font-mono text-slate-300 overflow-x-auto leading-relaxed max-w-full">
                   <code>{codeSnippets[codeTab]}</code>
                 </pre>
               </div>
@@ -1704,7 +1720,7 @@ function FloatingWhatsApp() {
 
 export function LandingPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground overflow-x-hidden w-full max-w-full">
       <Header />
       <Hero />
       <StatsStrip />

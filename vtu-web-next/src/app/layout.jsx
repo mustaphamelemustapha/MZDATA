@@ -3,17 +3,23 @@ import { LegacyCacheCleanup } from '@/components/legacy-cache-cleanup';
 
 export const metadata = {
   title: {
-    default: 'MZDATA',
-    template: '%s | MZDATA',
+    default: 'MELE DATA | Instant VTU, Airtime & Utility Bills',
+    template: '%s | MELE DATA',
   },
-  description: 'Premium fintech dashboard for MZDATA',
-  applicationName: 'MZDATA',
-  metadataBase: new URL('https://mzdata.org'),
+  description: 'Fast, reliable VTU payments for data, airtime, wallet funding, and everyday utility services.',
+  applicationName: 'MELE DATA',
+  metadataBase: new URL('https://meledata.ng'),
   icons: {
-    icon: '/brand/meledata-icon.png',
-    shortcut: '/brand/meledata-icon.png',
-    apple: '/brand/meledata-icon.png',
+    icon: '/brand/meledata-icon-clean.png',
+    shortcut: '/brand/meledata-icon-clean.png',
+    apple: '/brand/meledata-icon-clean.png',
   },
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({ children }) {
