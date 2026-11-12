@@ -319,21 +319,22 @@ function Hero() {
       {/* Background Glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-[450px] bg-primary/20 blur-[130px] rounded-full pointer-events-none" />
       
-      <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-16 sm:px-6 lg:px-8 lg:pb-28 lg:pt-20">
-        <div className="flex flex-col-reverse lg:grid lg:grid-cols-2 gap-12 items-center">
+      <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-12 sm:pt-16 sm:px-6 lg:px-8 lg:pb-28 lg:pt-20">
+        <div className="flex flex-col lg:grid lg:grid-cols-2 gap-10 lg:gap-12 items-center">
           <div className="flex flex-col items-center lg:items-start text-center lg:text-left">
             <motion.div
               variants={motionFadeUp}
               initial="hidden"
               animate="show"
               custom={0}
-              className="inline-flex items-center gap-2.5 rounded-full border border-primary/30 bg-primary/10 backdrop-blur-md px-3.5 sm:px-4 py-2 text-[11px] sm:text-xs font-semibold uppercase tracking-[0.16em] text-primary shadow-sm max-w-full truncate"
+              className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 backdrop-blur-md px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-primary shadow-sm max-w-[94vw]"
             >
               <span className="relative flex h-2 w-2 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
               </span>
-              <span className="truncate">{brand.name} • Official Telecom &amp; VTU Switch Engine</span>
+              <span className="sm:hidden font-mono">{brand.name} • Switch Engine</span>
+              <span className="hidden sm:inline font-mono">{brand.name} • Official Telecom &amp; VTU Switch Engine</span>
             </motion.div>
 
             <motion.h1
@@ -341,7 +342,7 @@ function Hero() {
               initial="hidden"
               animate="show"
               custom={0.08}
-              className="mt-6 max-w-3xl text-3xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-6xl xl:text-7xl leading-[1.15] break-words"
+              className="mt-5 max-w-3xl text-3xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-6xl xl:text-7xl leading-[1.18] break-words"
             >
               Instant VTU &amp; Telecom Infrastructure for Nigeria
             </motion.h1>
@@ -351,7 +352,7 @@ function Hero() {
               initial="hidden"
               animate="show"
               custom={0.16}
-              className="mt-6 max-w-2xl text-base sm:text-lg lg:text-xl leading-relaxed text-muted-foreground"
+              className="mt-4 max-w-2xl text-sm sm:text-base lg:text-xl leading-relaxed text-muted-foreground"
             >
               Vending high-speed data across MTN, Airtel, Glo, and 9mobile at rock-bottom wholesale prices. Built with a lightning-fast REST API for developers and a frictionless portal for retail users.
             </motion.p>
@@ -361,7 +362,7 @@ function Hero() {
               initial="hidden"
               animate="show"
               custom={0.24}
-              className="mt-8 flex flex-col sm:flex-row w-full sm:w-auto gap-3 sm:gap-4 items-stretch sm:items-center justify-center lg:justify-start"
+              className="mt-6 flex flex-col sm:flex-row w-full sm:w-auto gap-3 sm:gap-4 items-stretch sm:items-center justify-center lg:justify-start"
             >
               <Button asChild className="h-12 sm:h-14 w-full sm:w-auto rounded-full bg-primary px-6 sm:px-8 text-sm sm:text-base font-semibold text-primary-foreground shadow-lg shadow-blue-500/25 hover:bg-primary/90 transition-all hover:scale-105">
                 <Link href="/register" className="inline-flex items-center justify-center gap-2">
@@ -418,11 +419,11 @@ function Hero() {
               initial="hidden"
               animate="show"
               custom={0.32}
-              className="mt-10 flex flex-wrap justify-center lg:justify-start gap-3"
+              className="mt-6 flex flex-wrap justify-center lg:justify-start gap-2 sm:gap-2.5 w-full max-w-lg lg:max-w-none"
             >
               {heroPoints.map((point) => (
-                <div key={point} className="flex items-center gap-2 rounded-full border border-border/60 bg-card/50 backdrop-blur-sm px-4 py-2 text-xs sm:text-sm font-medium text-muted-foreground">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                <div key={point} className="flex items-center gap-1.5 sm:gap-2 rounded-full border border-border/60 bg-card/50 backdrop-blur-sm px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-medium text-muted-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-400 shrink-0" />
                   <span>{point}</span>
                 </div>
               ))}
@@ -430,10 +431,10 @@ function Hero() {
           </div>
           
           <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="relative h-[340px] sm:h-[420px] lg:h-[620px] w-full max-w-md lg:max-w-none mx-auto mt-8 lg:mt-0 overflow-hidden sm:overflow-visible"
+            className="relative h-[340px] sm:h-[420px] lg:h-[620px] w-full max-w-xs sm:max-w-md lg:max-w-none mx-auto mt-6 lg:mt-0 flex items-end justify-center"
           >
             {/* Animated Bubbles behind */}
             <motion.div 
@@ -504,7 +505,7 @@ function Hero() {
             </motion.div>
 
             {/* In-bounds mobile status badge */}
-            <div className="sm:hidden absolute bottom-3 inset-x-3 z-20 rounded-xl bg-slate-900/95 border border-emerald-500/30 p-2.5 shadow-xl backdrop-blur-md flex items-center justify-between">
+            <div className="sm:hidden absolute bottom-2 inset-x-2 z-20 rounded-xl bg-slate-900/95 border border-emerald-500/30 p-2.5 shadow-xl backdrop-blur-md flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="h-7 w-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
                   <CheckCircle2 className="w-4 h-4" />
@@ -523,7 +524,7 @@ function Hero() {
             <img 
               src="/brand/hero_woman.png" 
               alt={`Customer using ${brand.name}`} 
-              className="absolute bottom-0 left-1/2 -translate-x-1/2 h-[105%] w-auto object-contain object-bottom drop-shadow-2xl z-10 pointer-events-none"
+              className="relative max-h-full h-full w-auto object-contain object-bottom drop-shadow-2xl z-10 pointer-events-none"
             />
           </motion.div>
         </div>
@@ -1707,10 +1708,10 @@ function FloatingWhatsApp() {
       href={brand.whatsappLink}
       target="_blank"
       rel="noopener noreferrer"
-      className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-full bg-[#25D366] text-white shadow-2xl hover:scale-105 hover:bg-[#20ba59] transition-all duration-200 group border border-white/20"
+      className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex items-center gap-2 p-3 sm:px-4 sm:py-3 rounded-full bg-[#25D366] text-white shadow-2xl hover:scale-105 hover:bg-[#20ba59] transition-all duration-200 group border border-white/20"
       aria-label="Chat on WhatsApp"
     >
-      <MessageCircle className="w-5 h-5 fill-current" />
+      <MessageCircle className="w-5 h-5 fill-current shrink-0" />
       <span className="text-xs font-bold tracking-wide hidden sm:inline-block">
         Chat with Support
       </span>
