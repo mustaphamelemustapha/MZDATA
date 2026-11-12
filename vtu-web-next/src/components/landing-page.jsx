@@ -40,6 +40,14 @@ import { Separator } from '@/components/ui/separator';
 import { getActiveBrand } from '@/lib/brand';
 import { apiFetch } from '@/lib/api';
 
+function useBrand() {
+  const [brand, setBrand] = useState(() => getActiveBrand());
+  useEffect(() => {
+    setBrand(getActiveBrand());
+  }, []);
+  return brand;
+}
+
 const navLinks = [
   { label: 'Services', href: '#services' },
   { label: 'Live Pricing', href: '#pricing' },
@@ -161,7 +169,7 @@ const motionFadeUp = {
 };
 
 function BrandLogo({ className = '' }) {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   return (
     <span className={`inline-flex items-center gap-2.5 ${className}`.trim()}>
       <img src={brand.logo} alt={`${brand.name} logo`} className="h-10 w-10 rounded-2xl object-cover shadow-sm" />
@@ -305,7 +313,7 @@ function Header() {
 }
 
 function Hero() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   return (
     <section className="bg-background relative overflow-hidden">
       {/* Background Glow */}
@@ -542,7 +550,7 @@ function StatsStrip() {
 }
 
 function ServicesSection() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   return (
     <section id="services" className="bg-card px-4 py-24 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -594,7 +602,7 @@ function ServicesSection() {
 }
 
 function HowItWorksSection() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   const [role, setRole] = useState('retail');
 
   const retailSteps = [
@@ -728,7 +736,7 @@ function HowItWorksSection() {
 }
 
 function TrustSection() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   return (
     <section id="trust" className="bg-background px-4 py-24 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -782,7 +790,7 @@ function TrustSection() {
 }
 
 function AboutSection() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   return (
     <section id="about" className="bg-card px-4 py-24 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
@@ -832,7 +840,7 @@ function AboutSection() {
 }
 
 function FaqSection() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   const [activeIndex, setActiveIndex] = useState(0);
 
   return (
@@ -913,7 +921,7 @@ function FaqSection() {
 }
 
 function Footer() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   return (
     <footer className="border-t border-white/10 bg-black px-4 py-16 text-slate-300 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -1088,7 +1096,7 @@ function parseApiPlans(rawPlans) {
 }
 
 function PricingPreviewSection() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   const [plans, setPlans] = useState(FALLBACK_PLANS);
   const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1497,7 +1505,7 @@ function PricingPreviewSection() {
 }
 
 function WorkspaceSection() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   const [codeTab, setCodeTab] = useState('curl');
   const [copiedCode, setCopiedCode] = useState(false);
 
@@ -1675,7 +1683,7 @@ console.log(data);`
 }
 
 function FloatingWhatsApp() {
-  const brand = getActiveBrand();
+  const brand = useBrand();
   if (!brand.whatsappLink) return null;
 
   return (
