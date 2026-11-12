@@ -23,10 +23,17 @@ import {
   History,
   BookOpen,
   Zap,
+  Copy,
+  Check,
+  Search,
+  ExternalLink,
+  Layers,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { getActiveBrand } from '@/lib/brand';
+import { apiFetch } from '@/lib/api';
 
 const navLinks = [
   { label: 'What you can do', href: '#services' },
@@ -674,129 +681,525 @@ function Footer() {
   );
 }
 
+const NETWORK_CONFIG = {
+  mtn: {
+    id: 1,
+    name: 'MTN Nigeria',
+    short: 'MTN',
+    networkId: 1,
+    badgeBg: 'bg-[#FFCC00] text-black font-extrabold',
+    accentColor: '#FFCC00',
+    glow: 'from-amber-500/20 via-yellow-400/5 to-transparent',
+    border: 'border-amber-500/30 hover:border-amber-400/60',
+    dot: 'bg-[#FFCC00]',
+    badgeLabel: 'Instant SME & Gifting',
+  },
+  airtel: {
+    id: 4,
+    name: 'Airtel Nigeria',
+    short: 'Airtel',
+    networkId: 4,
+    badgeBg: 'bg-[#ED1C24] text-white font-extrabold',
+    accentColor: '#ED1C24',
+    glow: 'from-rose-500/20 via-red-500/5 to-transparent',
+    border: 'border-rose-500/30 hover:border-rose-400/60',
+    dot: 'bg-[#ED1C24]',
+    badgeLabel: 'Fast 4G Corporate',
+  },
+  glo: {
+    id: 2,
+    name: 'GLO Nigeria',
+    short: 'GLO',
+    networkId: 2,
+    badgeBg: 'bg-[#00843D] text-white font-extrabold',
+    accentColor: '#00843D',
+    glow: 'from-emerald-500/20 via-green-500/5 to-transparent',
+    border: 'border-emerald-500/30 hover:border-emerald-400/60',
+    dot: 'bg-[#00843D]',
+    badgeLabel: 'High-Volume Gifting',
+  },
+  '9mobile': {
+    id: 3,
+    name: '9mobile Nigeria',
+    short: '9mobile',
+    networkId: 3,
+    badgeBg: 'bg-[#00573F] text-[#00E575] font-extrabold',
+    accentColor: '#00E575',
+    glow: 'from-lime-500/20 via-teal-500/5 to-transparent',
+    border: 'border-lime-500/30 hover:border-lime-400/60',
+    dot: 'bg-[#00E575]',
+    badgeLabel: 'Lowest Cost (C.G)',
+  },
+};
+
+const FALLBACK_PLANS = {
+  mtn: [
+    { id: 546, name: '500MB(SME)', size: '500MB', days: '30d', type: 'SME', price: 299 },
+    { id: 530, name: '1GB (SME)', size: '1GB', days: '30d', type: 'SME', price: 439 },
+    { id: 531, name: '2GB (SME)', size: '2GB', days: '30d', type: 'SME', price: 849 },
+    { id: 539, name: '3GB (SME)', size: '3GB', days: '30d', type: 'SME', price: 1299 },
+    { id: 529, name: '5GB (SME)', size: '5GB', days: '30d', type: 'SME', price: 1800 },
+    { id: 591, name: '10GB', size: '10GB', days: '30d', type: 'SME', price: 3899 },
+  ],
+  airtel: [
+    { id: 448, name: '600MB (SME)', size: '600MB', days: '30d', type: 'SME', price: 230 },
+    { id: 571, name: '1GB (GIFTING)', size: '1GB', days: '30d', type: 'GIFTING', price: 500 },
+    { id: 451, name: '1.5GB (SME)', size: '1.5GB', days: '30d', type: 'SME', price: 550 },
+    { id: 454, name: '2GB (SME)', size: '2GB', days: '30d', type: 'SME', price: 630 },
+    { id: 455, name: '5GB (SME)', size: '5GB', days: '30d', type: 'SME', price: 1800 },
+    { id: 449, name: '10GB (SME)', size: '10GB', days: '30d', type: 'SME', price: 3600 },
+  ],
+  glo: [
+    { id: 570, name: '500MB (C.G)', size: '500MB', days: '30d', type: 'C.G', price: 250 },
+    { id: 587, name: '1GB(C.G)', size: '1GB', days: '30d', type: 'C.G', price: 410 },
+    { id: 588, name: '2GB(C.G)', size: '2GB', days: '30d', type: 'C.G', price: 820 },
+    { id: 589, name: '3GB(C.G)', size: '3GB', days: '30d', type: 'C.G', price: 1230 },
+    { id: 590, name: '5GB(C.G)', size: '5GB', days: '30d', type: 'C.G', price: 1980 },
+    { id: 580, name: '10GB (C.G)', size: '10GB', days: '30d', type: 'C.G', price: 4300 },
+  ],
+  '9mobile': [
+    { id: 510, name: '500MB (C.G)', size: '500MB', days: '30d', type: 'C.G', price: 250 },
+    { id: 595, name: '1GB [Corporate]', size: '1GB', days: '30d', type: 'Corp', price: 500 },
+    { id: 512, name: '2GB (C.G)', size: '2GB', days: '30d', type: 'C.G', price: 960 },
+    { id: 513, name: '3GB (C.G)', size: '3GB', days: '30d', type: 'C.G', price: 1500 },
+    { id: 514, name: '5GB (C.G)', size: '5GB', days: '30d', type: 'C.G', price: 2500 },
+    { id: 515, name: '10GB (C.G)', size: '10GB', days: '30d', type: 'C.G', price: 4900 },
+  ],
+};
+
+function parseApiPlans(rawPlans) {
+  const result = { mtn: [], airtel: [], glo: [], '9mobile': [] };
+  if (!Array.isArray(rawPlans)) return result;
+
+  rawPlans.forEach((p) => {
+    const net = String(p.network || '').toLowerCase().trim();
+    let key = null;
+    if (net.includes('mtn')) key = 'mtn';
+    else if (net.includes('airtel')) key = 'airtel';
+    else if (net.includes('glo')) key = 'glo';
+    else if (net.includes('9mobile') || net.includes('etisalat')) key = '9mobile';
+
+    if (key && p.id && p.price !== undefined && p.price !== null) {
+      result[key].push({
+        id: p.id,
+        name: p.plan_name || `${p.data_size || ''} Plan`,
+        size: p.data_size || p.plan_name || 'Bundle',
+        days: p.validity ? p.validity.replace(/days?/i, 'd').trim() : '30d',
+        type: p.data_type || (p.plan_name?.includes('SME') ? 'SME' : p.plan_name?.includes('GIFT') ? 'GIFT' : 'C.G'),
+        price: Number(p.price || 0),
+      });
+    }
+  });
+
+  Object.keys(result).forEach((k) => {
+    result[k].sort((a, b) => a.price - b.price);
+  });
+
+  return result;
+}
+
 function PricingPreviewSection() {
-  const mtnPlans = [
-    { id: 5000, size: '500MB', days: '30d', price: '₦300' },
-    { id: 1881, size: '1GB', days: '30d', price: '₦399' },
-    { id: 6666, size: '2GB', days: '30d', price: '₦800' },
-    { id: 3333, size: '3GB', days: '30d', price: '₦1200' },
-    { id: 9999, size: '5GB', days: '30d', price: '₦1900' },
+  const brand = getActiveBrand();
+  const [plans, setPlans] = useState(FALLBACK_PLANS);
+  const [activeTab, setActiveTab] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [copiedId, setCopiedId] = useState(null);
+  const [isLive, setIsLive] = useState(false);
 
-  ];
+  useEffect(() => {
+    let isMounted = true;
+    async function loadPlans() {
+      try {
+        const raw = await apiFetch('/data/plans', { cache: 'no-store' });
+        const list = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+        if (list.length > 0 && isMounted) {
+          const parsed = parseApiPlans(list);
+          const hasAny = Object.values(parsed).some((arr) => arr.length > 0);
+          if (hasAny) {
+            setPlans(parsed);
+            setIsLive(true);
+          }
+        }
+      } catch {
+        // Gracefully stay on curated production fallback plans
+      }
+    }
+    loadPlans();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-  const gloPlans = [
-    { id: 199, size: '1GB', days: '30d', price: '₦399' },
-    { id: 198, size: '2GB', days: '30d', price: '₦800' },
-    { id: 194, size: '5GB', days: '30d', price: '₦1,900' },
-    { id: 195, size: '10GB', days: '30d', price: '₦4,000' },
-  ];
+  const copyPlanId = (id, e) => {
+    e?.stopPropagation?.();
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(String(id));
+      setCopiedId(id);
+      setTimeout(() => {
+        setCopiedId((curr) => (curr === id ? null : curr));
+      }, 2000);
+    }
+  };
 
-  const airtelPlans = [
-    { id: 163, size: '1GB', days: '30d', price: '₦280' },
-    { id: 145, size: '2GB', days: '30d', price: '₦560' },
-    { id: 146, size: '5GB', days: '30d', price: '₦1,400' },
-    { id: 147, size: '10GB', days: '30d', price: '₦2,800' },
-  ];
+  const totalPlansCount = Object.values(plans).reduce((acc, curr) => acc + (curr?.length || 0), 0);
+
+  const getTopPlans = (netKey) => {
+    const list = plans[netKey] || [];
+    if (list.length <= 6) return list;
+    return list.slice(0, 6);
+  };
+
+  const networks = ['mtn', 'airtel', 'glo', '9mobile'];
 
   return (
-    <section id="pricing" className="bg-card px-4 py-24 sm:px-6 lg:px-8 border-t border-white/5">
-      <div className="mx-auto max-w-7xl">
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="axis-label text-primary">Live Pricing Preview</div>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-            Mobile data across every Nigerian network
+    <section id="pricing" className="relative bg-[#07090E] px-4 py-24 sm:px-6 lg:px-8 border-t border-white/5 overflow-hidden">
+      {/* Background ambient lighting */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-96 bg-gradient-to-b from-blue-500/10 via-emerald-500/5 to-transparent blur-3xl pointer-events-none" />
+
+      <div className="relative mx-auto max-w-7xl">
+        {/* Section Header */}
+        <div className="text-center max-w-3xl mx-auto mb-14">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-white/[0.04] border border-white/10 text-xs font-semibold text-emerald-400 mb-4 backdrop-blur-md">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            <span className="tracking-wide uppercase font-mono text-[11px]">
+              {isLive ? 'Live Production Switch Catalog' : 'Verified Wholesale Rate Card'}
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="text-slate-400 font-mono text-[11px]">{totalPlansCount || 58}+ Active Plans</span>
+          </div>
+
+          <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
+            Live Pricing & Numerical Plan IDs
           </h2>
-          <p className="mt-4 text-slate-400 text-sm leading-6">
-            MTN, Glo, Airtel, 9mobile. Live plan prices below — the same catalog your integration calls. Plans are rated for reliability so you can pick what's safe for production traffic.
+          <p className="mt-4 text-slate-400 text-sm sm:text-base leading-relaxed">
+            Real-time wholesale prices across all four Nigerian networks. Click any Plan ID to copy it instantly for developer API integration or retail vending on {brand.name}.
           </p>
+
+          {/* Interactive Network Filter Tabs */}
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('all');
+                setSearchQuery('');
+              }}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                activeTab === 'all'
+                  ? 'bg-white/15 text-white border-white/30 shadow-lg backdrop-blur-md'
+                  : 'bg-white/[0.03] text-slate-400 border-white/5 hover:bg-white/[0.07] hover:text-slate-200'
+              }`}
+            >
+              All Networks (4)
+            </button>
+
+            {networks.map((netKey) => {
+              const cfg = NETWORK_CONFIG[netKey];
+              const count = plans[netKey]?.length || 0;
+              const isSelected = activeTab === netKey;
+              return (
+                <button
+                  key={netKey}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(netKey);
+                    setSearchQuery('');
+                  }}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    isSelected
+                      ? 'bg-white/15 text-white border-white/30 shadow-lg backdrop-blur-md'
+                      : 'bg-white/[0.03] text-slate-400 border-white/5 hover:bg-white/[0.07] hover:text-slate-200'
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
+                  <span>{cfg.short}</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/10 text-slate-300">
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          {/* MTN Column */}
-          <div className="bg-slate-900/60 border border-border rounded-3xl p-6 shadow-xl backdrop-blur-sm">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-yellow-500" />
-                <span className="font-bold text-foreground">MTN</span>
-              </div>
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">network 1</span>
+        {/* View Mode 1: 4-Network Overview Grid */}
+        {activeTab === 'all' && (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {networks.map((netKey) => {
+              const cfg = NETWORK_CONFIG[netKey];
+              const displayPlans = getTopPlans(netKey);
+              const totalNetPlans = plans[netKey]?.length || 0;
+
+              return (
+                <div
+                  key={netKey}
+                  className="group relative rounded-3xl bg-slate-900/70 border border-white/10 p-5 shadow-2xl backdrop-blur-xl transition-all duration-300 hover:border-white/20 hover:bg-slate-900/90 flex flex-col justify-between"
+                >
+                  {/* Subtle Top Network Glow */}
+                  <div className={`absolute inset-x-0 top-0 h-1 rounded-t-3xl bg-gradient-to-r ${cfg.glow}`} />
+
+                  <div>
+                    {/* Network Card Header */}
+                    <div className="flex items-center justify-between mb-5 pb-3 border-b border-white/5">
+                      <div className="flex items-center gap-2.5">
+                        <span className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wider ${cfg.badgeBg}`}>
+                          {cfg.short}
+                        </span>
+                        <div className="flex flex-col">
+                          <span className="font-bold text-white text-sm">{cfg.name}</span>
+                          <span className="text-[10px] text-slate-500 font-mono">{cfg.tag}</span>
+                        </div>
+                      </div>
+                      <span className="text-[9px] font-mono text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                        ● Instant
+                      </span>
+                    </div>
+
+                    {/* Pricing Table */}
+                    <table className="w-full text-xs text-left">
+                      <thead>
+                        <tr className="text-[10px] text-slate-500 uppercase tracking-wider font-mono border-b border-white/5">
+                          <th className="pb-2">Plan ID</th>
+                          <th className="pb-2">Size</th>
+                          <th className="pb-2">Type</th>
+                          <th className="pb-2 text-right">Wholesale</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.04]">
+                        {displayPlans.map((p) => {
+                          const isCopied = copiedId === p.id;
+                          return (
+                            <tr
+                              key={p.id}
+                              className="group/row hover:bg-white/[0.04] transition-colors cursor-pointer"
+                              onClick={(e) => copyPlanId(p.id, e)}
+                              title="Click to copy Plan ID"
+                            >
+                              <td className="py-2.5">
+                                <span
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-bold transition-all ${
+                                    isCopied
+                                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                      : 'bg-white/5 text-slate-300 border border-white/10 group-hover/row:border-white/20 group-hover/row:text-white'
+                                  }`}
+                                >
+                                  #{p.id}
+                                  {isCopied ? (
+                                    <Check className="w-2.5 h-2.5 text-emerald-400" />
+                                  ) : (
+                                    <Copy className="w-2.5 h-2.5 text-slate-500 group-hover/row:text-slate-300" />
+                                  )}
+                                </span>
+                              </td>
+                              <td className="py-2.5 font-bold text-white text-xs">{p.size}</td>
+                              <td className="py-2.5 text-[10px] text-slate-400 font-mono">
+                                {p.type || '30d'}
+                              </td>
+                              <td className="py-2.5 text-right font-bold text-emerald-400 text-xs">
+                                ₦{p.price.toLocaleString()}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Card Bottom CTA */}
+                  <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab(netKey)}
+                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 font-medium transition-colors"
+                    >
+                      <span>View all {totalNetPlans} plans</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                    <span className="text-[10px] text-slate-500 font-mono">30 Days</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* View Mode 2: Deep-Dive Single Network Table */}
+        {activeTab !== 'all' && (
+          <div className="rounded-3xl bg-slate-900/80 border border-white/10 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
+            {(() => {
+              const cfg = NETWORK_CONFIG[activeTab];
+              const allPlans = plans[activeTab] || [];
+              const filtered = allPlans.filter((p) => {
+                if (!searchQuery.trim()) return true;
+                const q = searchQuery.toLowerCase();
+                return (
+                  String(p.id).includes(q) ||
+                  p.name?.toLowerCase().includes(q) ||
+                  p.size?.toLowerCase().includes(q) ||
+                  p.type?.toLowerCase().includes(q) ||
+                  String(p.price).includes(q)
+                );
+              });
+
+              return (
+                <div>
+                  {/* Top Bar for Single Network */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-white/10">
+                    <div className="flex items-center gap-3">
+                      <span className={`px-2.5 py-1 rounded text-xs uppercase tracking-wider ${cfg.badgeBg}`}>
+                        {cfg.short}
+                      </span>
+                      <div>
+                        <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                          <span>{cfg.name}</span>
+                          <span className="text-xs font-mono font-normal text-slate-400">
+                            ({filtered.length} plans available)
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-400 font-mono mt-0.5">
+                          API Parameter: <code className="text-emerald-400">network={cfg.networkId}</code> • Sub-second Switch Delivery
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search size, price, ID..."
+                          className="pl-9 pr-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-white/30 w-full sm:w-60 font-mono"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('all');
+                          setSearchQuery('');
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white font-medium border border-white/10 transition-colors whitespace-nowrap"
+                      >
+                        ← Back to All
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dense Detailed Plan Table */}
+                  <div className="mt-6 overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="text-[11px] text-slate-400 uppercase tracking-wider font-mono border-b border-white/10 pb-3">
+                          <th className="py-3 px-3">Numerical Plan ID</th>
+                          <th className="py-3 px-3">Bundle Name</th>
+                          <th className="py-3 px-3">Data Size</th>
+                          <th className="py-3 px-3">Package Type</th>
+                          <th className="py-3 px-3">Validity</th>
+                          <th className="py-3 px-3 text-right">Wholesale Price</th>
+                          <th className="py-3 px-3 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {filtered.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-8 text-center text-slate-400">
+                              No plans matching &quot;{searchQuery}&quot; found.
+                            </td>
+                          </tr>
+                        ) : (
+                          filtered.map((p) => {
+                            const isCopied = copiedId === p.id;
+                            return (
+                              <tr key={p.id} className="hover:bg-white/[0.03] transition-colors">
+                                <td className="py-3 px-3">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => copyPlanId(p.id, e)}
+                                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono font-bold transition-all ${
+                                      isCopied
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                        : 'bg-white/5 text-slate-200 border border-white/10 hover:border-white/25 hover:text-white'
+                                    }`}
+                                  >
+                                    <span>#{p.id}</span>
+                                    {isCopied ? (
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                    ) : (
+                                      <Copy className="w-3 h-3 text-slate-400" />
+                                    )}
+                                  </button>
+                                </td>
+                                <td className="py-3 px-3 font-medium text-white">{p.name}</td>
+                                <td className="py-3 px-3 font-bold text-white font-mono">{p.size}</td>
+                                <td className="py-3 px-3">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-white/5 text-slate-300 border border-white/10">
+                                    {p.type}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3 text-slate-400 font-mono">{p.days}</td>
+                                <td className="py-3 px-3 text-right font-extrabold text-emerald-400 text-sm font-mono">
+                                  ₦{p.price.toLocaleString()}
+                                </td>
+                                <td className="py-3 px-3 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => copyPlanId(p.id, e)}
+                                    className="text-[11px] font-medium text-slate-400 hover:text-white transition-colors"
+                                  >
+                                    {isCopied ? 'Copied!' : 'Copy ID'}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Developer & Reseller Integration Banner */}
+        <div className="mt-12 rounded-3xl bg-gradient-to-r from-slate-900/90 via-slate-900/60 to-slate-950/90 border border-white/10 p-6 sm:p-8 backdrop-blur-xl shadow-2xl flex flex-col lg:flex-row items-center justify-between gap-6">
+          <div className="space-y-2 text-center lg:text-left">
+            <div className="inline-flex items-center gap-2 text-xs font-semibold text-primary uppercase tracking-wider">
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>Developer API & Reseller Portal</span>
             </div>
-            <table className="w-full text-xs text-left">
-              <thead>
-                <tr className="text-[10px] text-slate-500 uppercase border-b border-border/80 pb-2">
-                  <th className="py-2">Size</th>
-                  <th className="py-2">Days</th>
-                  <th className="py-2 text-right">Price</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/40 text-slate-300 font-medium">
-                {mtnPlans.map((p) => (
-                  <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                    <td className="py-3 text-foreground">{p.size}</td>
-                    <td className="py-3 text-slate-500">{p.days}</td>
-                    <td className="py-3 text-right text-foreground font-bold">{p.price}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <h3 className="text-xl sm:text-2xl font-bold text-white">
+              Automate your VTU website with these exact Plan IDs
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-2xl leading-relaxed">
+              Standardized JSON endpoints, sub-second delivery, automatic webhook callbacks, and ₦1,000,000 sandbox test balance. No developer expertise required to plug in.
+            </p>
           </div>
 
-          {/* Glo Column */}
-          <div className="bg-slate-900/60 border border-border rounded-3xl p-6 shadow-xl backdrop-blur-sm">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-green-500" />
-                <span className="font-bold text-foreground">GLO</span>
-              </div>
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">network 2</span>
-            </div>
-            <table className="w-full text-xs text-left">
-              <thead>
-                <tr className="text-[10px] text-slate-500 uppercase border-b border-border/80 pb-2">
-                  <th className="py-2">Size</th>
-                  <th className="py-2">Days</th>
-                  <th className="py-2 text-right">Price</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/40 text-slate-300 font-medium">
-                {gloPlans.map((p) => (
-                  <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                    <td className="py-3 text-foreground">{p.size}</td>
-                    <td className="py-3 text-slate-500">{p.days}</td>
-                    <td className="py-3 text-right text-foreground font-bold">{p.price}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Airtel Column */}
-          <div className="bg-slate-900/60 border border-border rounded-3xl p-6 shadow-xl backdrop-blur-sm">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-red-500" />
-                <span className="font-bold text-foreground">Airtel</span>
-              </div>
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">network 4</span>
-            </div>
-            <table className="w-full text-xs text-left">
-              <thead>
-                <tr className="text-[10px] text-slate-500 uppercase border-b border-border/80 pb-2">
-                  <th className="py-2">Size</th>
-                  <th className="py-2">Days</th>
-                  <th className="py-2 text-right">Price</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/40 text-slate-300 font-medium">
-                {airtelPlans.map((p) => (
-                  <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                    <td className="py-3 text-foreground">{p.size}</td>
-                    <td className="py-3 text-slate-500">{p.days}</td>
-                    <td className="py-3 text-right text-foreground font-bold">{p.price}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex flex-wrap items-center justify-center gap-3 w-full lg:w-auto">
+            <Button
+              asChild
+              className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 px-5 h-11 text-xs font-semibold shadow-lg"
+            >
+              <Link href="/documentation" className="inline-flex items-center gap-2">
+                <BookOpen className="w-4 h-4" />
+                <span>Open API Documentation</span>
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              className="rounded-xl border-white/10 bg-white/5 hover:bg-white/10 text-white px-5 h-11 text-xs font-semibold"
+            >
+              <Link href="/register" className="inline-flex items-center gap-2">
+                <span>Get API Token</span>
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </Button>
           </div>
         </div>
       </div>
