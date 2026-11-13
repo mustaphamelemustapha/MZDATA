@@ -67,25 +67,127 @@ class TelecomAbodeProvider:
         try:
             _db = db or SessionLocal()
             try:
-                db_prov = _db.query(IntegrationProvider).filter(IntegrationProvider.identifier == "telecom_abode").first()
+                db_prov = _db.query(IntegrationProvider).filter(IntegrationProvider.identifier.in_(["telecom_abode", "telecomabode"])).first()
             finally:
                 if db is None:
                     _db.close()
         except Exception as e:
             logger.warning(f"Could not load telecom_abode config from DB: {e}")
 
-        if db_prov and db_prov.is_active:
-            self.base_url = str(base_url or db_prov.base_url or settings.telecom_abode_base_url).rstrip("/")
-            self.api_key = api_key if api_key else (db_prov.api_key or settings.telecom_abode_api_key)
-        else:
-            self.base_url = str(base_url or settings.telecom_abode_base_url).rstrip("/")
-            self.api_key = api_key if api_key else settings.telecom_abode_api_key
+        resolved_key = api_key or (db_prov.api_key if db_prov and db_prov.api_key else getattr(settings, "telecom_abode_api_key", ""))
+        resolved_base = base_url or (db_prov.base_url if db_prov and db_prov.base_url else getattr(settings, "telecom_abode_base_url", "https://telecomabode.com.ng/api"))
 
+        self.base_url = str(resolved_base).rstrip("/")
+        self.api_key = resolved_key.strip() if resolved_key else ""
         self.timeout = float(getattr(settings, "telecom_abode_timeout_seconds", 25))
         self._cached_discos: list[dict] = []
         self._cached_discos_ts: float = 0.0
         self._cached_exams: list[dict] = []
         self._cached_exams_ts: float = 0.0
+
+    def get_balance(self) -> Optional[float]:
+        """
+        GET /api/user
+        Returns user wallet balance as a float.
+        """
+        if not self.api_key:
+            return None
+        url = f"{self.base_url}/user"
+        try:
+            response = _TELECOM_ABODE_CLIENT.get(url, headers=self._get_headers())
+            if response.status_code == 200:
+                data = self._json_or_none(response)
+                if isinstance(data, dict):
+                    bal = data.get("balance") or data.get("wallet")
+                    if bal is None and isinstance(data.get("user"), dict):
+                        bal = data["user"].get("wallet") or data["user"].get("balance")
+                    if bal is not None:
+                        return float(bal)
+        except Exception as exc:
+            logger.warning("TelecomAbode get_balance failed: %s", exc)
+        return None
+
+    def fetch_data_plans(self, network: Optional[str] = None) -> list[dict]:
+        """
+        GET /api/data_plans (or /api/data/data_plans)
+        Returns list of live data plans from Telecom Abode.
+        """
+        if not self.api_key:
+            return []
+
+        clean_base = self.base_url.rstrip("/")
+        candidates = [
+            f"{clean_base}/data_plans",
+            f"{clean_base}/data/data_plans",
+        ]
+        if not clean_base.endswith("/api"):
+            candidates.insert(0, f"{clean_base}/api/data_plans")
+            candidates.insert(1, f"{clean_base}/api/data/data_plans")
+
+        raw_items = []
+        for url in candidates:
+            try:
+                response = _TELECOM_ABODE_CLIENT.get(url, headers=self._get_headers())
+                if response.status_code == 200:
+                    data = self._json_or_none(response)
+                    if isinstance(data, list) and len(data) > 0:
+                        raw_items = data
+                        break
+                    elif isinstance(data, dict):
+                        items = data.get("data") or data.get("plans") or []
+                        if isinstance(items, list) and len(items) > 0:
+                            raw_items = items
+                            break
+            except Exception as exc:
+                logger.warning("TelecomAbode fetch_data_plans failed on %s: %s", url, exc)
+
+        network_name_map = {
+            "1": "mtn",
+            "2": "airtel",
+            "3": "glo",
+            "4": "9mobile",
+        }
+
+        parsed_plans = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+
+            raw_nw = str(item.get("network") or "").strip().lower()
+            nw = network_name_map.get(raw_nw, raw_nw)
+            if "mtn" in nw:
+                nw = "mtn"
+            elif "airtel" in nw:
+                nw = "airtel"
+            elif "glo" in nw:
+                nw = "glo"
+            elif "9mobile" in nw or "etisalat" in nw:
+                nw = "9mobile"
+
+            if network and nw != network.strip().lower():
+                continue
+
+            p_id = str(item.get("plan_id") or item.get("id") or "")
+            data_size = str(item.get("datasize") or item.get("data_size") or item.get("size") or "")
+            plan_type = str(item.get("type") or item.get("plan_type") or "SME").strip()
+            days = str(item.get("day") or item.get("days") or "30").strip()
+            validity = f"{days} Days" if days and not days.lower().endswith("days") else (days or "30 Days")
+            price = float(item.get("price") or item.get("amount") or 0)
+            plan_name = f"{nw.upper()} {plan_type} {data_size} ({validity})"
+
+            parsed_plans.append({
+                "network": nw,
+                "plan_code": f"telecom_abode:{nw}:{p_id}",
+                "plan_name": plan_name,
+                "data_size": data_size,
+                "type": plan_type,
+                "validity": validity,
+                "price": price,
+                "provider": "telecom_abode",
+                "provider_plan_id": p_id,
+            })
+
+        return parsed_plans
 
     def _get_headers(self) -> dict:
         token = (self.api_key or "").strip()
@@ -168,11 +270,15 @@ class TelecomAbodeProvider:
         if not self.api_key:
             return {"status": "failed", "error": "Telecom Abode API key is not configured"}
 
-        url = f"{self.base_url}/data"
+        clean_base = self.base_url.rstrip("/")
+        url = f"{clean_base}/data"
+        raw_p = str(plan_id or "").strip()
+        clean_plan = int(raw_p) if raw_p.isdigit() else raw_p
         payload = {
             "network": self._map_network_to_id(network),
             "phone": str(phone),
-            "plan": str(plan_id),
+            "plan": clean_plan,
+            "bypass": True,
             "request-id": str(request_id),
         }
 
@@ -182,21 +288,21 @@ class TelecomAbodeProvider:
             res_data = self._json_or_none(response) or {}
             status_value = str(res_data.get("status") or "").lower()
             inner_status = str(res_data.get("Status") or "").lower()
-            message = str(res_data.get("message") or "")
+            message = str(res_data.get("message") or res_data.get("msg") or res_data.get("response") or res_data.get("api_response") or "")
 
-            if status_value == "success" or inner_status == "successful":
+            if status_value in ("success", "delivered") or inner_status in ("successful", "success", "delivered"):
                 return {
                     "status": "success",
-                    "provider_reference": str(res_data.get("request-id") or request_id),
-                    "message": message,
+                    "provider_reference": str(res_data.get("request-id") or res_data.get("id") or request_id),
+                    "message": message or "Data purchase successful",
                     "error": message,
                     "meta": res_data,
                 }
-            elif status_value == "pending" or inner_status == "pending":
+            elif status_value in ("pending", "processing") or inner_status in ("pending", "processing"):
                 return {
                     "status": "pending",
-                    "provider_reference": str(res_data.get("request-id") or request_id),
-                    "message": message,
+                    "provider_reference": str(res_data.get("request-id") or res_data.get("id") or request_id),
+                    "message": message or "Data purchase pending",
                     "error": message,
                     "meta": res_data,
                 }
@@ -385,10 +491,18 @@ class TelecomAbodeProvider:
             logger.error("TelecomAbode verify_meter exception: %s", exc)
             return {"ok": False, "message": f"Meter verification error: {str(exc)}"}
 
-    def purchase_electricity(self, disco: str | int, meter_number: str, meter_type: str, amount: float, request_id: str) -> Dict[str, Any]:
+    def purchase_electricity(
+        self,
+        disco: str | int,
+        meter_number: str,
+        meter_type: str,
+        amount: float,
+        request_id: str,
+        phone: str | None = None,
+    ) -> Dict[str, Any]:
         """
         POST /api/bill
-        Body: {"disco": <int>, "meter_number": <str>, "meter_type": "prepaid"|"postpaid", "amount": <str>, "request-id": <str>}
+        Body: {"disco": <int>, "meter_number": <str>, "meter_type": "prepaid"|"postpaid", "amount": <str>, "phone": <str>, "request-id": <str>}
         """
         if not self.api_key:
             return {"status": "failed", "error": "Telecom Abode API key is not configured", "message": "API key not configured"}
@@ -398,6 +512,12 @@ class TelecomAbodeProvider:
         clean_meter = str(meter_number).strip()
         clean_amount = str(int(amount))
 
+        clean_phone = re.sub(r"[^\d]", "", str(phone or "")).strip()
+        if not clean_phone or len(clean_phone) < 10:
+            clean_phone = "08012345678"
+        elif clean_phone.startswith("234") and len(clean_phone) == 13:
+            clean_phone = "0" + clean_phone[3:]
+
         url = f"{self.base_url}/bill"
         payload = {
             "disco": disco_id,
@@ -405,13 +525,15 @@ class TelecomAbodeProvider:
             "meter_number": clean_meter,
             "meter_type": clean_type,
             "amount": clean_amount,
+            "phone": clean_phone,
+            "phone_number": clean_phone,
             "request-id": str(request_id),
         }
 
         try:
             response = _TELECOM_ABODE_CLIENT.post(url, json=payload, headers=self._get_headers())
-            logger.info("TelecomAbode purchase_electricity POST %s disco=%d meter=%s amount=%s status=%d",
-                        url, disco_id, clean_meter, clean_amount, response.status_code)
+            logger.info("TelecomAbode purchase_electricity POST %s disco=%d meter=%s amount=%s phone=%s status=%d",
+                        url, disco_id, clean_meter, clean_amount, clean_phone, response.status_code)
             res_data = self._json_or_none(response) or {}
 
             status_value = str(res_data.get("status") or "").lower()
@@ -428,6 +550,30 @@ class TelecomAbodeProvider:
                 match = _TOKEN_RE.search(search_text) or _GENERIC_TOKEN_RE.search(search_text)
                 if match:
                     token = match.group(1 if match.lastindex else 0).strip()
+
+            # If pending and token not yet issued, check idempotency after 2.5s
+            if (status_value == "pending" or inner_status == "pending") and not token:
+                logger.info("TelecomAbode purchase_electricity is pending, checking idempotency after 2.5s for ref=%s", ref)
+                time.sleep(2.5)
+                try:
+                    retry_resp = _TELECOM_ABODE_CLIENT.post(url, json=payload, headers=self._get_headers())
+                    retry_data = self._json_or_none(retry_resp) or {}
+                    if retry_data:
+                        r_status = str(retry_data.get("status") or "").lower()
+                        r_inner = str(retry_data.get("Status") or "").lower()
+                        if r_status in ("success", "successful") or r_inner in ("success", "successful"):
+                            res_data = retry_data
+                            status_value = "success"
+                            inner_status = "successful"
+                            message = str(res_data.get("message") or "")
+                            token = str(res_data.get("token") or "").strip()
+                            if not token:
+                                search_text = f"{res_data.get('response', '')} {res_data.get('api_response', '')} {message}"
+                                match = _TOKEN_RE.search(search_text) or _GENERIC_TOKEN_RE.search(search_text)
+                                if match:
+                                    token = match.group(1 if match.lastindex else 0).strip()
+                except Exception as r_exc:
+                    logger.warning("TelecomAbode idempotency check exception: %s", r_exc)
 
             meta = {
                 "token": token,
@@ -602,10 +748,17 @@ class TelecomAbodeProvider:
             logger.error("TelecomAbode verify_smartcard exception: %s", exc)
             return {"ok": False, "message": f"Smartcard verification error: {str(exc)}"}
 
-    def purchase_cable(self, provider: str, smartcard: str, plan_code: str, request_id: str) -> Dict[str, Any]:
+    def purchase_cable(
+        self,
+        provider: str,
+        smartcard: str,
+        plan_code: str,
+        request_id: str,
+        phone: str | None = None,
+    ) -> Dict[str, Any]:
         """
         POST /api/cable
-        Body: {"cable": <int>, "provider_id": <int>, "iuc": <str>, "customer_id": <str>, "cable_plan": <str>, "plan": <str>, "request-id": <str>}
+        Body: {"cable": <int>, "provider_id": <int>, "iuc": <str>, "customer_id": <str>, "cable_plan": <str>, "plan": <str>, "phone": <str>, "request-id": <str>}
         """
         if not self.api_key:
             return {"status": "failed", "error": "Telecom Abode API key is not configured", "message": "API key not configured"}
@@ -613,6 +766,12 @@ class TelecomAbodeProvider:
         cable_id, _ = self._resolve_cable_provider_info(provider)
         clean_iuc = str(smartcard).strip()
         clean_plan = str(plan_code).strip()
+
+        clean_phone = re.sub(r"[^\d]", "", str(phone or "")).strip()
+        if not clean_phone or len(clean_phone) < 10:
+            clean_phone = "08012345678"
+        elif clean_phone.startswith("234") and len(clean_phone) == 13:
+            clean_phone = "0" + clean_phone[3:]
 
         url = f"{self.base_url}/cable"
         payload = {
@@ -622,19 +781,38 @@ class TelecomAbodeProvider:
             "customer_id": clean_iuc,
             "cable_plan": clean_plan,
             "plan": clean_plan,
+            "phone": clean_phone,
+            "phone_number": clean_phone,
             "request-id": str(request_id),
         }
 
         try:
             response = _TELECOM_ABODE_CLIENT.post(url, json=payload, headers=self._get_headers())
-            logger.info("TelecomAbode purchase_cable POST %s cable=%d iuc=%s plan=%s status=%d",
-                        url, cable_id, clean_iuc, clean_plan, response.status_code)
+            logger.info("TelecomAbode purchase_cable POST %s cable=%d iuc=%s plan=%s phone=%s status=%d",
+                        url, cable_id, clean_iuc, clean_plan, clean_phone, response.status_code)
             res_data = self._json_or_none(response) or {}
 
             status_value = str(res_data.get("status") or "").lower()
             inner_status = str(res_data.get("Status") or "").lower()
             message = str(res_data.get("message") or "")
             ref = str(res_data.get("request-id") or request_id)
+
+            if status_value == "pending" or inner_status == "pending":
+                logger.info("TelecomAbode purchase_cable is pending, checking idempotency after 2.5s for ref=%s", ref)
+                time.sleep(2.5)
+                try:
+                    retry_resp = _TELECOM_ABODE_CLIENT.post(url, json=payload, headers=self._get_headers())
+                    retry_data = self._json_or_none(retry_resp) or {}
+                    if retry_data:
+                        r_status = str(retry_data.get("status") or "").lower()
+                        r_inner = str(retry_data.get("Status") or "").lower()
+                        if r_status in ("success", "successful") or r_inner in ("success", "successful"):
+                            res_data = retry_data
+                            status_value = "success"
+                            inner_status = "successful"
+                            message = str(res_data.get("message") or "")
+                except Exception as r_exc:
+                    logger.warning("TelecomAbode purchase_cable idempotency check exception: %s", r_exc)
 
             meta = {
                 "provider": str(provider).strip().lower(),
@@ -767,10 +945,16 @@ class TelecomAbodeProvider:
                     pass
         return 1
 
-    def purchase_exam_pin(self, exam: str | int, quantity: int = 1, request_id: str | None = None) -> Dict[str, Any]:
+    def purchase_exam_pin(
+        self,
+        exam: str | int,
+        quantity: int = 1,
+        request_id: str | None = None,
+        phone: str | None = None,
+    ) -> Dict[str, Any]:
         """
         POST /api/exam
-        Body: {"exam": <int>, "quantity": <int>, "request-id": <str>}
+        Body: {"exam": <int>, "quantity": <int>, "phone": <str>, "request-id": <str>}
         """
         if not self.api_key:
             return {"status": "failed", "error": "Telecom Abode API key is not configured", "message": "API key not configured"}
@@ -779,17 +963,25 @@ class TelecomAbodeProvider:
         clean_qty = max(1, int(quantity or 1))
         ref = str(request_id or f"EXAM_{int(time.time())}")
 
+        clean_phone = re.sub(r"[^\d]", "", str(phone or "")).strip()
+        if not clean_phone or len(clean_phone) < 10:
+            clean_phone = "08012345678"
+        elif clean_phone.startswith("234") and len(clean_phone) == 13:
+            clean_phone = "0" + clean_phone[3:]
+
         url = f"{self.base_url}/exam"
         payload = {
             "exam": exam_id,
             "quantity": clean_qty,
+            "phone": clean_phone,
+            "phone_number": clean_phone,
             "request-id": ref,
         }
 
         try:
             response = _TELECOM_ABODE_CLIENT.post(url, json=payload, headers=self._get_headers())
-            logger.info("TelecomAbode purchase_exam_pin POST %s exam=%d qty=%d status=%d",
-                        url, exam_id, clean_qty, response.status_code)
+            logger.info("TelecomAbode purchase_exam_pin POST %s exam=%d qty=%d phone=%s status=%d",
+                        url, exam_id, clean_qty, clean_phone, response.status_code)
             res_data = self._json_or_none(response) or {}
 
             status_value = str(res_data.get("status") or "").lower()

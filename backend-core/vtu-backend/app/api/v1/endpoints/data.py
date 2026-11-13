@@ -558,8 +558,17 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
         provider=plan.provider,
         provider_plan_id=plan.provider_plan_id
     )
-    db.add(transaction)
-    db.commit()
+    try:
+        db.add(transaction)
+        db.commit()
+    except Exception as tx_err:
+        db.rollback()
+        logger.error(f"Failed to save pending transaction {reference}: {tx_err}")
+        try:
+            credit_wallet(db, wallet, price, f"{reference}_err_refund", "Refund: failed to initialize order")
+        except Exception:
+            db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to initialize purchase transaction.")
 
     # -----------------------------
     # Release DB connection to avoid pool starvation on slow HTTP requests
@@ -682,7 +691,23 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
                 )
                 tx_provider = "meledata"
 
-            elif p_name and p_name not in ("amigo", "clubkonnect", "smeplug", "sim", "autosync", "mzdata", "boltnet"):
+            elif p_name in ("telecom_abode", "telecomabode"):
+                from app.providers.telecom_abode_provider import TelecomAbodeProvider
+                telecom = TelecomAbodeProvider(db=db)
+                clean_plan_id = str(p_plan_id or plan_plan_code or "").strip()
+                if ":" in clean_plan_id:
+                    clean_plan_id = clean_plan_id.split(":")[-1]
+                elif clean_plan_id.startswith(f"{p_name}.") and clean_plan_id.count(".") >= 2:
+                    clean_plan_id = clean_plan_id.split(".")[-1]
+                p_res = telecom.purchase_data(
+                    network=network_key,
+                    phone=phone,
+                    plan_id=clean_plan_id,
+                    request_id=target_ref
+                )
+                tx_provider = "telecom_abode"
+
+            elif p_name and p_name not in ("amigo", "clubkonnect", "smeplug", "sim", "autosync", "mzdata", "boltnet", "telecom_abode", "telecomabode"):
                 from app.core.database import SessionLocal
                 _db = SessionLocal()
                 try:
@@ -951,6 +976,16 @@ def _buy_data_impl(request: Request, payload: BuyDataRequest, user: User, db: Se
                 )
             except Exception as comm_exc:
                 logger.warning("Failed to record agent data commission for %s: %s", reference, comm_exc)
+
+            try:
+                from app.services.commissions import check_and_award_welcome_data_bonus
+                check_and_award_welcome_data_bonus(
+                    db2,
+                    user=user,
+                    request=request,
+                )
+            except Exception as bonus_exc:
+                logger.warning("Failed to evaluate welcome data bonus for %s: %s", getattr(user, "email", user.id), bonus_exc)
 
         from app.services.push_notification import PushNotificationService
         if partial_refund_amount > Decimal("0") and fcm_token:
