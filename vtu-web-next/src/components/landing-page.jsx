@@ -327,14 +327,14 @@ function Hero() {
               initial="hidden"
               animate="show"
               custom={0}
-              className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 backdrop-blur-md px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-primary shadow-sm max-w-[94vw]"
+              className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 backdrop-blur-md px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-primary shadow-sm max-w-[92vw] overflow-hidden"
             >
               <span className="relative flex h-2 w-2 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
               </span>
-              <span className="sm:hidden font-mono">{brand.name} • Switch Engine</span>
-              <span className="hidden sm:inline font-mono">{brand.name} • Official Telecom &amp; VTU Switch Engine</span>
+              <span className="sm:hidden font-mono truncate">{brand.name} • Switch Engine</span>
+              <span className="hidden sm:inline font-mono truncate">{brand.name} • Official Telecom &amp; VTU Switch Engine</span>
             </motion.div>
 
             <motion.h1
@@ -1274,44 +1274,44 @@ function PricingPreviewSection() {
                     {/* Pricing Table */}
                     <table className="w-full text-xs text-left">
                       <thead>
-                        <tr className="text-[10px] text-slate-500 uppercase tracking-wider font-mono border-b border-white/5">
-                          <th className="pb-2">Plan ID</th>
-                          <th className="pb-2">Size</th>
-                          <th className="pb-2">Type</th>
-                          <th className="pb-2 text-right">Wholesale</th>
+                        <tr className="text-[11px] text-slate-300 uppercase tracking-wider font-mono border-b border-white/10">
+                          <th className="pb-2.5 font-semibold">Plan ID</th>
+                          <th className="pb-2.5 font-semibold">Size</th>
+                          <th className="pb-2.5 font-semibold">Type</th>
+                          <th className="pb-2.5 text-right font-semibold">Wholesale</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/[0.04]">
+                      <tbody className="divide-y divide-white/[0.06]">
                         {displayPlans.map((p) => {
                           const isCopied = copiedId === p.id;
                           return (
                             <tr
                               key={p.id}
-                              className="group/row hover:bg-white/[0.04] transition-colors cursor-pointer"
+                              className="group/row hover:bg-white/[0.06] transition-colors cursor-pointer"
                               onClick={(e) => copyPlanId(p.id, e)}
                               title="Click to copy Plan ID"
                             >
                               <td className="py-2.5">
                                 <span
-                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-bold transition-all ${
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-bold transition-all ${
                                     isCopied
-                                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                                      : 'bg-white/5 text-slate-300 border border-white/10 group-hover/row:border-white/20 group-hover/row:text-white'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                                      : 'bg-primary/20 text-blue-200 border border-primary/35 group-hover/row:border-primary/60 group-hover/row:text-white'
                                   }`}
                                 >
                                   #{p.id}
                                   {isCopied ? (
-                                    <Check className="w-2.5 h-2.5 text-emerald-400" />
+                                    <Check className="w-2.5 h-2.5 text-emerald-300" />
                                   ) : (
-                                    <Copy className="w-2.5 h-2.5 text-slate-500 group-hover/row:text-slate-300" />
+                                    <Copy className="w-2.5 h-2.5 text-blue-300/70 group-hover/row:text-white" />
                                   )}
                                 </span>
                               </td>
                               <td className="py-2.5 font-bold text-white text-xs">{p.size}</td>
-                              <td className="py-2.5 text-[10px] text-slate-400 font-mono">
+                              <td className="py-2.5 text-[11px] text-slate-300 font-mono font-medium">
                                 {p.type || '30d'}
                               </td>
-                              <td className="py-2.5 text-right font-bold text-emerald-400 text-xs">
+                              <td className="py-2.5 text-right font-bold text-emerald-400 text-xs font-mono">
                                 ₦{p.price.toLocaleString()}
                               </td>
                             </tr>
@@ -1406,14 +1406,14 @@ function PricingPreviewSection() {
                   <div className="mt-6 overflow-x-auto -mx-2 sm:mx-0">
                     <table className="w-full text-left text-xs min-w-[560px]">
                       <thead>
-                        <tr className="text-[11px] text-slate-400 uppercase tracking-wider font-mono border-b border-white/10 pb-3">
-                          <th className="py-3 px-3">Numerical Plan ID</th>
-                          <th className="py-3 px-3">Bundle Name</th>
-                          <th className="py-3 px-3">Data Size</th>
-                          <th className="py-3 px-3">Package Type</th>
-                          <th className="py-3 px-3">Validity</th>
-                          <th className="py-3 px-3 text-right">Wholesale Price</th>
-                          <th className="py-3 px-3 text-right">Action</th>
+                        <tr className="text-[11px] text-slate-300 uppercase tracking-wider font-mono border-b border-white/10 pb-3">
+                          <th className="py-3 px-3 font-semibold">Numerical Plan ID</th>
+                          <th className="py-3 px-3 font-semibold">Bundle Name</th>
+                          <th className="py-3 px-3 font-semibold">Data Size</th>
+                          <th className="py-3 px-3 font-semibold">Package Type</th>
+                          <th className="py-3 px-3 font-semibold">Validity</th>
+                          <th className="py-3 px-3 text-right font-semibold">Wholesale Price</th>
+                          <th className="py-3 px-3 text-right font-semibold">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
