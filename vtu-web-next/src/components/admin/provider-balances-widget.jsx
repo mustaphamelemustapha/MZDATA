@@ -54,9 +54,25 @@ export function ProviderBalancesWidget() {
       };
 
       if (Array.isArray(res?.providers)) {
-        const filtered = res.providers.filter(
-          (p) => p.is_active !== false && p.show_balance_on_dashboard !== false && shouldShowProvider(p.identifier || p.name)
-        );
+        const filtered = res.providers
+          .filter(
+            (p) => p.is_active !== false && p.show_balance_on_dashboard !== false && shouldShowProvider(p.identifier || p.name)
+          )
+          .map((p) => {
+            const meta = findIntegrationMeta(p.identifier || p.name);
+            const savedBal = meta?.balance !== undefined && meta?.balance !== null ? Number(meta.balance) : null;
+            const hasError = Boolean(p.error);
+            const resolvedBal = p.balance !== null && p.balance !== undefined ? Number(p.balance) : (savedBal !== null ? savedBal : null);
+            const isReallyError = hasError && resolvedBal === null;
+
+            return {
+              ...p,
+              name: p.name || meta?.name || p.identifier,
+              balance: resolvedBal,
+              error: isReallyError ? p.error : null,
+              low_balance_threshold: p.low_balance_threshold ?? meta?.additional_config?.low_balance_threshold ?? 5000,
+            };
+          });
         setProviders(filtered);
       } else if (res?.balances && typeof res.balances === 'object') {
         const mapped = Object.entries(res.balances)
@@ -68,14 +84,15 @@ export function ProviderBalancesWidget() {
               ? Number(rawThreshold)
               : 5000;
             const isErr = typeof val === 'string' && (val.startsWith('CK Error') || val.startsWith('Error') || isNaN(Number(val)));
-            const numBal = isErr ? 0 : Number(val ?? 0);
+            const savedBal = meta?.balance !== undefined && meta?.balance !== null ? Number(meta.balance) : null;
+            const numBal = isErr ? (savedBal !== null ? savedBal : null) : Number(val ?? 0);
             return {
               identifier: meta?.identifier || key,
               name: meta?.name || key,
-              balance: isErr ? null : numBal,
-              error: isErr ? val : null,
+              balance: numBal,
+              error: isErr && numBal === null ? val : null,
               low_balance_threshold: threshold,
-              is_low: !isErr && threshold > 0 && numBal < threshold,
+              is_low: numBal !== null && threshold > 0 && numBal < threshold,
             };
           });
         setProviders(mapped);
