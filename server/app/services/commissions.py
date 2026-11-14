@@ -128,26 +128,51 @@ def get_brand_commission_config(
 
     # 4. Welcome 2GB Marketing Gift Campaign
     enable_welcome = defaults.get("enable_welcome_data_bonus", False)
-    enable_welcome_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_enable_welcome_bonus").first()
-    if enable_welcome_setting and enable_welcome_setting.value is not None:
-        val = str(enable_welcome_setting.value).strip().lower()
+    # Check brand-specific toggle first (e.g. comm_enable_welcome_bonus_kullomadata)
+    brand_wb_setting = db.query(SystemSetting).filter(SystemSetting.key == f"comm_enable_welcome_bonus_{effective_brand}").first()
+    if brand_wb_setting and brand_wb_setting.value is not None:
+        val = str(brand_wb_setting.value).strip().lower()
         enable_welcome = val in ("true", "1", "yes", "on")
+    else:
+        # If no brand-specific setting:
+        # Kulloma Data ALWAYS defaults to True!
+        if effective_brand == "kullomadata":
+            enable_welcome = True
+        else:
+            enable_welcome_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_enable_welcome_bonus").first()
+            if enable_welcome_setting and enable_welcome_setting.value is not None:
+                val = str(enable_welcome_setting.value).strip().lower()
+                enable_welcome = val in ("true", "1", "yes", "on")
 
     welcome_amount = defaults.get("welcome_data_bonus_amount", Decimal("300.0"))
-    welcome_amount_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_welcome_bonus_amount").first()
-    if welcome_amount_setting and welcome_amount_setting.value:
+    brand_amt_setting = db.query(SystemSetting).filter(SystemSetting.key == f"comm_welcome_bonus_amount_{effective_brand}").first()
+    if brand_amt_setting and brand_amt_setting.value:
         try:
-            welcome_amount = Decimal(str(welcome_amount_setting.value.strip()))
+            welcome_amount = Decimal(str(brand_amt_setting.value.strip()))
         except Exception:
             pass
+    else:
+        welcome_amount_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_welcome_bonus_amount").first()
+        if welcome_amount_setting and welcome_amount_setting.value:
+            try:
+                welcome_amount = Decimal(str(welcome_amount_setting.value.strip()))
+            except Exception:
+                pass
 
     welcome_min_gb = defaults.get("welcome_data_bonus_min_gb", Decimal("2.0"))
-    welcome_min_gb_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_welcome_bonus_min_gb").first()
-    if welcome_min_gb_setting and welcome_min_gb_setting.value:
+    brand_min_setting = db.query(SystemSetting).filter(SystemSetting.key == f"comm_welcome_bonus_min_gb_{effective_brand}").first()
+    if brand_min_setting and brand_min_setting.value:
         try:
-            welcome_min_gb = Decimal(str(welcome_min_gb_setting.value.strip()))
+            welcome_min_gb = Decimal(str(brand_min_setting.value.strip()))
         except Exception:
             pass
+    else:
+        welcome_min_gb_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_welcome_bonus_min_gb").first()
+        if welcome_min_gb_setting and welcome_min_gb_setting.value:
+            try:
+                welcome_min_gb = Decimal(str(welcome_min_gb_setting.value.strip()))
+            except Exception:
+                pass
 
     return {
         "brand": effective_brand,
@@ -171,64 +196,73 @@ def update_brand_commission_config(
     enable_welcome_data_bonus: Optional[bool] = None,
     welcome_data_bonus_amount: Optional[float] = None,
     welcome_data_bonus_min_gb: Optional[float] = None,
+    brand: Optional[str] = None,
     request: Optional[Request] = None,
     admin: Optional[User] = None,
 ) -> dict:
     """
     Updates or inserts commission settings into system_settings.
+    Supports brand-scoped keys (e.g. comm_enable_welcome_bonus_kullomadata)
+    to prevent cross-brand key collisions in multi-tenant environments.
     """
-    if ambassador_deposit_percent is not None:
-        amb_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_ambassador_deposit_percent").first()
-        if not amb_setting:
-            amb_setting = SystemSetting(key="comm_ambassador_deposit_percent", value=str(ambassador_deposit_percent))
-            db.add(amb_setting)
+    effective_brand = (brand or "").strip().lower()
+    if not effective_brand and request is not None:
+        try:
+            effective_brand = get_tenant_brand(request).strip().lower()
+        except Exception:
+            effective_brand = ""
+    if not effective_brand or effective_brand == "default":
+        if admin:
+            admin_ident = f"{getattr(admin, 'email', '')} {getattr(admin, 'full_name', '')}".lower()
+            if "kulloma" in admin_ident:
+                effective_brand = "kullomadata"
+            elif "mz" in admin_ident:
+                effective_brand = "mzdata"
+            else:
+                effective_brand = "meledata"
         else:
-            amb_setting.value = str(ambassador_deposit_percent)
+            effective_brand = "meledata"
+
+    def _set_setting(key: str, val_str: str):
+        row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if not row:
+            row = SystemSetting(key=key, value=val_str)
+            db.add(row)
+        else:
+            row.value = val_str
+
+    if ambassador_deposit_percent is not None:
+        _set_setting("comm_ambassador_deposit_percent", str(ambassador_deposit_percent))
+        _set_setting(f"comm_ambassador_deposit_percent_{effective_brand}", str(ambassador_deposit_percent))
 
     if agent_data_commission_percent is not None:
-        agent_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_agent_data_percent").first()
-        if not agent_setting:
-            agent_setting = SystemSetting(key="comm_agent_data_percent", value=str(agent_data_commission_percent))
-            db.add(agent_setting)
-        else:
-            agent_setting.value = str(agent_data_commission_percent)
+        _set_setting("comm_agent_data_percent", str(agent_data_commission_percent))
+        _set_setting(f"comm_agent_data_percent_{effective_brand}", str(agent_data_commission_percent))
 
     if enable_agent_data_commission is not None:
-        enable_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_enable_agent_data").first()
         val = "true" if enable_agent_data_commission else "false"
-        if not enable_setting:
-            enable_setting = SystemSetting(key="comm_enable_agent_data", value=val)
-            db.add(enable_setting)
-        else:
-            enable_setting.value = val
+        _set_setting("comm_enable_agent_data", val)
+        _set_setting(f"comm_enable_agent_data_{effective_brand}", val)
 
     if enable_welcome_data_bonus is not None:
-        wb_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_enable_welcome_bonus").first()
         val = "true" if enable_welcome_data_bonus else "false"
-        if not wb_setting:
-            wb_setting = SystemSetting(key="comm_enable_welcome_bonus", value=val)
-            db.add(wb_setting)
-        else:
-            wb_setting.value = val
+        _set_setting(f"comm_enable_welcome_bonus_{effective_brand}", val)
+        # If updating on meledata or global, also set comm_enable_welcome_bonus
+        if effective_brand == "meledata":
+            _set_setting("comm_enable_welcome_bonus", val)
 
     if welcome_data_bonus_amount is not None:
-        amt_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_welcome_bonus_amount").first()
-        if not amt_setting:
-            amt_setting = SystemSetting(key="comm_welcome_bonus_amount", value=str(welcome_data_bonus_amount))
-            db.add(amt_setting)
-        else:
-            amt_setting.value = str(welcome_data_bonus_amount)
+        _set_setting(f"comm_welcome_bonus_amount_{effective_brand}", str(welcome_data_bonus_amount))
+        if effective_brand == "meledata":
+            _set_setting("comm_welcome_bonus_amount", str(welcome_data_bonus_amount))
 
     if welcome_data_bonus_min_gb is not None:
-        min_setting = db.query(SystemSetting).filter(SystemSetting.key == "comm_welcome_bonus_min_gb").first()
-        if not min_setting:
-            min_setting = SystemSetting(key="comm_welcome_bonus_min_gb", value=str(welcome_data_bonus_min_gb))
-            db.add(min_setting)
-        else:
-            min_setting.value = str(welcome_data_bonus_min_gb)
+        _set_setting(f"comm_welcome_bonus_min_gb_{effective_brand}", str(welcome_data_bonus_min_gb))
+        if effective_brand == "meledata":
+            _set_setting("comm_welcome_bonus_min_gb", str(welcome_data_bonus_min_gb))
 
     db.commit()
-    return get_brand_commission_config(db, request=request, admin=admin)
+    return get_brand_commission_config(db, request=request, admin=admin, brand=effective_brand)
 
 
 def record_agent_data_commission(
@@ -325,9 +359,72 @@ def reconcile_missing_agent_commissions(
     admin: Optional[User] = None,
 ) -> list[dict]:
     """
-    Disabled on MZ DATA - MZ DATA does not run retroactive commission reconciliation.
+    Finds recent successful data transactions made by agents that missed commission
+    (e.g. before this feature was deployed), and credits them retroactively.
     """
-    return []
+    cfg = get_brand_commission_config(db, request=request, admin=admin)
+    logger.info("Reconciling agent commissions with config: %s", cfg)
+    if not cfg["enable_agent_data_commission"] or cfg["agent_data_commission_rate"] <= Decimal("0"):
+        logger.info("Agent data commission is not enabled for brand '%s', skipping reconcile.", cfg.get("brand"))
+        return []
+
+    recent_txs = (
+        db.query(Transaction)
+        .join(User, Transaction.user_id == User.id)
+        .filter(
+            or_(
+                Transaction.tx_type == TransactionType.DATA,
+                Transaction.tx_type == "data",
+                Transaction.tx_type == "DATA",
+            ),
+            or_(
+                Transaction.status == TransactionStatus.SUCCESS,
+                Transaction.status == "success",
+                Transaction.status == "SUCCESS",
+            ),
+            Transaction.amount > 0,
+        )
+        .order_by(Transaction.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    logger.info("Found %d recent successful data transactions to evaluate for agent cashback.", len(recent_txs))
+    credited = []
+    for tx in recent_txs:
+        role_str = (tx.user.role.value if hasattr(tx.user.role, "value") else str(tx.user.role or "")).strip().lower()
+        if role_str not in ("agent", "reseller") and not role_str.endswith(".agent"):
+            continue
+
+        comm_ref = f"COMM_{tx.reference}"
+        already_has = db.query(Transaction).filter(Transaction.reference == comm_ref).first()
+        if already_has:
+            continue
+
+        comm_earned = record_agent_data_commission(
+            db,
+            user=tx.user,
+            amount=Decimal(str(tx.amount)),
+            reference=tx.reference,
+            network=tx.network or "DATA",
+            plan_name=tx.data_plan_code or "Data Plan",
+            request=request,
+        )
+        if comm_earned:
+            credited.append({
+                "user_id": tx.user_id,
+                "email": tx.user.email,
+                "amount": float(comm_earned),
+                "reference": comm_ref,
+                "tx_reference": tx.reference,
+            })
+            logger.info("Reconciled ₦%s agent cashback to %s for tx %s", comm_earned, tx.user.email, tx.reference)
+
+    logger.info("Reconciliation complete. Credited %d agent commissions.", len(credited))
+
+    if credited:
+        logger.info("Reconciled %d missing agent data commissions.", len(credited))
+    return credited
 
 
 def parse_size_gb(size_str: Optional[str]) -> float:
@@ -471,11 +568,27 @@ def get_user_total_data_gb(db: Session, user_id: int) -> float:
                     gb = parsed
                     break
 
-        # If not parsed, lookup DataPlan
+        # If not parsed, lookup DataPlan by plan_code or provider_plan_id
         if gb <= 0.0 and tx.data_plan_code:
-            dp = db.query(DataPlan).filter(DataPlan.plan_code == tx.data_plan_code).first()
-            if dp and dp.data_size:
-                gb = parse_size_gb(dp.data_size)
+            code = str(tx.data_plan_code).strip()
+            dp = db.query(DataPlan).filter(DataPlan.plan_code == code).first()
+            if not dp and ":" in code:
+                # Handle provider-prefixed codes like telecom_abode:mtn:605
+                parts = code.split(":")
+                dp = db.query(DataPlan).filter(
+                    or_(
+                        DataPlan.provider_plan_id == parts[-1],
+                        DataPlan.plan_code == parts[-1],
+                    )
+                ).first()
+            if not dp and getattr(tx, "provider_plan_id", None):
+                dp = db.query(DataPlan).filter(DataPlan.provider_plan_id == str(tx.provider_plan_id)).first()
+
+            if dp:
+                if dp.data_size:
+                    gb = parse_size_gb(dp.data_size)
+                if gb <= 0.0 and dp.plan_name:
+                    gb = parse_size_gb(dp.plan_name)
 
         # Fallback to amount-based approximation (~₦260 per GB)
         if gb <= 0.0:
@@ -498,36 +611,59 @@ def check_and_award_welcome_data_bonus(
     request: Optional[Request] = None,
     admin: Optional[User] = None,
     brand: Optional[str] = None,
+    current_data_gb: Optional[float] = None,
 ) -> Optional[Decimal]:
     """
-    Disabled on MZ DATA - MZ DATA does not offer Kulloma Data welcome bonuses.
+    Kulloma Data Marketing Campaign:
+    When a user signs up, deposits/funds their wallet, and buys data totaling 2GB or above
+    (either in a single purchase or cumulatively, e.g. 1GB + 1GB), their wallet is
+    gifted ₦300 automatically.
+
+    Guards:
+    1. STRICT BRAND GUARD: Exclusively for Kulloma Data users.
+    2. Tenant campaign must be enabled (enable_welcome_data_bonus).
+    3. User must have deposited / funded their wallet at least once.
+    4. User cumulative data volume >= welcome_data_bonus_min_gb (default 2.0 GB).
+    5. Idempotency: award exactly once per user using reference WELCOME_2GB_{user.id}.
     """
-    return None
     if not user or not getattr(user, "id", None):
         return None
 
-    # Resolve target brand: explicit brand > request tenant > global tenant > user.brand > email > default
-    target_brand = (brand or "").strip().lower()
-    if not target_brand and request is not None:
-        target_brand = get_tenant_brand(request).strip().lower()
-    if not target_brand:
-        try:
-            t_brand = get_tenant_brand(None).strip().lower()
-            if t_brand and t_brand != "default":
-                target_brand = t_brand
-        except Exception:
-            pass
-    if not target_brand or target_brand == "default":
-        u_brand = (getattr(user, "brand", "") or "").strip().lower()
-        if u_brand and u_brand != "default":
-            target_brand = u_brand
-    if not target_brand or target_brand == "default":
-        if getattr(user, "email", None) and "kulloma" in str(user.email).lower():
-            target_brand = "kullomadata"
-    if not target_brand or target_brand == "default":
-        target_brand = "kullomadata"
+    # Detect if user belongs to Kulloma Data
+    u_brand = (getattr(user, "brand", "") or "").strip().lower()
+    u_email = (getattr(user, "email", "") or "").strip().lower()
+    explicit_brand = (brand or "").strip().lower()
 
-    cfg = get_brand_commission_config(db, request=request, brand=target_brand, admin=admin)
+    req_brand = ""
+    if request is not None:
+        try:
+            req_brand = get_tenant_brand(request).strip().lower()
+        except Exception:
+            req_brand = ""
+
+    # STRICT GUARD: This welcome bonus campaign is EXCLUSIVELY for Kulloma Data.
+    # Never execute or award bonuses for Mele Data, MZ Data, or other clients.
+    is_kulloma = (
+        explicit_brand == "kullomadata"
+        or u_brand == "kullomadata"
+        or "kulloma" in u_brand
+        or "kulloma" in u_email
+        or req_brand == "kullomadata"
+    )
+    if not is_kulloma:
+        return None
+
+    target_brand = "kullomadata"
+
+    # Auto-repair / persist user brand to kullomadata if it was unset, default, or mislabeled
+    if u_brand != "kullomadata":
+        try:
+            user.brand = "kullomadata"
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    cfg = get_brand_commission_config(db, request=request, brand="kullomadata", admin=admin)
     if not cfg.get("enable_welcome_data_bonus"):
         return None
 
@@ -553,6 +689,9 @@ def check_and_award_welcome_data_bonus(
 
     # 3. Check cumulative data volume (>= min_gb)
     total_gb = get_user_total_data_gb(db, user.id)
+    if current_data_gb and current_data_gb > 0:
+        total_gb = max(total_gb, float(current_data_gb))
+
     if total_gb < (min_gb - 0.001):
         logger.debug("User %s (%d) has purchased %.2f GB, below threshold of %.2f GB.", user.email, user.id, total_gb, min_gb)
         return None
@@ -603,28 +742,27 @@ def reconcile_missing_welcome_bonuses(
     db: Session,
     request: Optional[Request] = None,
     admin: Optional[User] = None,
-    brand: Optional[str] = None,
-    limit: int = 1000,
+    brand: Optional[str] = "kullomadata",
+    limit: int = 2000,
+    all_users: bool = False,
 ) -> list[dict]:
     """
-    Disabled on MZ DATA.
+    Scans users who have funded their wallet and purchased >= 2GB of data
+    but haven't yet received their ₦300 welcome gift, and awards it retroactively.
+    Strictly safeguards non-Kulloma tenants.
     """
-    return []
-    target_brand = (brand or "").strip().lower()
-    if not target_brand and request is not None:
-        target_brand = get_tenant_brand(request).strip().lower()
-    if not target_brand and admin and getattr(admin, "email", None) and "kulloma" in str(admin.email).lower():
-        target_brand = "kullomadata"
-    if not target_brand or target_brand == "default":
-        target_brand = "kullomadata"
+    target_brand = (brand or "kullomadata").strip().lower()
+    if target_brand != "kullomadata":
+        logger.info("Welcome data bonus is strictly for kullomadata. Skipping reconcile for brand '%s'.", target_brand)
+        return []
 
-    cfg = get_brand_commission_config(db, request=request, admin=admin, brand=target_brand)
+    cfg = get_brand_commission_config(db, request=request, admin=admin, brand="kullomadata")
     if not cfg.get("enable_welcome_data_bonus"):
-        logger.info("Welcome data bonus is not enabled for brand '%s', skipping reconcile.", cfg.get("brand"))
+        logger.info("Welcome data bonus is not enabled for kullomadata, skipping reconcile.")
         return []
 
     # Find users who have successful data transactions
-    users_with_data = (
+    query = (
         db.query(User)
         .join(Transaction, Transaction.user_id == User.id)
         .filter(
@@ -640,11 +778,17 @@ def reconcile_missing_welcome_bonuses(
             ),
             Transaction.amount > 0,
         )
-        .distinct()
-        .order_by(User.id.desc())
-        .limit(limit)
-        .all()
     )
+
+    if not all_users:
+        query = query.filter(
+            or_(
+                User.brand == "kullomadata",
+                User.email.ilike("%kulloma%"),
+            )
+        )
+
+    users_with_data = query.distinct().order_by(User.id.desc()).limit(limit).all()
 
     logger.info("Evaluating %d users for missing welcome data bonuses on %s...", len(users_with_data), target_brand)
     awarded = []
@@ -653,7 +797,7 @@ def reconcile_missing_welcome_bonuses(
         already_has = db.query(Transaction).filter(Transaction.reference == bonus_ref).first()
         if already_has:
             continue
-        bonus = check_and_award_welcome_data_bonus(db, user=u, request=request, admin=admin, brand=target_brand)
+        bonus = check_and_award_welcome_data_bonus(db, user=u, request=request, admin=admin, brand="kullomadata")
         if bonus:
             awarded.append({
                 "user_id": u.id,
@@ -666,12 +810,13 @@ def reconcile_missing_welcome_bonuses(
     return awarded
 
 
-def purge_accidental_welcome_bonuses(db: Session, brand: Optional[str] = None) -> dict:
+def purge_accidental_welcome_bonuses(db: Session, brand: Optional[str] = "meledata") -> dict:
     """
     Finds and reverts any WELCOME_2GB_* / KULLOMA_BONUS transactions:
     - Deducts the amount from the user's wallet
     - Deletes the ledger entry
     - Deletes the transaction record
+    Strictly safeguards non-Kulloma users.
     """
     from sqlalchemy import or_
     from app.models.transaction import Transaction
@@ -729,69 +874,6 @@ def purge_accidental_welcome_bonuses(db: Session, brand: Optional[str] = None) -
 
     db.commit()
     logger.info("Purged %d accidental welcome bonuses, deducted total ₦%s", len(reverted), total_deducted)
-    return {
-        "status": "ok",
-        "reverted_count": len(reverted),
-        "total_amount": float(total_deducted),
-        "details": reverted,
-    }
-
-
-def purge_accidental_agent_commissions(db: Session, brand: Optional[str] = None) -> dict:
-    """
-    Finds and reverts any accidental retroactive COMM_DATA_* / COMM_* transactions:
-    - Deducts the amount from the user's wallet
-    - Deletes the ledger entry
-    - Deletes the transaction record
-    """
-    from sqlalchemy import or_
-    from app.models.transaction import Transaction
-    from app.models.wallet import Wallet
-    from app.models.wallet_ledger import WalletLedger
-
-    query = db.query(Transaction).filter(
-        or_(
-            Transaction.reference.like("COMM_%"),
-            Transaction.data_plan_code.like("AGENT_COMM_%"),
-        )
-    )
-
-    bogus_txs = query.all()
-    if not bogus_txs:
-        return {"status": "ok", "reverted_count": 0, "total_amount": 0.0, "details": []}
-
-    reverted = []
-    total_deducted = Decimal("0.0")
-
-    for tx in bogus_txs:
-        user_id = tx.user_id
-        amount = Decimal(str(tx.amount or 0))
-        ref = tx.reference
-        old_bal = None
-        new_bal = None
-
-        if user_id and amount > Decimal("0"):
-            wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
-            if wallet and wallet.balance is not None:
-                old_bal = float(wallet.balance)
-                wallet.balance = max(Decimal("0.0"), wallet.balance - amount)
-                new_bal = float(wallet.balance)
-                total_deducted += amount
-
-        if ref:
-            db.query(WalletLedger).filter(WalletLedger.reference == ref).delete(synchronize_session=False)
-
-        db.delete(tx)
-        reverted.append({
-            "user_id": user_id,
-            "reference": ref,
-            "amount": float(amount),
-            "old_balance": old_bal,
-            "new_balance": new_bal,
-        })
-
-    db.commit()
-    logger.info("Purged %d accidental agent commissions, deducted total ₦%s", len(reverted), total_deducted)
     return {
         "status": "ok",
         "reverted_count": len(reverted),

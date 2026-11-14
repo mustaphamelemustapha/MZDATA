@@ -110,12 +110,21 @@ def reconcile_commissions(
 @router.post("/commissions/reconcile-welcome-bonus")
 def reconcile_welcome_bonuses(
     request: Request,
-    limit: int = 300,
+    limit: int = 500,
+    brand: Optional[str] = "kullomadata",
+    all_users: bool = False,
     db: Session = Depends(get_db),
     admin=Depends(require_admin),
 ):
     from app.services.commissions import reconcile_missing_welcome_bonuses
-    reconciled = reconcile_missing_welcome_bonuses(db, request=request, admin=admin, limit=limit)
+    reconciled = reconcile_missing_welcome_bonuses(
+        db,
+        request=request,
+        admin=admin,
+        brand=brand or "kullomadata",
+        limit=limit,
+        all_users=all_users,
+    )
     return {"status": "ok", "count": len(reconciled), "items": reconciled}
 
 
@@ -124,25 +133,6 @@ def purge_welcome_bonuses(
     db: Session = Depends(get_db),
     admin=Depends(require_admin),
 ):
-    from app.services.commissions import purge_accidental_welcome_bonuses, purge_accidental_agent_commissions
-    res_welcome = purge_accidental_welcome_bonuses(db)
-    res_comm = purge_accidental_agent_commissions(db)
-    total_reverted = (res_welcome.get("reverted_count") or 0) + (res_comm.get("reverted_count") or 0)
-    total_amount = Decimal(str(res_welcome.get("total_amount") or 0)) + Decimal(str(res_comm.get("total_amount") or 0))
-    return {
-        "status": "ok",
-        "reverted_count": total_reverted,
-        "total_amount": float(total_amount),
-        "welcome": res_welcome,
-        "commissions": res_comm,
-    }
-
-
-@router.post("/commissions/purge-agent-commissions")
-def purge_agent_commissions(
-    db: Session = Depends(get_db),
-    admin=Depends(require_admin),
-):
-    from app.services.commissions import purge_accidental_agent_commissions
-    return purge_accidental_agent_commissions(db)
+    from app.services.commissions import purge_accidental_welcome_bonuses
+    return purge_accidental_welcome_bonuses(db, brand="meledata")
 
