@@ -4,7 +4,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter/services.dart';
 
 import '../services/password_service.dart';
 import '../widgets/concentric_circles_bg.dart';
@@ -26,8 +25,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Widget
   final TextEditingController _otpCtrl = TextEditingController();
   final FocusNode _otpFocus = FocusNode();
   bool _loading = false;
+  bool _sendingOtp = false;
+  String? _maskedEmail;
   String? _error;
-  int _countdown = 300; // 5 minutes
+  int _countdown = 0; // Starts after OTP request succeeds
   Timer? _timer;
 
   // Password Step
@@ -40,7 +41,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Widget
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _startTimer();
     _otpCtrl.addListener(() {
       if (_otpCtrl.text.length > 6) {
         _otpCtrl.text = _otpCtrl.text.substring(0, 6);
@@ -62,10 +62,30 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Widget
   }
 
   Future<void> _handleRequestOTP() async {
+    if (_sendingOtp) return;
+    setState(() {
+      _sendingOtp = true;
+      _error = null;
+    });
     try {
-      await PasswordService().requestReset(widget.identifier);
+      final res = await PasswordService().requestReset(widget.identifier);
+      final masked = res['masked_email']?.toString();
+      if (mounted) {
+        setState(() {
+          _sendingOtp = false;
+          if (masked != null && masked.isNotEmpty) {
+            _maskedEmail = masked;
+          }
+        });
+        _startTimer();
+      }
     } catch (e) {
       if (mounted) {
+        _timer?.cancel();
+        setState(() {
+          _sendingOtp = false;
+          _countdown = 0;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to send code. Please tap Resend.', style: GoogleFonts.plusJakartaSans(color: Colors.white)),
@@ -144,7 +164,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Widget
 
   void _startTimer() {
     _timer?.cancel();
-    _countdown = 300;
+    _countdown = 60;
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_countdown > 0) {
         setState(() => _countdown--);
@@ -246,19 +266,28 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Widget
   }
 
   Future<void> _handleResend() async {
-    if (_countdown > 0) return;
+    if (_countdown > 0 || _sendingOtp) return;
     HapticFeedback.lightImpact();
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _sendingOtp = true;
+      _error = null;
+    });
     try {
-      await PasswordService().requestReset(widget.identifier);
+      final res = await PasswordService().requestReset(widget.identifier);
+      final masked = res['masked_email']?.toString();
       if (mounted) {
         setState(() {
           _loading = false;
+          _sendingOtp = false;
+          if (masked != null && masked.isNotEmpty) {
+            _maskedEmail = masked;
+          }
         });
         _startTimer();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Code resent', style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.w600)),
+            content: Text('Code resent to your email', style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.w600)),
             backgroundColor: const Color(0xFF2563EB),
             behavior: SnackBarBehavior.floating,
           ),
@@ -266,7 +295,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Widget
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _loading = false);
+        setState(() {
+          _loading = false;
+          _sendingOtp = false;
+          _countdown = 0;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to resend code.', style: GoogleFonts.plusJakartaSans(color: Colors.white)),
@@ -491,7 +524,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Widget
         ),
         const SizedBox(height: 8),
         Text(
-          'Enter the 6-digit code we sent to ${widget.identifier}.',
+          _sendingOtp
+              ? 'Sending a 6-digit verification code to your registered email...'
+              : (_maskedEmail != null && _maskedEmail!.isNotEmpty)
+                  ? 'Enter the 6-digit code sent to your email ($_maskedEmail).'
+                  : widget.identifier.contains('@')
+                      ? 'Enter the 6-digit code sent to ${widget.identifier}.'
+                      : 'Enter the 6-digit code sent to the email linked to ${widget.identifier}. Check inbox or spam.',
           style: GoogleFonts.plusJakartaSans(
             fontSize: 14,
             fontWeight: FontWeight.w500,
