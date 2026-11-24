@@ -1,19 +1,23 @@
 import { LandingPage } from '@/components/landing-page';
+import { resolveServerBrand } from '@/lib/server-brand';
 
-export const metadata = {
-  title: 'MZDATA',
-  description: 'Fast, reliable VTU payments for data, airtime, wallet funding, and everyday utility services.',
-  alternates: {
-    canonical: 'https://mzdata.org',
-  },
-  openGraph: {
-    title: 'MZDATA',
-    description: 'MZDATA helps users buy data, buy airtime, fund wallets, and track transactions from one secure workspace.',
-    url: 'https://mzdata.org',
-    siteName: 'MZDATA',
-    type: 'website',
-  },
-};
+export function generateMetadata() {
+  const brand = resolveServerBrand();
+  return {
+    title: `${brand.name} | ${brand.tagline}`,
+    description: brand.description,
+    alternates: {
+      canonical: brand.url,
+    },
+    openGraph: {
+      title: brand.name,
+      description: brand.description,
+      url: brand.url,
+      siteName: brand.name,
+      type: 'website',
+    },
+  };
+}
 
 export default function Page() {
   return <LandingPage />;

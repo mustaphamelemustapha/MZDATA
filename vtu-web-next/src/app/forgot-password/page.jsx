@@ -1,9 +1,13 @@
 import { ForgotPasswordPage } from '@/components/forgot-password-page';
+import { resolveServerBrand } from '@/lib/server-brand';
 
-export const metadata = {
-  title: 'Forgot Password | MZDATA',
-  description: 'Reset your MZDATA password.',
-};
+export function generateMetadata() {
+  const brand = resolveServerBrand();
+  return {
+    title: `Forgot Password | ${brand.name}`,
+    description: `Reset your ${brand.name} password.`,
+  };
+}
 
 export default function Page() {
   return <ForgotPasswordPage />;
