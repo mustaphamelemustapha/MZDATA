@@ -9,7 +9,6 @@ import '../services/referral_service.dart';
 import '../services/dashboard_snapshot_cache.dart';
 import '../state/session.dart';
 import '../widgets/service_shell.dart';
-import '../widgets/glass_card.dart';
 import 'package:fl_chart/fl_chart.dart';
 
 
@@ -85,7 +84,6 @@ class _ReferralScreenState extends State<ReferralScreen> {
 
   Future<void> _shareInvite(Map<String, dynamic> data) async {
     final code = (data['referral_code'] ?? '').toString().trim();
-    final rawLink = (data['referral_link'] ?? '').toString().trim();
     final link = _getReferralLink(data);
     final text = StringBuffer()
       ..writeln(AppConfig.appName)
@@ -105,9 +103,17 @@ class _ReferralScreenState extends State<ReferralScreen> {
   }
 
   String _getReferralLink(Map<String, dynamic> data) {
-    // Ensure we don't double up the domain
+    final code = (data['referral_code'] ?? '').toString().trim();
     String link = (data['referral_link'] ?? '').toString().trim();
-    
+
+    if (link.isEmpty ||
+        link.contains('localhost') ||
+        link.contains('127.0.0.1')) {
+      return code.isNotEmpty
+          ? 'https://${AppConfig.supportDomain}/register?ref=$code'
+          : 'https://${AppConfig.supportDomain}';
+    }
+
     // Fix the "double meledata" bug: meledata.vercel.app -> kullomadata.com
     if (link.contains('meledata.vercel.app') || link.contains('axisvtu.vercel.app')) {
       link = link.replaceFirst('https://meledata.vercel.app', 'https://${AppConfig.supportDomain}');
@@ -147,7 +153,6 @@ class _ReferralScreenState extends State<ReferralScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.66);
 

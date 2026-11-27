@@ -39,7 +39,12 @@ export default function ReferralsPage() {
   }, [load]);
 
   const referralCode = data?.referral_code || profile?.referral_code || '—';
-  const referralLink = data?.referral_link || buildReferralUrl(referralCode === '—' ? '' : referralCode);
+  const serverLink = String(data?.referral_link || '').trim();
+  const safeServerLink =
+    serverLink && !serverLink.includes('localhost') && !serverLink.includes('127.0.0.1')
+      ? serverLink
+      : '';
+  const referralLink = safeServerLink || buildReferralUrl(referralCode === '—' ? '' : referralCode);
   const rows = Array.isArray(data?.referrals) ? data.referrals : [];
 
   const stats = useMemo(
